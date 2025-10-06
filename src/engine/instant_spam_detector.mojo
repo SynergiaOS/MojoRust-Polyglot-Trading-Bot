@@ -6,6 +6,7 @@
 
 from core.types import TradingSignal
 from core.logger import get_logger
+from collections import List, Dict
 
 @value
 struct InstantSpamDetector:

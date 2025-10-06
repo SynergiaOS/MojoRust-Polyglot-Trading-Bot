@@ -5,7 +5,7 @@
 
 from time import time
 from core.types import TradingSignal
-from collections import List, Dict
+from collections import List, Dict, Any
 from core.logger import get_logger
 from engine.instant_spam_detector import InstantSpamDetector
 from engine.spam_filter import SpamFilter
@@ -29,8 +29,6 @@ struct MasterFilter:
     var instant_rejections: Int
     var aggressive_rejections: Int
     var micro_rejections: Int
-    var cooldown_rejections: Int
-    var volume_quality_rejections: Int
 
     fn __init__(inout self, helius_client, config):
         """Initialize master filter with all three filter stages"""
@@ -48,8 +46,6 @@ struct MasterFilter:
         self.instant_rejections = 0
         self.aggressive_rejections = 0
         self.micro_rejections = 0
-        self.cooldown_rejections = 0
-        self.volume_quality_rejections = 0
 
         self.logger.info("master_filter_initialized", {
             "filter_chain": ["InstantSpamDetector", "SpamFilter", "MicroTimeframeFilter"],
@@ -147,9 +143,7 @@ struct MasterFilter:
             "rejection_rate": (Float(self.total_signals_rejected) / Float(self.total_signals_processed)) * 100.0 if self.total_signals_processed > 0 else 0.0,
             "instant_rejections": Float(self.instant_rejections),
             "aggressive_rejections": Float(self.aggressive_rejections),
-            "micro_rejections": Float(self.micro_rejections),
-            "cooldown_rejections": Float(self.cooldown_rejections),
-            "volume_quality_rejections": Float(self.volume_quality_rejections)
+            "micro_rejections": Float(self.micro_rejections)
         }
 
     fn reset_statistics(inout self):
@@ -161,8 +155,6 @@ struct MasterFilter:
         self.instant_rejections = 0
         self.aggressive_rejections = 0
         self.micro_rejections = 0
-        self.cooldown_rejections = 0
-        self.volume_quality_rejections = 0
 
         # Reset sub-filter counters
         self.spam_filter.reset_counters()
