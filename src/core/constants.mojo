@@ -53,6 +53,31 @@ let MIN_LIQUIDITY_USD = 10000.0
 let MIN_VOLUME_USD = 5000.0
 
 # =============================================================================
+# Micro Timeframe Filter Constants
+# =============================================================================
+
+# Ultra-strict thresholds for high-risk micro timeframes (1s, 5s, 15s)
+let MICRO_MIN_VOLUME_USD = 15000.0          # $15k minimum volume
+let MICRO_MIN_CONFIDENCE = 0.75             # 75% minimum confidence
+let MICRO_COOLDOWN_SECONDS = 60.0           # 60s cooldown between signals
+let MICRO_MIN_PRICE_STABILITY = 0.80        # 80% minimum price stability
+let MICRO_MAX_PRICE_CHANGE_5MIN = 0.30      # 30% max price change in 5min
+let MICRO_EXTREME_PRICE_SPIKE = 0.50        # 50% extreme spike threshold
+
+# Micro timeframe targets
+let MICRO_TARGET_TIMEFRAMES = ["1s", "5s", "15s"]
+
+# Pump & Dump detection thresholds
+let MICRO_VOLUME_SPIKE_THRESHOLD = 3.0      # 3x normal volume
+let MICRO_EXTREME_PRICE_CHANGE = 0.20       # 20% price change for P&D flag
+let MICRO_MAX_HOLDER_CONCENTRATION = 0.80   # 80% holder concentration
+let MICRO_MIN_LIQUIDITY_RATIO = 0.5         # Liquidity/volume ratio
+let MICRO_MIN_TX_SIZE_RATIO = 0.001         # Min transaction size ratio
+let MICRO_MAX_TX_SIZE_RATIO = 0.10         # Max transaction size ratio
+let MICRO_MIN_VOLUME_CONSISTENCY = 0.6     # 60% volume consistency
+let MICRO_MIN_LIQUIDITY_MULTIPLIER = 1.5    # Liquidity should be 1.5x volume
+
+# =============================================================================
 # Performance Targets
 # =============================================================================
 

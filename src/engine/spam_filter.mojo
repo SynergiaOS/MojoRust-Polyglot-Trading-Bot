@@ -12,6 +12,7 @@ from core.constants import (
     MAX_TOP_HOLDER_CONCENTRATION,
     MIN_LIQUIDITY_LOCK_RATIO
 )
+from engine.micro_timeframe_filter import MicroTimeframeFilter
 
 @value
 struct SpamFilter:
@@ -20,18 +21,24 @@ struct SpamFilter:
     """
     var helius_client  # We'll add the type later
     var config  # We'll add the type later
+    var micro_filter: MicroTimeframeFilter
 
     fn __init__(helius_client, config):
         self.helius_client = helius_client
         self.config = config
+        self.micro_filter = MicroTimeframeFilter()
 
     fn filter_signals(self, signals: List[TradingSignal]) -> List[TradingSignal]:
         """
-        Filter out spam and low-quality signals
+        Filter out spam and low-quality signals with multi-stage filtering
         """
+        # Stage 1: Apply micro timeframe filter for ultra-strict validation
+        micro_filtered = self.micro_filter.filter_signals(signals)
+
+        # Stage 2: Apply standard spam filter
         filtered_signals = []
 
-        for signal in signals:
+        for signal in micro_filtered:
             if self._is_legitimate_signal(signal):
                 filtered_signals.append(signal)
             else:
@@ -357,3 +364,54 @@ struct SpamFilter:
         """
         health_analysis = self.analyze_market_health(market_data)
         return health_analysis["health_score"]
+
+    def get_filter_statistics(self) -> Dict[String, Int]:
+        """
+        Get comprehensive filter statistics from all filter stages
+        """
+        # Get micro filter statistics
+        micro_stats = self.micro_filter.get_filter_statistics()
+
+        # Combine with standard filter statistics
+        combined_stats = {
+            # Micro timeframe filter stats
+            "micro_filter_rejections": micro_stats.get("micro_filter_rejections", 0),
+            "micro_cooldown_rejections": micro_stats.get("cooldown_rejections", 0),
+            "micro_volume_rejections": micro_stats.get("volume_rejections", 0),
+            "micro_confidence_rejections": micro_stats.get("confidence_rejections", 0),
+            "micro_price_stability_rejections": micro_stats.get("price_stability_rejections", 0),
+            "micro_pump_dump_rejections": micro_stats.get("pump_dump_rejections", 0),
+            "micro_check_rejections": micro_stats.get("micro_check_rejections", 0),
+
+            # Standard filter stats (to be tracked by implementation)
+            "spam_filter_rejections": 0,
+            "liquidity_rejections": 0,
+            "volume_rejections": 0,
+            "holder_concentration_rejections": 0,
+            "wash_trading_rejections": 0,
+            "price_manipulation_rejections": 0,
+            "age_rejections": 0,
+
+            # Total rejections
+            "total_rejections": 0
+        }
+
+        # Calculate total rejections
+        total = 0
+        for key, value in combined_stats.items():
+            if key != "total_rejections":
+                total += value
+        combined_stats["total_rejections"] = total
+
+        return combined_stats
+
+    def get_target_timeframes(self) -> Set[String]:
+        """
+        Get all timeframes handled by the filter system
+        """
+        # Get micro filter timeframes
+        micro_timeframes = self.micro_filter.get_target_timeframes()
+
+        # Micro filter handles 1s, 5s, 15s timeframes
+        # Standard filter handles all other timeframes
+        return micro_timeframes
