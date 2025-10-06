@@ -15,6 +15,7 @@ from core.constants import (
     LAMPORTS_PER_SOL,
     SOL_DECIMALS
 )
+from core.logger import get_execution_logger
 
 @value
 struct ExecutionEngine:
@@ -23,20 +24,24 @@ struct ExecutionEngine:
     """
     var quicknode_client  # We'll add the type later
     var jupiter_client  # We'll add the type later
+    var helius_client  # We'll add the type later
     var config  # We'll add the type later
     var execution_count: Int
     var successful_executions: Int
     var total_slippage: Float
     var total_execution_time: Float
+    var logger
 
-    fn __init__(quicknode_client, jupiter_client, config):
+    fn __init__(quicknode_client, jupiter_client, helius_client, config):
         self.quicknode_client = quicknode_client
         self.jupiter_client = jupiter_client
+        self.helius_client = helius_client
         self.config = config
         self.execution_count = 0
         self.successful_executions = 0
         self.total_slippage = 0.0
         self.total_execution_time = 0.0
+        self.logger = get_execution_logger()
 
     fn execute_trade(self, signal: TradingSignal, approval: RiskApproval) -> ExecutionResult:
         """
@@ -66,24 +71,23 @@ struct ExecutionEngine:
 
             # Calculate execution time
             execution_time = (time() - execution_start) * 1000  # Convert to milliseconds
-            self.total_execution_time += execution_time
 
             if result.success:
-                self.successful_executions += 1
-                self.total_slippage += result.slippage_percentage
-
-                # Update execution metrics
+                # Update execution metrics (only once)
                 self._update_execution_metrics(result, execution_time)
 
-                print(f"✅ Trade executed successfully: {signal.symbol}")
-                print(f"   Execution time: {execution_time:.2f}ms")
-                print(f"   Slippage: {result.slippage_percentage:.3f}%")
-                print(f"   Gas cost: {result.gas_cost:.6f} SOL")
+                self.logger.info(f"Trade executed successfully: {signal.symbol}",
+                           symbol=signal.symbol,
+                           execution_time_ms=execution_time,
+                           slippage_percentage=result.slippage_percentage,
+                           gas_cost_sol=result.gas_cost)
 
             return result
 
         except e as e:
-            print(f"❌ Trade execution failed: {e}")
+            self.logger.error(f"Trade execution failed: {e}",
+                             symbol=signal.symbol,
+                             error=str(e))
             return ExecutionResult(
                 success=False,
                 error_message=str(e),
@@ -141,8 +145,28 @@ struct ExecutionEngine:
             else:  # SELL
                 input_mint = signal.symbol  # Token address
                 output_mint = "So11111111111111111111111111111111111111112"  # SOL
-                # For SELL, position_size is in token units
-                input_amount = approval.position_size * LAMPORTS_PER_SOL  # Token amount (adjusted for decimals)
+
+                # For SELL, position_size is in token units, need to adjust for token decimals
+                try:
+                    token_metadata = self.helius_client.get_token_metadata(signal.symbol)
+                    decimals = token_metadata.decimals
+                    if decimals <= 0:
+                        decimals = 9  # Default to 9 decimals if not found
+                except e:
+                    print(f"⚠️  Error getting token metadata for {signal.symbol}, using default decimals")
+                    decimals = 9  # Default to 9 decimals
+
+                # Convert token units to base units (smallest possible units)
+                if approval.position_size <= 0:
+                    print(f"⚠️  Invalid position size for SELL: {approval.position_size}")
+                    return SwapQuote()  # Return empty quote
+
+                base_units = int(approval.position_size * (10 ** decimals))
+                if base_units <= 0:
+                    print(f"⚠️  Invalid base units after conversion: {base_units}")
+                    return SwapQuote()  # Return empty quote
+
+                input_amount = base_units
 
             # Get quote from Jupiter
             quote = self.jupiter_client.get_quote(

@@ -512,6 +512,291 @@ pub extern "C" fn ffi_cleanup() {
     ffi_clear_last_error();
 }
 
+// =============================================================================
+// Infisical Secrets Manager FFI
+// =============================================================================
+
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_int};
+use std::ptr;
+use std::slice;
+use std::sync::Arc;
+use tokio::runtime::Runtime;
+
+use crate::infisical_manager::{SecretsManager, ApiConfig, TradingConfig, WalletConfig};
+
+/// Global secrets manager instance
+static mut SECRETS_MANAGER: Option<Arc<SecretsManager>> = None;
+static mut RUNTIME: Option<Runtime> = None;
+
+/// Initialize the secrets manager
+#[no_mangle]
+pub extern "C" fn secrets_manager_init() -> FfiResult {
+    unsafe {
+        if SECRETS_MANAGER.is_some() {
+            return FfiResult::Success; // Already initialized
+        }
+
+        // Create tokio runtime
+        let rt = match Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                let msg = format!("Failed to create runtime: {}", e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                return FfiResult::InternalError;
+            }
+        };
+
+        // Initialize secrets manager
+        let manager = match rt.block_on(SecretsManager::new()) {
+            Ok(manager) => manager,
+            Err(e) => {
+                let msg = format!("Failed to initialize secrets manager: {}", e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                return FfiResult::InternalError;
+            }
+        };
+
+        SECRETS_MANAGER = Some(Arc::new(manager));
+        RUNTIME = Some(rt);
+
+        FfiResult::Success
+    }
+}
+
+/// Destroy the secrets manager
+#[no_mangle]
+pub extern "C" fn secrets_manager_destroy() {
+    unsafe {
+        if let Some(rt) = RUNTIME.take() {
+            rt.shutdown_background();
+        }
+        SECRETS_MANAGER = None;
+    }
+}
+
+/// Get a secret value
+#[no_mangle]
+pub extern "C" fn secrets_manager_get_secret(
+    key: *const c_char,
+    out_string: *mut FfiString,
+) -> FfiResult {
+    if key.is_null() || out_string.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = match SECRETS_MANAGER.as_ref() {
+            Some(manager) => manager,
+            None => {
+                if let Ok(cstring) = CString::new("Secrets manager not initialized") {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                return FfiResult::InternalError;
+            }
+        };
+
+        let key_str = match CStr::from_ptr(key).to_str() {
+            Ok(s) => s,
+            Err(_) => return FfiResult::InvalidInput,
+        };
+
+        let runtime = match RUNTIME.as_ref() {
+            Some(rt) => rt,
+            None => return FfiResult::InternalError,
+        };
+
+        match runtime.block_on(manager.get_secret(key_str)) {
+            Ok(value) => {
+                *out_string = FfiString::from_string(value);
+                FfiResult::Success
+            }
+            Err(e) => {
+                let msg = format!("Failed to get secret '{}': {}", key_str, e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                FfiResult::InternalError
+            }
+        }
+    }
+}
+
+/// Get API configuration
+#[no_mangle]
+pub extern "C" fn secrets_manager_get_api_config(
+    out_bytes: *mut FfiBytes,
+) -> FfiResult {
+    if out_bytes.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = match SECRETS_MANAGER.as_ref() {
+            Some(manager) => manager,
+            None => {
+                if let Ok(cstring) = CString::new("Secrets manager not initialized") {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                return FfiResult::InternalError;
+            }
+        };
+
+        let runtime = match RUNTIME.as_ref() {
+            Some(rt) => rt,
+            None => return FfiResult::InternalError,
+        };
+
+        match runtime.block_on(manager.get_api_config()) {
+            Ok(config) => {
+                // Serialize config to JSON
+                let json = match serde_json::to_string(&config) {
+                    Ok(json) => json,
+                    Err(e) => {
+                        let msg = format!("Failed to serialize config: {}", e);
+                        if let Ok(cstring) = CString::new(msg) {
+                            ffi_set_last_error(cstring.as_ptr());
+                        }
+                        return FfiResult::InternalError;
+                    }
+                };
+
+                *out_bytes = FfiBytes::from_vec(json.into_bytes());
+                FfiResult::Success
+            }
+            Err(e) => {
+                let msg = format!("Failed to get API config: {}", e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                FfiResult::InternalError
+            }
+        }
+    }
+}
+
+/// Get trading configuration
+#[no_mangle]
+pub extern "C" fn secrets_manager_get_trading_config(
+    out_bytes: *mut FfiBytes,
+) -> FfiResult {
+    if out_bytes.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = match SECRETS_MANAGER.as_ref() {
+            Some(manager) => manager,
+            None => {
+                if let Ok(cstring) = CString::new("Secrets manager not initialized") {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                return FfiResult::InternalError;
+            }
+        };
+
+        let runtime = match RUNTIME.as_ref() {
+            Some(rt) => rt,
+            None => return FfiResult::InternalError,
+        };
+
+        match runtime.block_on(manager.get_trading_config()) {
+            Ok(config) => {
+                // Serialize config to JSON
+                let json = match serde_json::to_string(&config) {
+                    Ok(json) => json,
+                    Err(e) => {
+                        let msg = format!("Failed to serialize config: {}", e);
+                        if let Ok(cstring) = CString::new(msg) {
+                            ffi_set_last_error(cstring.as_ptr());
+                        }
+                        return FfiResult::InternalError;
+                    }
+                };
+
+                *out_bytes = FfiBytes::from_vec(json.into_bytes());
+                FfiResult::Success
+            }
+            Err(e) => {
+                let msg = format!("Failed to get trading config: {}", e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                FfiResult::InternalError
+            }
+        }
+    }
+}
+
+/// Get wallet configuration
+#[no_mangle]
+pub extern "C" fn secrets_manager_get_wallet_config(
+    out_bytes: *mut FfiBytes,
+) -> FfiResult {
+    if out_bytes.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = match SECRETS_MANAGER.as_ref() {
+            Some(manager) => manager,
+            None => {
+                if let Ok(cstring) = CString::new("Secrets manager not initialized") {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                return FfiResult::InternalError;
+            }
+        };
+
+        let runtime = match RUNTIME.as_ref() {
+            Some(rt) => rt,
+            None => return FfiResult::InternalError,
+        };
+
+        match runtime.block_on(manager.get_wallet_config()) {
+            Ok(config) => {
+                // Serialize config to JSON
+                let json = match serde_json::to_string(&config) {
+                    Ok(json) => json,
+                    Err(e) => {
+                        let msg = format!("Failed to serialize config: {}", e);
+                        if let Ok(cstring) = CString::new(msg) {
+                            ffi_set_last_error(cstring.as_ptr());
+                        }
+                        return FfiResult::InternalError;
+                    }
+                };
+
+                *out_bytes = FfiBytes::from_vec(json.into_bytes());
+                FfiResult::Success
+            }
+            Err(e) => {
+                let msg = format!("Failed to get wallet config: {}", e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                FfiResult::InternalError
+            }
+        }
+    }
+}
+
+/// Check if secrets manager is initialized
+#[no_mangle]
+pub extern "C" fn secrets_manager_is_initialized() -> c_int {
+    unsafe {
+        if SECRETS_MANAGER.is_some() {
+            1
+        } else {
+            0
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

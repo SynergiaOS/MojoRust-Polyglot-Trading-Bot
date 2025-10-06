@@ -192,7 +192,8 @@ struct SpamFilter:
             return False
 
         # Check if price increase is too rapid
-        if signal.price_change_5m > 50.0:  # 50% in 5 minutes
+        let pc5 = signal.metadata.get("price_change_5m", 0.0)
+        if pc5 > 50.0:  # 50% in 5 minutes
             return False
 
         # Check if there's no real support level
@@ -290,7 +291,8 @@ struct SpamFilter:
         if signal.rsi_value > 80.0:
             return "Extremely overbought"
 
-        if signal.price_change_5m > 50.0:
+        let pc5 = signal.metadata.get("price_change_5m", 0.0)
+        if pc5 > 50.0:
             return "Suspicious price movement"
 
         return "Multiple spam factors detected"

@@ -188,10 +188,10 @@ struct RiskManager:
         """
         Check if circuit breaker should trigger
         """
-        if self.portfolio.total_value > 0:
-            current_drawdown = (self.portfolio.peak_value - self.portfolio.total_value) / self.portfolio.peak_value
-            return current_drawdown > self.config.trading.max_drawdown
-        return False
+        if self.portfolio.peak_value <= 0:
+            return False
+        current_drawdown = (self.portfolio.peak_value - self.portfolio.total_value) / self.portfolio.peak_value
+        return current_drawdown > self.config.trading.max_drawdown
 
     fn _check_daily_reset(self):
         """

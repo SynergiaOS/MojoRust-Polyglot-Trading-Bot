@@ -11,33 +11,26 @@ name = "mojo_trading_bot"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Solana dependencies
-solana-sdk = "1.18"
-solana-client = "1.18"
-solana-account-decoder = "1.18"
-solana-transaction-status = "1.18"
-solana-program = "1.18"
-anchor-client = "0.30"
-anchor-lang = "0.30"
-
-# Cryptography
+# Core dependencies (minimal versions to avoid conflicts)
 ed25519-dalek = "2.0"
 sha2 = "0.10"
 hmac = "0.12"
 aes-gcm = "0.10"
 rand = "0.8"
-zeroize = "1.7"
+zeroize = "1.3"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 bincode = "1.3"
-borsh = "0.10"
 
 # Async and networking
 tokio = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.11", features = ["json"] }
-tokio-tungstenite = "0.20"
+
+# Secrets management
+infisical = { version = "0.2", features = ["async"] }
+async-trait = "0.1"
 
 # Utilities
 uuid = { version = "1.6", features = ["v4", "serde"] }
@@ -47,30 +40,33 @@ thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
+# Encoding
+bs58 = "0.5"
+hex = "0.4"
+base64 = "0.21"
+
 # Math and statistics
 num-bigint = "0.4"
 num-traits = "0.2"
 ordered-float = "3.9"
 
 # FFI
-libffi = "3.2"
 libc = "0.2"
+
+# Additional dependencies
+regex = "1.10"
+constant_time_eq = "0.2"
+pbkdf2 = "0.12"
+env_logger = "0.10"
+vergen = { version = "8.2", features = ["build", "git", "gitcl"] }
+lazy_static = "1.4"
 
 [dev-dependencies]
 tokio-test = "0.4"
+tempfile = "3.8"
 mockall = "0.12"
 
 [features]
 default = ["std"]
 std = []
 no-std = []
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-
-[profile.dev]
-opt-level = 1
-debug = true

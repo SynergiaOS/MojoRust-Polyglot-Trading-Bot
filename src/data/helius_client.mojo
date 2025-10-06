@@ -8,6 +8,7 @@ from sys import exit
 from collections import Dict, List
 from core.types import TokenMetadata, SocialMetrics, BlockchainMetrics
 from core.constants import HELIUS_BASE_URL, DEFAULT_TIMEOUT_SECONDS
+from core.logger import get_api_logger
 
 @value
 struct HeliusClient:
@@ -17,11 +18,13 @@ struct HeliusClient:
     var api_key: String
     var base_url: String
     var timeout_seconds: Float
+    var logger
 
     fn __init__(api_key: String, base_url: String = HELIUS_BASE_URL, timeout_seconds: Float = DEFAULT_TIMEOUT_SECONDS):
         self.api_key = api_key
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
+        self.logger = get_api_logger()
 
     fn get_token_metadata(self, token_address: String) -> TokenMetadata:
         """
@@ -40,7 +43,9 @@ struct HeliusClient:
             return mock_data
 
         except e:
-            print(f"⚠️  Error fetching token metadata from Helius: {e}")
+            self.logger.error(f"Error fetching token metadata from Helius",
+                            token_address=token_address,
+                            error=str(e))
             return TokenMetadata(address=token_address)
 
     def _get_mock_token_metadata(self, token_address: String) -> TokenMetadata:

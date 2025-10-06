@@ -91,7 +91,13 @@ struct StrategyEngine:
                 rsi_value=confluence.rsi_value,
                 support_level=confluence.nearest_support,
                 resistance_level=confluence.nearest_resistance,
-                signal_source=SignalSource.RSI_SUPPORT
+                signal_source=SignalSource.RSI_SUPPORT,
+                metadata={
+                    "price_change_5m": context.market_data.price_change_5m,
+                    "volume_5m": context.market_data.volume_5m,
+                    "holder_count": context.market_data.holder_count,
+                    "age_hours": context.market_data.age_hours
+                }
             )
 
             signals.append(signal)
@@ -117,7 +123,13 @@ struct StrategyEngine:
                 rsi_value=confluence.rsi_value,
                 support_level=confluence.nearest_support,
                 resistance_level=confluence.nearest_resistance,
-                signal_source=SignalSource.RSI_SUPPORT
+                signal_source=SignalSource.RSI_SUPPORT,
+                metadata={
+                    "price_change_5m": context.market_data.price_change_5m,
+                    "volume_5m": context.market_data.volume_5m,
+                    "holder_count": context.market_data.holder_count,
+                    "age_hours": context.market_data.age_hours
+                }
             )
 
             signals.append(signal)
@@ -154,7 +166,13 @@ struct StrategyEngine:
                     stop_loss=stop_loss,
                     volume=market_data.volume_5m,
                     liquidity=market_data.liquidity_usd,
-                    signal_source=SignalSource.MEAN_REVERSION
+                    signal_source=SignalSource.MEAN_REVERSION,
+                    metadata={
+                        "price_change_5m": market_data.price_change_5m,
+                        "volume_5m": market_data.volume_5m,
+                        "holder_count": market_data.holder_count,
+                        "age_hours": market_data.age_hours
+                    }
                 )
                 signals.append(signal)
 
@@ -174,7 +192,13 @@ struct StrategyEngine:
                     stop_loss=stop_loss,
                     volume=market_data.volume_5m,
                     liquidity=market_data.liquidity_usd,
-                    signal_source=SignalSource.MEAN_REVERSION
+                    signal_source=SignalSource.MEAN_REVERSION,
+                    metadata={
+                        "price_change_5m": market_data.price_change_5m,
+                        "volume_5m": market_data.volume_5m,
+                        "holder_count": market_data.holder_count,
+                        "age_hours": market_data.age_hours
+                    }
                 )
                 signals.append(signal)
 
@@ -207,7 +231,13 @@ struct StrategyEngine:
                     stop_loss=stop_loss,
                     volume=market_data.volume_5m,
                     liquidity=market_data.liquidity_usd,
-                    signal_source=SignalSource.MOMENTUM
+                    signal_source=SignalSource.MOMENTUM,
+                    metadata={
+                        "price_change_5m": market_data.price_change_5m,
+                        "volume_5m": market_data.volume_5m,
+                        "holder_count": market_data.holder_count,
+                        "age_hours": market_data.age_hours
+                    }
                 )
                 signals.append(signal)
 
@@ -229,7 +259,13 @@ struct StrategyEngine:
                     stop_loss=stop_loss,
                     volume=market_data.volume_5m,
                     liquidity=market_data.liquidity_usd,
-                    signal_source=SignalSource.MOMENTUM
+                    signal_source=SignalSource.MOMENTUM,
+                    metadata={
+                        "price_change_5m": market_data.price_change_5m,
+                        "volume_5m": market_data.volume_5m,
+                        "holder_count": market_data.holder_count,
+                        "age_hours": market_data.age_hours
+                    }
                 )
                 signals.append(signal)
 

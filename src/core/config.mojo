@@ -5,6 +5,7 @@
 from os import getenv, environ
 from json import loads
 from sys import exit
+from infisical_client import get_infisical_client
 
 # =============================================================================
 # API Configuration
@@ -168,42 +169,66 @@ struct Config:
     @staticmethod
     fn load_from_env() -> Config:
         """
-        Load configuration from environment variables
+        Load configuration from Infisical secrets or environment variables
         """
+        # Initialize Infisical client
+        infisical = get_infisical_client()
+
         # Environment
         trading_env = getenv("TRADING_ENV", "development")
 
-        # API Configuration
-        helius_api_key = getenv("HELIUS_API_KEY", "")
-        helius_base_url = getenv("HELIUS_BASE_URL", "https://api.helius.xyz/v0")
-        helius_rpc_url = getenv("HELIUS_RPC_URL", "")
+        # API Configuration (try Infisical first, fallback to env)
+        try:
+            api_config = infisical.get_api_config()
+        except e:
+            print(f"⚠️  Failed to load API config from Infisical: {e}")
+            # Fallback to environment variables
+            api_config = APIConfig(
+                helius_api_key=getenv("HELIUS_API_KEY", ""),
+                helius_base_url=getenv("HELIUS_BASE_URL", "https://api.helius.xyz/v0"),
+                helius_rpc_url=getenv("HELIUS_RPC_URL", ""),
+                quicknode_rpcs=QuickNodeRPCs(
+                    primary=getenv("QUICKNODE_PRIMARY_RPC", ""),
+                    secondary=getenv("QUICKNODE_SECONDARY_RPC", ""),
+                    archive=getenv("QUICKNODE_ARCHIVE_RPC", "")
+                ),
+                dexscreener_base_url=getenv("DEXSCREENER_BASE_URL", "https://api.dexscreener.com/latest/dex"),
+                jupiter_base_url=getenv("JUPITER_BASE_URL", "https://quote-api.jup.ag/v6"),
+                jupiter_quote_api=getenv("JUPITER_QUOTE_API", "https://quote-api.jup.ag/v6/quote"),
+                timeout_seconds=float(getenv("API_TIMEOUT_SECONDS", "10.0"))
+            )
 
-        quicknode_primary = getenv("QUICKNODE_PRIMARY_RPC", "")
-        quicknode_secondary = getenv("QUICKNODE_SECONDARY_RPC", quicknode_primary)
-        quicknode_archive = getenv("QUICKNODE_ARCHIVE_RPC", quicknode_primary)
-        quicknode_rpcs = QuickNodeRPCs(quicknode_primary, quicknode_secondary, quicknode_archive)
+        # Trading Configuration (try Infisical first, fallback to env)
+        try:
+            trading_config = infisical.get_trading_config()
+        except e:
+            print(f"⚠️  Failed to load trading config from Infisical: {e}")
+            # Fallback to environment variables
+            trading_config = TradingConfig(
+                initial_capital=float(getenv("INITIAL_CAPITAL", "1.0")),
+                max_position_size=float(getenv("MAX_POSITION_SIZE", "0.1")),
+                max_drawdown=float(getenv("MAX_DRAWDOWN", "0.15")),
+                cycle_interval=float(getenv("CYCLE_INTERVAL", "1.0")),
+                kelly_fraction=float(getenv("KELLY_FRACTION", "0.5")),
+                max_correlation=float(getenv("MAX_CORRELATION", "0.7")),
+                diversification_target=int(getenv("DIVERSIFICATION_TARGET", "10")),
+                max_daily_trades=int(getenv("MAX_DAILY_TRADES", "50"))
+            )
 
-        dexscreener_base_url = getenv("DEXSCREENER_BASE_URL", "https://api.dexscreener.com/latest")
-        jupiter_base_url = getenv("JUPITER_BASE_URL", "https://quote-api.jup.ag")
-        jupiter_quote_api = getenv("JUPITER_QUOTE_API", "https://quote-api.jup.ag/v6")
+        # Wallet Configuration (try Infisical first, fallback to env)
+        try:
+            wallet_config = infisical.get_wallet_config()
+        except e:
+            print(f"⚠️  Failed to load wallet config from Infisical: {e}")
+            # Fallback to environment variables
+            wallet_config = WalletConfig(
+                address=getenv("WALLET_ADDRESS", ""),
+                private_key_path=getenv("WALLET_PRIVATE_KEY_PATH", "~/.config/solana/id.json")
+            )
 
-        timeout_seconds = float(getenv("API_TIMEOUT_SECONDS", "5.0"))
+        # API config already loaded from Infisical above
 
-        api_config = APIConfig(
-            helius_api_key=helius_api_key,
-            helius_base_url=helius_base_url,
-            helius_rpc_url=helius_rpc_url,
-            quicknode_rpcs=quicknode_rpcs,
-            dexscreener_base_url=dexscreener_base_url,
-            jupiter_base_url=jupiter_base_url,
-            jupiter_quote_api=jupiter_quote_api,
-            timeout_seconds=timeout_seconds
-        )
-
-        # Trading Configuration
-        initial_capital = float(getenv("INITIAL_CAPITAL", "1.0"))
-        max_position_size = float(getenv("MAX_POSITION_SIZE", "0.10"))
-        min_position_size = float(getenv("MIN_POSITION_SIZE", "0.005"))
+        # Trading config already loaded from Infisical above
         max_drawdown = float(getenv("MAX_DRAWDOWN", "0.15"))
         daily_trade_limit = int(getenv("DAILY_TRADE_LIMIT", "100"))
         kelly_fraction = float(getenv("KELLY_FRACTION", "0.5"))
@@ -333,8 +358,8 @@ struct Config:
             database=database_config,
             monitoring=monitoring_config,
             trading_env=trading_env,
-            wallet_address=wallet_address,
-            wallet_private_key_path=wallet_private_key_path
+            wallet_address=wallet_config.address,
+            wallet_private_key_path=wallet_config.private_key_path
         )
 
     @staticmethod

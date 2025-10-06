@@ -7,6 +7,7 @@
 from core.config import Config, load_config
 from core.types import *
 from core.constants import *
+from core.logger import get_main_logger, configure_logging, log_system_info
 from data.helius_client import HeliusClient
 from data.quicknode_client import QuickNodeClient
 from data.dexscreener_client import DexScreenerClient
@@ -42,6 +43,7 @@ struct TradingBot:
     var is_running: Bool
     var shutdown_event: Event
     var start_time: Float
+    var logger
 
     # API Clients
     var helius_client: HeliusClient
@@ -72,8 +74,6 @@ struct TradingBot:
     var signals_generated: Int
     var trades_executed: Int
     var total_pnl: Float
-    var max_drawdown: Float
-    var peak_value: Float
 
     fn __init__(config: Config):
         """
@@ -83,6 +83,7 @@ struct TradingBot:
         self.is_running = False
         self.shutdown_event = Event()
         self.start_time = time()
+        self.logger = get_main_logger()
 
         # Initialize API clients
         self.helius_client = HeliusClient(
@@ -104,6 +105,7 @@ struct TradingBot:
         self.execution_engine = ExecutionEngine(
             quicknode_client=self.quicknode_client,
             jupiter_client=self.jupiter_client,
+            helius_client=self.helius_client,
             config=config
         )
 
@@ -134,17 +136,15 @@ struct TradingBot:
         self.signals_generated = 0
         self.trades_executed = 0
         self.total_pnl = 0.0
-        self.max_drawdown = 0.0
-        self.peak_value = config.trading.initial_capital
 
     fn start(self):
         """
         Start the trading bot
         """
-        print("🚀 Starting High-Performance Memecoin Trading Bot (Algorithmic Intelligence)")
-        print(f"📊 Initial Capital: {self.config.trading.initial_capital} SOL")
-        print(f"🎯 Environment: {self.config.trading_env}")
-        print(f"🔧 Mode: {self.config.trading.execution_mode}")
+        self.logger.info("🚀 Starting High-Performance Memecoin Trading Bot (Algorithmic Intelligence)",
+                         initial_capital=self.config.trading.initial_capital,
+                         environment=self.config.trading_env,
+                         mode=self.config.trading.execution_mode)
 
         # Validate configuration
         self._validate_configuration()
@@ -322,14 +322,6 @@ struct TradingBot:
             # 6. Get algorithmic sentiment analysis for high-confidence signals
             enhanced_signals = []
             for signal in filtered_signals:
-                # Add metadata from market data
-                if signal.symbol in market_data:
-                    market_data_symbol = market_data[signal.symbol]
-                    signal.metadata["price_change_5m"] = market_data_symbol.price_change_5m
-                    signal.metadata["volume_5m"] = market_data_symbol.volume_5m
-                    signal.metadata["holder_count"] = market_data_symbol.holder_count
-                    signal.metadata["age_hours"] = market_data_symbol.age_hours
-
                 if signal.confidence > 0.8:  # Only analyze high-confidence signals
                     sentiment = self.sentiment_analyzer.analyze_sentiment(
                         signal.symbol,
@@ -354,13 +346,21 @@ struct TradingBot:
                     if result.success:
                         self.trades_executed += 1
                         self._update_portfolio(signal, approval, result)
-                        print(f"✅ Trade executed: {signal.symbol} "
-                              f"Size: {approval.position_size:.4f} SOL "
-                              f"Price: {result.executed_price:.6f}")
+                        self.logger.log_trade(
+                            action="EXECUTED",
+                            symbol=signal.symbol,
+                            price=result.executed_price,
+                            size=approval.position_size,
+                            reason="Trade execution successful"
+                        )
                     else:
-                        print(f"❌ Trade failed: {signal.symbol} - {result.error_message}")
+                        self.logger.error(f"Trade failed: {signal.symbol}",
+                                         symbol=signal.symbol,
+                                         error=result.error_message)
                 else:
-                    print(f"⚠️  Trade rejected: {signal.symbol} - {approval.reason}")
+                    self.logger.warn(f"Trade rejected: {signal.symbol}",
+                                     symbol=signal.symbol,
+                                     reason=approval.reason)
 
             # 8. Update existing positions (check stop losses, take profits)
             self._manage_existing_positions()
@@ -678,13 +678,11 @@ struct TradingBot:
         # Update daily P&L
         self.portfolio.daily_pnl = current_value - self.config.trading.initial_capital
 
-        # Update peak value and drawdown
-        if current_value > self.peak_value:
-            self.peak_value = current_value
+        # Update portfolio peak value
+        self.portfolio.peak_value = max(self.portfolio.peak_value, current_value)
 
-        current_drawdown = (self.peak_value - current_value) / self.peak_value
-        if current_drawdown > self.max_drawdown:
-            self.max_drawdown = current_drawdown
+        # Calculate drawdown for logging using portfolio peak value
+        current_drawdown = (self.portfolio.peak_value - current_value) / self.portfolio.peak_value if self.portfolio.peak_value > 0 else 0.0
 
         # Check if circuit breaker should trigger
         if current_drawdown > self.config.trading.max_drawdown:
@@ -698,6 +696,7 @@ struct TradingBot:
         while self.is_running and not self.shutdown_event.is_set():
             try:
                 # Update metrics
+                current_drawdown = (self.portfolio.peak_value - self.portfolio.total_value) / self.portfolio.peak_value if self.portfolio.peak_value > 0 else 0.0
                 self.metrics = {
                     "uptime": time() - self.start_time,
                     "cycles_completed": self.cycles_completed,
@@ -705,7 +704,7 @@ struct TradingBot:
                     "trades_executed": self.trades_executed,
                     "portfolio_value": self.portfolio.total_value,
                     "daily_pnl": self.portfolio.daily_pnl,
-                    "max_drawdown": self.max_drawdown,
+                    "max_drawdown": current_drawdown,
                     "last_cycle_time": self.last_cycle_time,
                     "open_positions": len(self.portfolio.positions)
                 }
@@ -783,8 +782,9 @@ struct TradingBot:
         print(f"📈 Signals Generated: {self.signals_generated:,}")
         print(f"💰 Trades Executed: {self.trades_executed:,}")
         print(f"💵 Total P&L: {self.total_pnl:.4f} SOL")
-        print(f"📉 Max Drawdown: {self.max_drawdown:.2%}")
-        print(f"🏆 Peak Portfolio Value: {self.peak_value:.4f} SOL")
+        current_drawdown = (self.portfolio.peak_value - self.portfolio.total_value) / self.portfolio.peak_value if self.portfolio.peak_value > 0 else 0.0
+        print(f"📉 Max Drawdown: {current_drawdown:.2%}")
+        print(f"🏆 Peak Portfolio Value: {self.portfolio.peak_value:.4f} SOL")
         print(f"💼 Final Portfolio Value: {self.portfolio.total_value:.4f} SOL")
         print(f"🎯 Win Rate: {(self.trades_executed / max(1, self.signals_generated) * 100):.1f}%")
         print("="*60)
