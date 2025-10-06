@@ -1,0 +1,143 @@
+# =============================================================================
+# MojoRust Trading Bot Configuration
+# =============================================================================
+
+# =============================================================================
+# Trading Environment
+# =============================================================================
+[environment]
+trading_env = "development"  # development, staging, production
+execution_mode = "paper"     # paper, live
+
+# =============================================================================
+# API Configuration
+# =============================================================================
+[api]
+timeout_seconds = 10.0
+
+# =============================================================================
+# Trading Parameters
+# =============================================================================
+[trading]
+initial_capital = 1.0        # SOL
+max_position_size = 0.1      # 10% of portfolio per position
+min_position_size = 0.01     # 1% of portfolio minimum
+max_drawdown = 0.15          # 15% maximum drawdown
+daily_trade_limit = 50       # Maximum trades per day
+kelly_fraction = 0.5         # Kelly criterion fraction
+max_portfolio_risk = 0.02    # 2% max portfolio risk per trade
+cycle_interval = 1.0         # Trading cycle interval in seconds
+
+# =============================================================================
+# Strategy Configuration
+# =============================================================================
+[strategy]
+rsi_period = 14
+oversold_threshold = 25.0
+overbought_threshold = 75.0
+min_confluence_strength = 0.7
+enable_arbitrage = true
+enable_momentum = true
+enable_mean_reversion = false
+support_distance = 0.15
+atr_multiplier = 1.5
+
+# =============================================================================
+# Risk Management Configuration
+# =============================================================================
+[risk]
+max_position_risk = 0.02     # 2% risk per position
+max_portfolio_risk = 0.05    # 5% total portfolio risk
+max_correlation = 0.7        # Maximum correlation between positions
+diversification_target = 10  # Target number of diversified positions
+
+# =============================================================================
+# Execution Configuration
+# =============================================================================
+[execution]
+max_slippage = 0.03          # 3% maximum slippage
+max_priority_fee = 0.001     # Maximum priority fee in SOL
+transaction_timeout = 30     # Transaction timeout in seconds
+retry_attempts = 3           # Number of retry attempts
+confirmation_timeout = 30    # Block confirmation timeout
+gas_optimization = true      # Enable gas optimization
+
+# =============================================================================
+# Circuit Breakers Configuration
+# =============================================================================
+[circuit_breakers]
+max_drawdown = 0.15                    # 15% maximum drawdown before halt
+max_consecutive_losses = 5             # Halt after 5 consecutive losses
+max_daily_loss_percentage = 0.10       # 10% maximum daily loss
+max_position_concentration = 0.30      # 30% maximum single position size
+min_trade_interval_seconds = 60        # 60 seconds minimum between trades per symbol
+rapid_drawdown_threshold = 0.05        # 5% drawdown in 5 minutes triggers halt
+
+# =============================================================================
+# Database Configuration (TimescaleDB/PostgreSQL)
+# =============================================================================
+[database]
+enabled = true                         # Enable database persistence
+host = "localhost"
+port = 5432
+database = "trading_bot"
+user = "trader"
+password_env = "DB_PASSWORD"           # Environment variable for password
+max_connections = 10
+batch_size = 100                       # Batch insert size
+auto_flush_interval_seconds = 60       # Auto-flush every 60 seconds
+
+# =============================================================================
+# Alert System Configuration
+# =============================================================================
+[alerts]
+enabled = true
+channels = ["console", "webhook"]      # Available: console, webhook, telegram, email
+
+# Webhook (Discord/Slack)
+webhook_url_env = "DISCORD_WEBHOOK_URL"
+
+# Telegram
+telegram_bot_token_env = "TELEGRAM_BOT_TOKEN"
+telegram_chat_id_env = "TELEGRAM_CHAT_ID"
+
+# Alert cooldowns (seconds)
+error_alert_cooldown = 60              # Max 1 error alert per minute
+performance_alert_cooldown = 300       # Max 1 performance alert per 5 minutes
+trade_alert_cooldown = 0               # No cooldown for trade alerts
+
+# Thresholds
+performance_alert_threshold = 0.05     # Alert if metric changes >5%
+
+# =============================================================================
+# Strategy Adaptation Configuration
+# =============================================================================
+[strategy_adaptation]
+enabled = true
+adaptation_interval_hours = 24         # Adapt every 24 hours
+performance_window_hours = 48          # Analyze last 48 hours
+min_trades_for_adaptation = 20         # Minimum trades before adapting
+
+# Baseline parameters (what to adapt from)
+baseline_confidence_threshold = 0.70   # 70% minimum confidence
+baseline_position_size = 0.05          # 5% of portfolio per trade
+baseline_stop_loss_percentage = 0.10   # 10% stop loss
+baseline_take_profit_percentage = 0.20 # 20% take profit
+baseline_max_positions = 5             # Maximum 5 concurrent positions
+
+# Adaptation limits
+max_confidence_threshold = 0.90        # Don't go above 90%
+min_confidence_threshold = 0.50        # Don't go below 50%
+max_position_size_multiplier = 1.5     # Max 150% of baseline
+min_position_size_multiplier = 0.5     # Min 50% of baseline
+
+# =============================================================================
+# Legacy Monitoring Configuration (for compatibility)
+# =============================================================================
+[monitoring]
+prometheus_port = 9090
+log_level = "INFO"
+log_format = "json"
+metrics_interval = 60
+enable_alerts = true
+alert_webhook_url = ""
