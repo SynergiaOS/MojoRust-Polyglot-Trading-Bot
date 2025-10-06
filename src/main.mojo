@@ -13,7 +13,7 @@ from data.quicknode_client import QuickNodeClient
 from data.dexscreener_client import DexScreenerClient
 from data.jupiter_client import JupiterClient
 from engine.enhanced_context_engine import EnhancedContextEngine
-from engine.spam_filter import SpamFilter
+from engine.master_filter import MasterFilter
 from engine.strategy_engine import StrategyEngine
 from analysis.sentiment_analyzer import SentimentAnalyzer
 from analysis.pattern_recognizer import PatternRecognizer
@@ -53,7 +53,7 @@ struct TradingBot:
 
     # Core Engines (Enhanced - No External AI)
     var enhanced_context_engine: EnhancedContextEngine
-    var spam_filter: SpamFilter
+    var master_filter: MasterFilter
     var strategy_engine: StrategyEngine
     var risk_manager: RiskManager
     var execution_engine: ExecutionEngine
@@ -100,7 +100,7 @@ struct TradingBot:
 
         # Initialize Enhanced Engines (Algorithmic Intelligence)
         self.enhanced_context_engine = EnhancedContextEngine(config)
-        self.spam_filter = SpamFilter(self.helius_client, config)
+        self.master_filter = MasterFilter(self.helius_client, config)
         self.strategy_engine = StrategyEngine(config)
         self.execution_engine = ExecutionEngine(
             quicknode_client=self.quicknode_client,
@@ -315,8 +315,8 @@ struct TradingBot:
                 symbol_signals = self.strategy_engine.generate_signals(context)
                 signals.extend(symbol_signals)
 
-            # 5. Filter signals through spam filter
-            filtered_signals = self.spam_filter.filter_signals(signals)
+            # 5. Filter signals through master filter pipeline
+            filtered_signals = self.master_filter.filter_all_signals(signals)
             self.signals_generated += len(filtered_signals)
 
             # 6. Get algorithmic sentiment analysis for high-confidence signals
@@ -697,6 +697,10 @@ struct TradingBot:
             try:
                 # Update metrics
                 current_drawdown = (self.portfolio.peak_value - self.portfolio.total_value) / self.portfolio.peak_value if self.portfolio.peak_value > 0 else 0.0
+
+                # Get MasterFilter statistics
+                filter_stats = self.master_filter.get_filter_stats()
+
                 self.metrics = {
                     "uptime": time() - self.start_time,
                     "cycles_completed": self.cycles_completed,
@@ -706,7 +710,13 @@ struct TradingBot:
                     "daily_pnl": self.portfolio.daily_pnl,
                     "max_drawdown": current_drawdown,
                     "last_cycle_time": self.last_cycle_time,
-                    "open_positions": len(self.portfolio.positions)
+                    "open_positions": len(self.portfolio.positions),
+                    # Filter statistics
+                    "filter_rejection_rate": filter_stats["rejection_rate"],
+                    "total_signals_rejected": filter_stats["total_rejected"],
+                    "instant_rejections": filter_stats["instant_rejections"],
+                    "aggressive_rejections": filter_stats["aggressive_rejections"],
+                    "micro_rejections": filter_stats["micro_rejections"]
                 }
 
                 # Health checks
@@ -787,6 +797,14 @@ struct TradingBot:
         print(f"🏆 Peak Portfolio Value: {self.portfolio.peak_value:.4f} SOL")
         print(f"💼 Final Portfolio Value: {self.portfolio.total_value:.4f} SOL")
         print(f"🎯 Win Rate: {(self.trades_executed / max(1, self.signals_generated) * 100):.1f}%")
+
+        # Add MasterFilter statistics
+        filter_stats = self.master_filter.get_filter_stats()
+        print(f"🛡️  Filter Rejection Rate: {filter_stats['rejection_rate']:.1f}%")
+        print(f"📊 Total Signals Filtered: {int(filter_stats['total_rejected']):,} / {int(filter_stats['total_processed']):,}")
+        print(f"⚡ Instant Rejections: {int(filter_stats['instant_rejections']):,}")
+        print(f"🔥 Aggressive Rejections: {int(filter_stats['aggressive_rejections']):,}")
+        print(f"🔬 Micro Rejections: {int(filter_stats['micro_rejections']):,}")
         print("="*60)
 
 # =============================================================================

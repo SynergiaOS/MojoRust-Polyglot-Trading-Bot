@@ -23,10 +23,40 @@ struct SpamFilter:
     var config  # We'll add the type later
     var micro_filter: MicroTimeframeFilter
 
+    # Enhanced filtering fields
+    var last_signal_times: Dict[String, Float]
+    var signal_counts: Dict[String, Int]
+    var MIN_VOLUME_USD: Float
+    var MIN_LIQUIDITY_USD: Float
+    var MIN_CONFIDENCE: Float
+    var COOLDOWN_SECONDS: Float
+    var MAX_SIGNALS_PER_SYMBOL: Int
+    var logger
+
     fn __init__(helius_client, config):
         self.helius_client = helius_client
         self.config = config
         self.micro_filter = MicroTimeframeFilter()
+
+        # Initialize enhanced filtering fields
+        self.last_signal_times = {}
+        self.signal_counts = {}
+        self.MIN_VOLUME_USD = 10000.0      # Increased from 5000.0
+        self.MIN_LIQUIDITY_USD = 20000.0   # Increased from 10000.0
+        self.MIN_CONFIDENCE = 0.70         # Increased from 0.5
+        self.COOLDOWN_SECONDS = 30.0
+        self.MAX_SIGNALS_PER_SYMBOL = 5
+
+        # Initialize logger
+        self.logger = get_logger("SpamFilter")
+
+        self.logger.info("spam_filter_enhanced_initialized", {
+            "min_volume_usd": self.MIN_VOLUME_USD,
+            "min_liquidity_usd": self.MIN_LIQUIDITY_USD,
+            "min_confidence": self.MIN_CONFIDENCE,
+            "cooldown_seconds": self.COOLDOWN_SECONDS,
+            "max_signals_per_symbol": self.MAX_SIGNALS_PER_SYMBOL
+        })
 
     fn filter_signals(self, signals: List[TradingSignal]) -> List[TradingSignal]:
         """
@@ -52,6 +82,25 @@ struct SpamFilter:
         """
         # Basic validation
         if not self._basic_validation(signal):
+            return False
+
+        # New: Cooldown check
+        if not self._check_cooldown(signal):
+            return False
+
+        # New: Signal count check
+        if not self._check_signal_count(signal):
+            return False
+
+        # New: Volume quality assessment
+        volume_quality = self._assess_volume_quality(signal)
+        if volume_quality < 0.6:
+            self.logger.debug("poor_volume_quality", {
+                "symbol": signal.symbol,
+                "quality_score": volume_quality,
+                "avg_tx_size": signal.metadata.get("avg_tx_size", 0.0),
+                "volume_consistency": signal.metadata.get("volume_consistency", 0.0)
+            })
             return False
 
         # Liquidity check
@@ -86,21 +135,87 @@ struct SpamFilter:
 
     fn _basic_validation(self, signal: TradingSignal) -> Bool:
         """
-        Basic signal validation
+        Basic signal validation with enhanced thresholds
         """
         if not signal.symbol or signal.symbol == "":
             return False
 
-        if signal.confidence < 0.5:  # Low confidence signals
+        if signal.confidence < self.MIN_CONFIDENCE:  # Enhanced confidence threshold (0.70)
             return False
 
-        if signal.liquidity < self.config.risk.min_liquidity:
+        if signal.liquidity < self.MIN_LIQUIDITY_USD:  # Enhanced liquidity threshold ($20k)
             return False
 
-        if signal.volume < self.config.risk.min_volume:
+        if signal.volume < self.MIN_VOLUME_USD:  # Enhanced volume threshold ($10k)
             return False
 
         return True
+
+    fn _check_cooldown(inout self, signal: TradingSignal) -> Bool:
+        """
+        Check if enough time has passed since last signal for this symbol
+        """
+        current_time = signal.timestamp
+        last_time = self.last_signal_times.get(signal.symbol, 0.0)
+
+        time_since_last = current_time - last_time
+
+        if time_since_last < self.COOLDOWN_SECONDS:
+            self.logger.debug("cooldown_active", {
+                "symbol": signal.symbol,
+                "time_since_last": time_since_last,
+                "required_cooldown": self.COOLDOWN_SECONDS
+            })
+            return False
+
+        # Update last signal time
+        self.last_signal_times[signal.symbol] = current_time
+        return True
+
+    fn _check_signal_count(inout self, signal: TradingSignal) -> Bool:
+        """
+        Check if signal count exceeds maximum per symbol
+        """
+        current_count = self.signal_counts.get(signal.symbol, 0)
+
+        if current_count >= self.MAX_SIGNALS_PER_SYMBOL:
+            self.logger.debug("signal_limit_exceeded", {
+                "symbol": signal.symbol,
+                "current_count": current_count,
+                "max_allowed": self.MAX_SIGNALS_PER_SYMBOL
+            })
+            return False
+
+        # Increment counter
+        self.signal_counts[signal.symbol] = current_count + 1
+        return True
+
+    fn _assess_volume_quality(self, signal: TradingSignal) -> Float:
+        """
+        Assess volume quality to detect wash trading patterns
+        Returns quality score from 0.0 to 1.0
+        """
+        quality_score = 1.0
+
+        # Extract transaction data
+        avg_tx_size = signal.metadata.get("avg_tx_size", 0.0)
+        volume_consistency = signal.metadata.get("volume_consistency", 0.0)
+
+        # Check average transaction size (<$10 indicates wash trading)
+        if avg_tx_size < 10.0:
+            quality_score -= 0.4
+
+        # Check volume consistency (<30% indicates manipulation)
+        if volume_consistency < 0.3:
+            quality_score -= 0.3
+
+        # Check volume to liquidity ratio (>10x indicates suspicious activity)
+        if signal.liquidity > 0:
+            volume_to_liquidity_ratio = signal.volume / signal.liquidity
+            if volume_to_liquidity_ratio > 10.0:
+                quality_score -= 0.3
+
+        return max(quality_score, 0.0)
 
     fn _liquidity_check(self, signal: TradingSignal) -> Bool:
         """
@@ -415,3 +530,26 @@ struct SpamFilter:
         # Micro filter handles 1s, 5s, 15s timeframes
         # Standard filter handles all other timeframes
         return micro_timeframes
+
+    fn reset_counters(inout self):
+        """
+        Reset signal counters and cleanup old cooldown entries
+        """
+        current_time = time()
+
+        # Clear signal counts
+        self.signal_counts.clear()
+
+        # Clean up old cooldown entries (older than 1 hour)
+        old_symbols = []
+        for symbol, last_time in self.last_signal_times.items():
+            if current_time - last_time > 3600.0:  # 1 hour
+                old_symbols.append(symbol)
+
+        for symbol in old_symbols:
+            del self.last_signal_times[symbol]
+
+        self.logger.info("spam_filter_counters_reset", {
+            "cooldown_entries_remaining": len(self.last_signal_times),
+            "old_entries_cleaned": len(old_symbols)
+        })
