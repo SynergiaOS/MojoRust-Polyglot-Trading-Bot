@@ -4,7 +4,7 @@
 # Production monitoring for filter performance, spam detection, and health alerts
 
 from time import time
-from collections import Dict, List
+from collections import Dict, List, Any
 from core.logger import get_main_logger
 from os import getenv
 
@@ -55,8 +55,11 @@ struct FilterMonitor:
         self.cooldown_rejections = 0
         self.volume_quality_rejections = 0
 
-        self.logger.info("FilterMonitor initialized with history_size={}, min_rejection={}%, max_rejection={}%"\
-            .format(self.history_size, self.min_healthy_rejection, self.max_healthy_rejection))
+        self.logger.info("filter_monitor_initialized", {
+            "history_size": self.history_size,
+            "min_rejection": self.min_healthy_rejection,
+            "max_rejection": self.max_healthy_rejection
+        })
 
     fn log_filter_performance(inout self, stats: Dict[String, Any]):
         """Log current filter statistics and update monitoring"""

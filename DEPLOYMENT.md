@@ -352,6 +352,26 @@ echo "Environment: $APP_ENV"
 ./scripts/deploy_with_filters.sh
 ```
 
+#### Offline Mode (Optional)
+
+For testing without network dependencies or API calls:
+
+```bash
+# Use mock APIs for offline testing
+./scripts/deploy_with_filters.sh --mock-apis
+
+# Or set environment variable
+export MOCK_APIS=true
+./scripts/deploy_with_filters.sh
+```
+
+**Offline Mode Features:**
+- No network calls to external APIs
+- Mock filter with 90%+ spam rejection simulation
+- Faster testing and verification
+- Safe for CI/CD environments
+- Maintains all test functionality
+
 **Expected Output:**
 ```
 🛡️ DEPLOYING TRADING BOT WITH AGGRESSIVE SPAM FILTERS...

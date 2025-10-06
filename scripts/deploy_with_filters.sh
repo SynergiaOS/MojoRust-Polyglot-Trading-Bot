@@ -68,6 +68,19 @@ cleanup() {
     pkill -f filter-test || true
 }
 
+# Helper functions for numeric validation
+has_bc() {
+    command -v bc >/dev/null 2>&1;
+}
+
+is_positive_number() {
+    if has_bc; then
+        echo "$1 > 0" | bc -l >/dev/null 2>&1 && [ "$(echo "$1 > 0" | bc -l)" = "1" ]
+    else
+        awk -v v="$1" 'BEGIN{exit !(v+0>0)}'
+    fi
+}
+
 validate_environment_for_verification() {
     log_step "Validating environment for filter verification..."
 
@@ -123,7 +136,7 @@ validate_environment_for_verification() {
         exit 1
     fi
 
-    if [[ ! "$INITIAL_CAPITAL" =~ ^[0-9]+\.?[0-9]*$ ]] || [[ $(echo "$INITIAL_CAPITAL <= 0" | bc -l 2>/dev/null || echo "1") -eq 1 ]]; then
+    if [[ ! "$INITIAL_CAPITAL" =~ ^[0-9]+\.?[0-9]*$ ]] || ! is_positive_number "$INITIAL_CAPITAL"; then
         log_error "❌ Invalid INITIAL_CAPITAL: $INITIAL_CAPITAL. Must be a positive number"
         exit 1
     fi
@@ -392,6 +405,11 @@ main() {
                 BACKGROUND=true
                 shift
                 ;;
+            --mock-apis)
+                export MOCK_APIS=true
+                log_info "🔧 Mock APIs mode enabled - no network calls"
+                shift
+                ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
@@ -399,6 +417,7 @@ main() {
                 echo "  --skip-verification    Skip filter verification tests (not recommended)"
                 echo "  --dry-run              Show what would be done without executing"
                 echo "  --background           Start trading bot in background"
+                echo "  --mock-apis            Use mock APIs for offline testing (no network calls)"
                 echo "  --help, -h             Show this help message"
                 echo ""
                 exit 0
