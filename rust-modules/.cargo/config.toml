@@ -1,0 +1,80 @@
+# Cargo configuration for Mojo Trading Bot Rust modules
+
+[target.x86_64-unknown-linux-gnu]
+# Enable optimization for security-critical code
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "opt-level=3",
+    "-C", "lto=fat",
+    "-C", "codegen-units=1",
+    "-C", "panic=abort",
+    "-C", "force-frame-pointers=yes",
+    "-C", "debuginfo=0",
+]
+
+[target.aarch64-unknown-linux-gnu]
+# ARM64 optimizations
+rustflags = [
+    "-C", "target-cpu=neoverse-n1",
+    "-C", "opt-level=3",
+    "-C", "lto=fat",
+    "-C", "codegen-units=1",
+    "-C", "panic=abort",
+]
+
+[target.x86_64-unknown-linux-musl]
+# Static linking for musl
+rustflags = [
+    "-C", "target-feature=+crt-static",
+    "-C", "opt-level=3",
+    "-C", "lto=fat",
+    "-C", "panic=abort",
+]
+
+# Build profiles
+[profile.release]
+# Maximum optimization for production
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+overflow-checks = false
+
+[profile.release.package."*"]
+# Optimize dependencies for size
+opt-level = "s"
+codegen-units = 1
+
+[profile.dev]
+# Development profile with good debug info
+opt-level = 1
+debug = true
+overflow-checks = true
+
+[profile.test]
+# Test profile
+opt-level = 1
+debug = true
+overflow-checks = true
+
+[profile.bench]
+# Benchmark profile
+opt-level = 3
+debug = false
+overflow-checks = false
+
+# Environment variables
+[env]
+# Enable static linking
+RUSTFLAGS = "-C target-feature=+crt-static"
+
+# Set optimization level for crypto operations
+CRYPTO_OPT_LEVEL = "3"
+
+# Enable security hardening
+SECURITY_HARDENING = "true"
+
+# Disable debug symbols in release
+DEBUG_SYMBOLS = "false"

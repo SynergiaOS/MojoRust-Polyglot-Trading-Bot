@@ -1,0 +1,356 @@
+version: '3.8'
+
+x-common-variables: &common-variables
+  TZ: UTC
+  LOG_LEVEL: INFO
+
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+networks:
+  trading-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  timescaledb_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  grafana_provisioning:
+    driver: local
+  grafana_dashboards:
+    driver: local
+
+services:
+  # TimescaleDB for time-series market data and trade history
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: trading-bot-timescaledb
+    <<: *restart-policy
+    environment:
+      <<: *common-variables
+      POSTGRES_DB: trading_db
+      POSTGRES_USER: trading_user
+      POSTGRES_PASSWORD: trading_password
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./scripts/init-timescaledb.sh:/docker-entrypoint-initdb.d/init-timescaledb.sh
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.10
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading_user -d trading_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis for caching and real-time data
+  redis:
+    image: redis:7-alpine
+    container_name: trading-bot-redis
+    <<: *restart-policy
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.11
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: trading-bot-prometheus
+    <<: *restart-policy
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus_rules:/etc/prometheus/rules:ro
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.12
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Grafana for visualization dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: trading-bot-grafana
+    <<: *restart-policy
+    environment:
+      <<: *common-variables
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: trading_admin
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+      GF_SECURITY_COOKIE_SECURE: false
+      GF_SECURITY_COOKIE_SAMESITE: lax
+      GF_AUTH_ANONYMOUS_ENABLED: false
+      GF_AUTH_ORG_ROLE: Editor
+      GF_FEATURE_TOGGLES_ENABLE: publicDashboards
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - grafana_provisioning:/etc/grafana/provisioning
+      - grafana_dashboards:/var/lib/grafana/dashboards
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.13
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # AlertManager for alert routing
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: trading-bot-alertmanager
+    <<: *restart-policy
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.14
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Redis Commander for Redis management (optional)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: trading-bot-redis-commander
+    <<: *restart-policy
+    environment:
+      <<: *common-variables
+      REDIS_HOSTS: local:redis:6379
+      HTTP_USER: admin
+      HTTP_PASSWORD: redis_admin
+    ports:
+      - "8081:8081"
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.15
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # pgAdmin for TimescaleDB management (optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: trading-bot-pgadmin
+    <<: *restart-policy
+    environment:
+      <<: *common-variables
+      PGADMIN_DEFAULT_EMAIL: admin@trading-bot.local
+      PGADMIN_DEFAULT_PASSWORD: pgadmin_password
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./config/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.16
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
+  # Trading Bot Application
+  trading-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-development}
+    container_name: trading-bot-app
+    <<: *restart-policy
+    environment:
+      <<: *common-variables
+      # Environment
+      TRADING_ENV: ${TRADING_ENV:-development}
+
+      # Database connections
+      TIMESCALEDB_URL: postgresql://trading_user:trading_password@timescaledb:5432/trading_db
+      REDIS_URL: redis://redis:6379
+
+      # API Keys (loaded from .env file)
+      HELIUS_API_KEY: ${HELIUS_API_KEY}
+      QUICKNODE_PRIMARY_RPC: ${QUICKNODE_PRIMARY_RPC}
+      QUICKNODE_SECONDARY_RPC: ${QUICKNODE_SECONDARY_RPC}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+
+      # Wallet configuration
+      WALLET_ADDRESS: ${WALLET_ADDRESS}
+      WALLET_PRIVATE_KEY_PATH: /app/secrets/wallet.keypair
+
+      # Trading parameters
+      INITIAL_CAPITAL: ${INITIAL_CAPITAL:-1.0}
+      MAX_POSITION_SIZE: ${MAX_POSITION_SIZE:-0.10}
+      MAX_DRAWDOWN: ${MAX_DRAWDOWN:-0.15}
+
+      # Monitoring
+      PROMETHEUS_PORT: 9090
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: json
+
+      # Development flags
+      MOCK_APIS: ${MOCK_APIS:-false}
+      VERBOSE_LOGGING: ${VERBOSE_LOGGING:-false}
+    ports:
+      - "9090:9090"  # Metrics port
+      - "8082:8082"  # Health check port
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+      - ./logs:/app/logs
+      - ./rust-modules:/app/rust-modules:ro
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.20
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+  # Node Exporter for system metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: trading-bot-node-exporter
+    <<: *restart-policy
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.30
+
+  # cAdvisor for container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: trading-bot-cadvisor
+    <<: *restart-policy
+    command:
+      - '--housekeeping_interval=30s'
+      - '--docker_only=true'
+    ports:
+      - "8083:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.31
+
+volumes:
+  alertmanager_data:
+    driver: local
+  pgadmin_data:
+    driver: local

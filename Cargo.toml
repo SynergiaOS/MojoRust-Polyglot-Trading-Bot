@@ -1,0 +1,164 @@
+[workspace]
+members = [
+    "rust-modules/wallet",
+    "rust-modules/crypto",
+]
+resolver = "2"
+
+[workspace.package]
+name = "trading-bot-rust"
+version = "0.1.0"
+edition = "2021"
+authors = ["Trading Bot Team"]
+license = "MIT"
+repository = "https://github.com/your-org/mojo-trading-bot"
+homepage = "https://github.com/your-org/mojo-trading-bot"
+description = "Security-critical Rust modules for the AI-powered memecoin trading bot"
+
+[workspace.dependencies]
+# Solana dependencies
+solana-sdk = "1.17"
+solana-client = "1.17"
+solana-account-decoder = "1.17"
+solana-transaction-status = "1.17"
+anchor-client = "0.30"
+anchor-lang = "0.30"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+tokio-util = "0.7"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+
+# HTTP and WebSocket
+reqwest = { version = "0.11", features = ["json", "stream"] }
+tungstenite = "0.20"
+tokio-tungstenite = "0.20"
+
+# Cryptography
+ed25519-dalek = { version = "2.0", features = ["rand_core"] }
+sha2 = "0.10"
+hmac = "0.12"
+aes-gcm = "0.10"
+rand = "0.8"
+rand_chacha = "0.3"
+
+# Encoding
+bs58 = "0.5"
+hex = "0.4"
+base64 = "0.21"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time and date
+chrono = { version = "0.4", features = ["serde"] }
+
+# Database (if needed)
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+redis = { version = "0.24", features = ["tokio-comp"] }
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "serde"] }
+url = "2.5"
+futures = "0.3"
+async-trait = "0.1"
+
+# Security
+zeroize = { version = "1.6", features = ["zeroize_derive"] }
+secrecy = "0.8"
+subtle = "2.5"
+
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# Metrics and monitoring
+prometheus = "0.13"
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
+
+[workspace.dependencies.clap]
+version = "4.4"
+features = ["derive", "env"]
+
+[workspace.dependencies.tokio-test]
+version = "0.4"
+
+[workspace.dependencies.mockito]
+version = "1.2"
+
+[workspace.dependencies.tempfile]
+version = "3.8"
+
+[workspace.dependencies.ctor]
+version = "0.2"
+
+[workspace.dependencies.criterion]
+version = "0.5"
+features = ["html_reports"]
+
+[workspace.dependencies.proptest]
+version = "1.4"
+
+[workspace.dependencies.quickcheck]
+version = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 1
+debug = true
+
+[profile.test]
+opt-level = 1
+debug = true
+
+[profile.bench]
+opt-level = 3
+debug = false
+
+[workspace.metadata.release]
+pre-release-replacements = [
+    {file = "Cargo.toml", search = "version = \"[^\"]+\"", replace = "version = \"{{version}}\""},
+    {file = "rust-modules/*/Cargo.toml", search = "version = \"[^\"]+\"", replace = "version = \"{{version}}\""},
+]
+
+[workspace.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[patch.crates-io]
+# You can patch crates here if needed for testing or custom versions
+
+# Example: Solana devnet version
+# solana-sdk = { git = "https://github.com/solana-labs/solana.git", branch = "master" }
+
+# Features configuration
+[features]
+default = ["std"]
+std = []
+alloc = []
+
+# Network-specific features
+mainnet = []
+devnet = []
+testnet = []
+
+# Optional features
+metrics = ["dep:prometheus", "dep:metrics"]
+database = ["dep:sqlx", "dep:redis"]
+full = ["metrics", "database"]

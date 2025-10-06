@@ -1,0 +1,156 @@
+# Build artifacts
+target/
+*.o
+*.so
+*.dylib
+*.exe
+trading-bot
+test-runner
+mojo-trading-bot
+
+# Mojo artifacts
+__pycache__/
+*.pyc
+.mojo/
+*.mojopkg
+.mojocache/
+
+# Rust artifacts
+Cargo.lock
+**/*.rs.bk
+rust-modules/target/
+rust-modules/Cargo.lock
+
+# Environment files
+.env
+.env.local
+.env.*.local
+config/secrets.toml
+
+# API keys and secrets
+*.key
+*.pem
+wallets/
+*.json.key
+keypair.json
+id.json
+
+# Logs
+*.log
+logs/
+trading-bot.log
+*.out
+*.err
+
+# Database files
+*.db
+*.sqlite
+data/timescaledb/
+data/redis/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Docker volumes
+docker-volumes/
+docker_data/
+
+# Test artifacts
+test-results/
+coverage/
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Backup files
+*.bak
+*~
+*.tmp
+*.temp
+
+# Performance profiling
+*.prof
+flamegraph.svg
+*.trace
+perf.data
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Node modules (if any)
+node_modules/
+
+# Python (if any)
+venv/
+env/
+ENV/
+.venv/
+
+# Jupyter notebooks (if any)
+.ipynb_checkpoints/
+
+# Temporary files
+*.pid
+*.seed
+*.pid.lock
+
+# Optional npm cache
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Microbe cache
+.microbe/
+
+# Parquet cache
+*.parquet.cache/
+
+# Local development
+.local/
+local_config/
+dev_wallets/
+
+# Market data caches
+cache/
+market_cache/
+token_cache/
+
+# Backup directories
+backups/
+snapshots/
+
+# Monitoring data
+prometheus_data/
+grafana_data/
+alertmanager_data/
+
+# Security
+*.gpg
+*.asc
+*.enc
+
+# Trading history sensitive data
+trades_sensitive/
+portfolio_sensitive/
+.clinerules/byterover-rules.md
+.kilocode/rules/byterover-rules.md
+.roo/rules/byterover-rules.md
+.windsurf/rules/byterover-rules.md
+.cursor/rules/byterover-rules.mdc
+.kiro/steering/byterover-rules.md
+.qoder/rules/byterover-rules.md
+.augment/rules/byterover-rules.md

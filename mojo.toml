@@ -1,0 +1,296 @@
+[package]
+name = "trading-bot"
+version = "0.1.0"
+description = "AI-powered memecoin trading bot for Solana"
+authors = ["Trading Bot Team"]
+license = "MIT"
+homepage = "https://github.com/your-org/mojo-trading-bot"
+repository = "https://github.com/your-org/mojo-trading-bot"
+
+# Build configuration
+[build]
+# Optimization level for release builds
+# O0: No optimization
+# O1: Basic optimization
+# O2: Standard optimization (recommended for release)
+# O3: Aggressive optimization (best performance)
+optimization_level = "O3"
+
+# Include debug information (useful for profiling)
+debug_info = false
+
+# Target architecture (auto-detected, can be overridden)
+# target_arch = "x86_64"
+
+# Enable/disable specific CPU features for optimization
+[target.x86_64]
+# Enable AVX2 for faster SIMD operations
+cpu_features = ["avx2", "fma", "bmi2"]
+
+# Target specific flags
+[target.aarch64]
+# Enable NEON for ARM processors
+cpu_features = ["neon"]
+
+# Dependencies
+[dependencies]
+# Note: Mojo's package ecosystem is still evolving
+# These dependencies may need adjustment based on available packages
+
+# HTTP client for API requests
+# http = "0.1"
+
+# JSON parsing and serialization
+# json = "0.1"
+
+# WebSocket support for real-time data
+# websocket = "0.1"
+
+# Mathematical operations and statistics
+# math = "0.1"
+
+# Random number generation
+# random = "0.1"
+
+# Time and date operations
+# time = "0.1"
+
+# Cryptographic operations (basic)
+# crypto = "0.1"
+
+# String manipulation and regex
+# regex = "0.1"
+
+# File I/O operations
+# io = "0.1"
+
+# Testing dependencies
+[dev-dependencies]
+# Test framework
+# test = "0.1"
+
+# Mock objects for testing
+# mock = "0.1"
+
+# Test data generators
+# test_data = "0.1"
+
+# Benchmarking dependencies
+[bench-dependencies]
+# Performance testing
+# benchmark = "0.1"
+
+# Profiling tools
+# profiler = "0.1"
+
+# Configuration for different build profiles
+[profile.dev]
+# Development build configuration
+optimization_level = "O1"
+debug_info = true
+# Faster compilation for development
+incremental = true
+
+[profile.release]
+# Release build configuration
+optimization_level = "O3"
+debug_info = false
+# Maximum optimization for performance
+lto = true  # Link-time optimization
+panic_mode = "abort"  # Smaller binaries
+
+[profile.test]
+# Test build configuration
+optimization_level = "O1"
+debug_info = true
+
+# Compiler flags
+[compiler]
+# Additional compiler flags
+flags = [
+    "-Wall",           # Enable all warnings
+    "-Wextra",         # Enable extra warnings
+    "-Werror",         # Treat warnings as errors
+]
+
+# Flags specific to release builds
+[profile.release.compiler]
+flags = [
+    "-O3",             # Maximum optimization
+    "-flto",           # Link-time optimization
+    "-DNDEBUG",        # Disable debug assertions
+]
+
+# Linter configuration
+[lint]
+# Enable specific lints
+enabled = [
+    "unused_variables",
+    "unused_imports",
+    "dead_code",
+    "unreachable_code",
+]
+
+# Disable specific lints
+disabled = [
+    "too_many_arguments",
+    "complexity",
+]
+
+# Documentation configuration
+[doc]
+# Generate documentation
+generate = true
+
+# Documentation output directory
+output_dir = "docs"
+
+# Include private items in documentation
+include_private = false
+
+# Test configuration
+[test]
+# Test discovery patterns
+include = [
+    "tests/**/*.mojo",
+    "src/**/test_*.mojo",
+    "src/**/*_test.mojo",
+]
+
+# Exclude patterns
+exclude = [
+    "tests/backtest/**",  # Backtests are slow, run separately
+]
+
+# Test timeout in seconds
+timeout = 300
+
+# Parallel test execution
+parallel = true
+
+# Benchmark configuration
+[benchmark]
+# Benchmark discovery patterns
+include = [
+    "tests/bench/**/*.mojo",
+    "bench/**/*.mojo",
+]
+
+# Number of benchmark iterations
+iterations = 100
+
+# Warmup iterations
+warmup = 10
+
+# FFI configuration (for Rust integration)
+[ffi]
+# Enable FFI support
+enabled = true
+
+# Rust library paths
+rust_libs = [
+    "rust-modules/target/release/libwallet.so",
+]
+
+# Include directories
+include_dirs = [
+    "rust-modules/include",
+]
+
+# Link libraries
+link_libs = [
+    "wallet",
+]
+
+# Mojo Playground configuration (if applicable)
+[playground]
+# Enable playground integration
+enabled = false
+
+# Playground server URL
+server_url = "https://playground.modular.com"
+
+# Environment variables
+[env]
+# Default environment variables
+RUST_LOG = "info"
+LOG_LEVEL = "info"
+
+# Environment-specific variables
+[env.development]
+RUST_LOG = "debug"
+LOG_LEVEL = "debug"
+MOCK_APIS = "true"
+
+[env.production]
+RUST_LOG = "warn"
+LOG_LEVEL = "info"
+MOCK_APIS = "false"
+
+# Workspace configuration (for multi-package projects)
+[workspace]
+# Workspace members
+members = [
+    "src",
+    "tests",
+]
+
+# Workspace dependencies (shared across all packages)
+[workspace.dependencies]
+# Shared dependencies can be defined here
+
+# Tool configuration
+[tool]
+# Code formatter
+formatter = {
+    enabled = true,
+    line_length = 100,
+    indent_width = 4,
+}
+
+# Linter
+linter = {
+    enabled = true,
+    strict = true,
+}
+
+# Static analyzer
+analyzer = {
+    enabled = true,
+    checks = ["memory", "performance", "security"],
+}
+
+# Integration configuration
+[integration]
+# Docker integration
+docker = {
+    enabled = true,
+    base_image = "ubuntu:22.04",
+}
+
+# Kubernetes integration
+kubernetes = {
+    enabled = false,  # Enable when ready for K8s deployment
+}
+
+# CI/CD integration
+ci_cd = {
+    platform = "github_actions",
+    workflows = ["test", "build", "deploy"],
+}
+
+# Publishing configuration
+[publish]
+# Registry configuration
+registry = "https://registry.modular.com"
+
+# Publish targets
+targets = [
+    "x86_64-linux",
+    "aarch64-linux",
+    "x86_64-macos",
+    "aarch64-macos",
+]
+
+# Auto-publish on tag
+auto_publish = true
