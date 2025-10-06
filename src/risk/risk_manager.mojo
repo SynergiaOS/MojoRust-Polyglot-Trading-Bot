@@ -7,7 +7,7 @@ from collections import Dict, List
 from math import sqrt
 from core.types import (
     TradingSignal, RiskApproval, RiskAnalysis, RiskLevel,
-    Portfolio, Position, MarketData, TradingAction
+    Portfolio, Position, MarketData, TradingAction, Config
 )
 from core.constants import (
     MAX_CORRELATION_THRESHOLD,
@@ -22,13 +22,13 @@ struct RiskManager:
     """
     Advanced risk management system
     """
-    var config  # We'll add the type later
+    var config: Config
     var portfolio: Portfolio
     var max_daily_trades: Int
     var trades_today: Int
     var last_reset_date: Float
 
-    fn __init__(config):
+    fn __init__(config: Config):
         self.config = config
         self.portfolio = Portfolio(0.0, 0.0)
         self.max_daily_trades = config.trading.daily_trade_limit
@@ -119,60 +119,60 @@ struct RiskManager:
         liquidity_risk_score = 0.0
         volatility_score = 0.0
 
-        # RSI-based risk
-        if signal.rsi_value > 90:
-            risk_factors.append("Extremely overbought (RSI > 90)")
-            risk_score += 0.3
-        elif signal.rsi_value > 80:
-            risk_factors.append("Very overbought (RSI > 80)")
-            risk_score += 0.2
-        elif signal.rsi_value < 10:
-            risk_factors.append("Extremely oversold (RSI < 10)")
-            risk_score += 0.2
-        elif signal.rsi_value < 20:
-            risk_factors.append("Very oversold (RSI < 20)")
-            risk_score += 0.1
+        # RSI-based risk (using config thresholds)
+        if signal.rsi_value > self.config.risk_thresholds.rsi_extreme_overbought:
+            risk_factors.append(f"Extremely overbought (RSI > {self.config.risk_thresholds.rsi_extreme_overbought})")
+            risk_score += self.config.risk_thresholds.risk_score_extreme_overbought
+        elif signal.rsi_value > self.config.risk_thresholds.rsi_very_overbought:
+            risk_factors.append(f"Very overbought (RSI > {self.config.risk_thresholds.rsi_very_overbought})")
+            risk_score += self.config.risk_thresholds.risk_score_very_overbought
+        elif signal.rsi_value < self.config.risk_thresholds.rsi_extreme_oversold:
+            risk_factors.append(f"Extremely oversold (RSI < {self.config.risk_thresholds.rsi_extreme_oversold})")
+            risk_score += self.config.risk_thresholds.risk_score_extreme_oversold
+        elif signal.rsi_value < self.config.risk_thresholds.rsi_very_oversold:
+            risk_factors.append(f"Very oversold (RSI < {self.config.risk_thresholds.rsi_very_oversold})")
+            risk_score += self.config.risk_thresholds.risk_score_very_oversold
 
-        # Volume-based risk
+        # Volume-based risk (using config thresholds)
         if signal.volume < self.config.risk.min_volume:
             risk_factors.append("Low volume")
-            risk_score += 0.3
-            liquidity_risk_score += 0.2
+            risk_score += self.config.risk_thresholds.risk_score_low_volume
+            liquidity_risk_score += self.config.risk_thresholds.liquidity_risk_low_volume
 
-        # Liquidity-based risk
+        # Liquidity-based risk (using config thresholds)
         if signal.liquidity < self.config.risk.min_liquidity:
             risk_factors.append("Low liquidity")
-            risk_score += 0.4
-            liquidity_risk_score += 0.3
+            risk_score += self.config.risk_thresholds.risk_score_low_liquidity
+            liquidity_risk_score += self.config.risk_thresholds.liquidity_risk_low_liquidity
 
-        # Price movement risk
-        if abs(signal.price_change_5m) > 0.2:  # 20% in 5 minutes
+        # Price movement risk (using config thresholds)
+        if abs(signal.price_change_5m) > self.config.risk_thresholds.price_movement_extreme:
             risk_factors.append("Extreme price movement")
-            risk_score += 0.3
-            volatility_score += 0.3
-        elif abs(signal.price_change_5m) > 0.1:  # 10% in 5 minutes
+            risk_score += self.config.risk_thresholds.risk_score_extreme_movement
+            volatility_score += self.config.risk_thresholds.volatility_extreme_movement
+        elif abs(signal.price_change_5m) > self.config.risk_thresholds.price_movement_high:
             risk_factors.append("High price movement")
-            risk_score += 0.2
-            volatility_score += 0.2
+            risk_score += self.config.risk_thresholds.risk_score_high_movement
+            volatility_score += self.config.risk_thresholds.volatility_high_movement
 
-        # Confidence-based risk
-        if signal.confidence < 0.6:
+        # Confidence-based risk (using config threshold)
+        if signal.confidence < self.config.risk_thresholds.confidence_threshold:
             risk_factors.append("Low signal confidence")
-            risk_score += 0.2
+            risk_score += self.config.risk_thresholds.risk_score_low_confidence
 
-        # Wash trading risk (simplified)
-        if signal.volume > 1000000 and signal.liquidity < 10000:
+        # Wash trading risk (using config thresholds)
+        if signal.volume > self.config.risk_thresholds.wash_trading_volume_threshold and signal.liquidity < self.config.risk_thresholds.wash_trading_liquidity_threshold:
             risk_factors.append("Potential wash trading")
-            risk_score += 0.4
-            wash_trading_score += 0.8
+            risk_score += self.config.risk_thresholds.risk_score_wash_trading
+            wash_trading_score += self.config.risk_thresholds.wash_trading_score
 
-        # Determine risk level
+        # Determine risk level (using config thresholds)
         risk_level = RiskLevel.LOW
-        if risk_score >= 0.7:
+        if risk_score >= self.config.risk_thresholds.risk_level_critical:
             risk_level = RiskLevel.CRITICAL
-        elif risk_score >= 0.5:
+        elif risk_score >= self.config.risk_thresholds.risk_level_high:
             risk_level = RiskLevel.HIGH
-        elif risk_score >= 0.3:
+        elif risk_score >= self.config.risk_thresholds.risk_level_medium:
             risk_level = RiskLevel.MEDIUM
 
         return RiskAnalysis(
@@ -224,19 +224,19 @@ struct RiskManager:
         # Confidence adjustment
         size_multiplier *= signal.confidence
 
-        # Risk level adjustment
+        # Risk level adjustment (using config multipliers)
         if risk_analysis.risk_level == RiskLevel.HIGH:
-            size_multiplier *= 0.5
+            size_multiplier *= self.config.risk_thresholds.position_size_high_risk_multiplier
         elif risk_analysis.risk_level == RiskLevel.MEDIUM:
-            size_multiplier *= 0.75
+            size_multiplier *= self.config.risk_thresholds.position_size_medium_risk_multiplier
 
-        # Liquidity risk adjustment
-        if risk_analysis.liquidity_risk_score > 0.5:
-            size_multiplier *= 0.7
+        # Liquidity risk adjustment (using config threshold)
+        if risk_analysis.liquidity_risk_score > self.config.risk_thresholds.liquidity_risk_threshold:
+            size_multiplier *= self.config.risk_thresholds.liquidity_risk_multiplier
 
-        # Volatility adjustment
-        if risk_analysis.volatility_score > 0.3:
-            size_multiplier *= 0.8
+        # Volatility adjustment (using config threshold)
+        if risk_analysis.volatility_score > self.config.risk_thresholds.volatility_threshold:
+            size_multiplier *= self.config.risk_thresholds.volatility_risk_multiplier
 
         # Kelly criterion adjustment
         kelly_multiplier = self.config.trading.kelly_fraction
@@ -249,12 +249,12 @@ struct RiskManager:
         """
         Check if liquidity is sufficient for the trade
         """
-        # Check if we can reasonably enter/exit the position
-        if signal.liquidity < 5000:  # Minimum $5k liquidity
+        # Check if we can reasonably enter/exit the position (using config threshold)
+        if signal.liquidity < self.config.risk_thresholds.min_liquidity_check:
             return False
 
-        # Check volume consistency
-        if signal.volume > signal.liquidity * 20:  # Volume > 20x liquidity
+        # Check volume consistency (using config threshold)
+        if signal.volume > signal.liquidity * self.config.risk_thresholds.volume_to_liquidity_suspicious:
             return False
 
         return True
@@ -320,25 +320,25 @@ struct RiskManager:
 
         concentration_risk = max_position_value / self.portfolio.total_value
 
-        # Calculate correlation risk (simplified)
-        correlation_risk = min(1.0, len(self.portfolio.positions) / 10.0)
+        # Calculate correlation risk (using config threshold)
+        correlation_risk = min(1.0, len(self.portfolio.positions) / self.config.risk_thresholds.correlation_risk_divisor)
 
-        # Calculate liquidity risk
+        # Calculate liquidity risk (using config threshold)
         liquidity_risk = 0.0
         if len(self.portfolio.positions) > 0:
             total_liquidity = sum(pos.size * pos.current_price for pos in self.portfolio.positions.values())
-            liquidity_risk = 1.0 - min(1.0, total_liquidity / (self.portfolio.total_value * 0.1))
+            liquidity_risk = 1.0 - min(1.0, total_liquidity / (self.portfolio.total_value * self.config.risk_thresholds.liquidity_risk_portfolio_multiplier))
 
         # Overall risk score
         total_risk = (concentration_risk + correlation_risk + liquidity_risk) / 3.0
 
-        # Determine risk level
+        # Determine risk level (using config thresholds)
         risk_level = RiskLevel.LOW
-        if total_risk >= 0.7:
+        if total_risk >= self.config.risk_thresholds.total_risk_critical:
             risk_level = RiskLevel.CRITICAL
-        elif total_risk >= 0.5:
+        elif total_risk >= self.config.risk_thresholds.total_risk_high:
             risk_level = RiskLevel.HIGH
-        elif total_risk >= 0.3:
+        elif total_risk >= self.config.risk_thresholds.total_risk_medium:
             risk_level = RiskLevel.MEDIUM
 
         return {
@@ -362,12 +362,12 @@ struct RiskManager:
         if risk_metrics["overall_risk_level"] in [RiskLevel.HIGH, RiskLevel.CRITICAL]:
             return True
 
-        # Reduce risk if approaching daily limits
-        if self.trades_today >= self.max_daily_trades * 0.8:
+        # Reduce risk if approaching daily limits (using config threshold)
+        if self.trades_today >= self.max_daily_trades * self.config.risk_thresholds.daily_trades_warning_percentage:
             return True
 
-        # Reduce risk if concentration is too high
-        if risk_metrics["concentration_risk"] > 0.3:
+        # Reduce risk if concentration is too high (using config threshold)
+        if risk_metrics["concentration_risk"] > self.config.risk_thresholds.concentration_risk_threshold:
             return True
 
         return False

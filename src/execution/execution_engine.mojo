@@ -127,7 +127,7 @@ struct ExecutionEngine:
                 potential_profit = signal.stop_loss - signal.price_target
                 potential_loss = signal.price_target
 
-            if potential_loss <= 0 or potential_profit / potential_loss < 2.0:
+            if potential_loss <= 0 or potential_profit / potential_loss < self.config.risk.min_risk_reward_ratio:
                 return False
 
         return True
@@ -151,10 +151,10 @@ struct ExecutionEngine:
                     token_metadata = self.helius_client.get_token_metadata(signal.symbol)
                     decimals = token_metadata.decimals
                     if decimals <= 0:
-                        decimals = 9  # Default to 9 decimals if not found
+                        decimals = self.config.execution.default_decimals  # Configurable default decimals
                 except e:
                     print(f"⚠️  Error getting token metadata for {signal.symbol}, using default decimals")
-                    decimals = 9  # Default to 9 decimals
+                    decimals = self.config.execution.default_decimals  # Configurable default decimals
 
                 # Convert token units to base units (smallest possible units)
                 if approval.position_size <= 0:
@@ -264,7 +264,7 @@ struct ExecutionEngine:
                 )
 
             base_price = quote.output_amount / quote.input_amount
-            slippage_factor = 0.001 + (quote.price_impact / 100)  # Base slippage + price impact
+            slippage_factor = self.config.execution.base_slippage + (quote.price_impact / 100.0)  # Configurable base slippage + price impact
 
             if signal.action == TradingAction.BUY:
                 executed_price = base_price * (1 + slippage_factor)
@@ -274,7 +274,7 @@ struct ExecutionEngine:
             slippage_percentage = abs(executed_price - base_price) / base_price * 100
 
             # Simulate gas cost
-            gas_cost = 0.000005  # 0.000005 SOL typical gas cost
+            gas_cost = self.config.execution.gas_cost  # Configurable gas cost
 
             # Generate mock transaction hash
             mock_tx_hash = f"paper_tx_{int(time() * 1000)}"
@@ -448,7 +448,7 @@ struct ExecutionEngine:
         if self.execution_count > 0:
             success_rate = self.successful_executions / self.execution_count
 
-        performance_healthy = success_rate >= 0.9  # 90% success rate minimum
+        performance_healthy = success_rate >= self.config.execution.min_success_rate  # Configurable success rate minimum
 
         return jupiter_healthy and quicknode_healthy and performance_healthy
 

@@ -39,11 +39,13 @@ struct SpamFilter:
         # Initialize enhanced filtering fields
         self.last_signal_times = {}
         self.signal_counts = {}
-        self.MIN_VOLUME_USD = 10000.0      # Increased from 5000.0
-        self.MIN_LIQUIDITY_USD = 20000.0   # Increased from 10000.0
-        self.MIN_CONFIDENCE = 0.70         # Increased from 0.5
-        self.COOLDOWN_SECONDS = 30.0
-        self.MAX_SIGNALS_PER_SYMBOL = 5
+
+        # Load all values from configuration instead of hardcoded
+        self.MIN_VOLUME_USD = config.filters.spam_min_volume_usd
+        self.MIN_LIQUIDITY_USD = config.filters.spam_min_liquidity_usd
+        self.MIN_CONFIDENCE = config.filters.spam_min_confidence
+        self.COOLDOWN_SECONDS = config.filters.spam_cooldown_seconds
+        self.MAX_SIGNALS_PER_SYMBOL = config.filters.spam_max_signals_per_symbol
 
         # Initialize logger
         self.logger = get_logger("SpamFilter")
@@ -53,7 +55,8 @@ struct SpamFilter:
             "min_liquidity_usd": self.MIN_LIQUIDITY_USD,
             "min_confidence": self.MIN_CONFIDENCE,
             "cooldown_seconds": self.COOLDOWN_SECONDS,
-            "max_signals_per_symbol": self.MAX_SIGNALS_PER_SYMBOL
+            "max_signals_per_symbol": self.MAX_SIGNALS_PER_SYMBOL,
+            "loaded_from": "config.filters.spam_*"
         })
 
     fn filter_signals(self, signals: List[TradingSignal]) -> List[TradingSignal]:
@@ -88,7 +91,7 @@ struct SpamFilter:
 
         # New: Volume quality assessment
         volume_quality = self._assess_volume_quality(signal)
-        if volume_quality < 0.6:
+        if volume_quality < self.config.filters.spam_volume_quality_threshold:
             self.logger.debug("poor_volume_quality", {
                 "symbol": signal.symbol,
                 "quality_score": volume_quality,
@@ -195,18 +198,18 @@ struct SpamFilter:
         avg_tx_size = signal.metadata.get("avg_tx_size", 0.0)
         volume_consistency = signal.metadata.get("volume_consistency", 0.0)
 
-        # Check average transaction size (<$10 indicates wash trading)
-        if avg_tx_size < 10.0:
+        # Check average transaction size (using config threshold)
+        if avg_tx_size < self.config.filters.spam_avg_tx_size_threshold:
             quality_score -= 0.4
 
-        # Check volume consistency (<30% indicates manipulation)
-        if volume_consistency < 0.3:
+        # Check volume consistency (using config threshold)
+        if volume_consistency < self.config.filters.spam_volume_consistency_threshold:
             quality_score -= 0.3
 
-        # Check volume to liquidity ratio (>10x indicates suspicious activity)
+        # Check volume to liquidity ratio (using config threshold)
         if signal.liquidity > 0:
             volume_to_liquidity_ratio = signal.volume / signal.liquidity
-            if volume_to_liquidity_ratio > 10.0:
+            if volume_to_liquidity_ratio > self.config.filters.spam_volume_to_liquidity_ratio:
                 quality_score -= 0.3
 
         return max(quality_score, 0.0)
@@ -221,7 +224,7 @@ struct SpamFilter:
 
         # Check liquidity depth (ratio of volume to liquidity)
         liquidity_depth = signal.volume / signal.liquidity
-        if liquidity_depth > 10.0:  # Volume > 10x liquidity might be wash trading
+        if liquidity_depth > self.config.filters.spam_volume_to_liquidity_ratio:  # Using config threshold
             return False
 
         return True
@@ -234,10 +237,10 @@ struct SpamFilter:
         if signal.volume < self.config.risk.min_volume:
             return False
 
-        # Check for suspicious volume spikes
+        # Check for suspicious volume spikes (using config thresholds)
         # In a real implementation, we'd compare with historical volume
         # For now, we'll use basic heuristics
-        if signal.volume > 1000000.0 and signal.liquidity < 50000.0:
+        if signal.volume > self.config.risk_thresholds.wash_trading_volume_threshold and signal.liquidity < self.config.risk_thresholds.wash_trading_liquidity_threshold:
             # Very high volume with low liquidity is suspicious
             return False
 
@@ -281,16 +284,16 @@ struct SpamFilter:
             # Get transaction history from Helius
             tx_history = self.helius_client.get_transaction_history(signal.symbol)
 
-            # Check wash trading score
-            if tx_history.wash_trading_score > WASH_TRADING_SCORE_THRESHOLD:
+            # Check wash trading score (using config threshold)
+            if tx_history.wash_trading_score > self.config.filters.spam_wash_trading_threshold:
                 return False
 
-            # Check transaction frequency
-            if tx_history.transaction_frequency > 100.0:  # Very high frequency
+            # Check transaction frequency (using config threshold)
+            if tx_history.transaction_frequency > self.config.filters.spam_high_frequency_threshold:
                 return False
 
-            # Check large transactions
-            if tx_history.large_transactions > 10 and signal.liquidity < 25000.0:
+            # Check large transactions (using config thresholds)
+            if tx_history.large_transactions > self.config.filters.spam_large_tx_count and signal.liquidity < self.config.filters.spam_large_tx_liquidity:
                 # Many large transactions with low liquidity
                 return False
 
@@ -303,13 +306,13 @@ struct SpamFilter:
         """
         Check for pump & dump patterns
         """
-        # Check for rapid price increases
-        if signal.rsi_value > 80.0:  # Extremely overbought
+        # Check for rapid price increases (using config threshold)
+        if signal.rsi_value > self.config.filters.spam_extreme_rsi_threshold:
             return False
 
-        # Check if price increase is too rapid
+        # Check if price increase is too rapid (using config threshold)
         let pc5 = signal.metadata.get("price_change_5m", 0.0)
-        if pc5 > 50.0:  # 50% in 5 minutes
+        if pc5 > self.config.filters.spam_rapid_price_change:
             return False
 
         # Check if there's no real support level
@@ -339,14 +342,14 @@ struct SpamFilter:
             # Get token age from Helius
             age_hours = self.helius_client.analyze_token_age(signal.symbol)
 
-            # Skip very new tokens (less than 30 minutes)
-            if age_hours < 0.5:
+            # Skip very new tokens (using config threshold)
+            if age_hours < self.config.filters.spam_new_token_age_hours:
                 return False
 
-            # Be more careful with very new tokens (less than 2 hours)
-            if age_hours < 2.0:
-                # Require higher confidence for new tokens
-                return signal.confidence > 0.8
+            # Be more careful with very new tokens (using config threshold)
+            if age_hours < self.config.filters.spam_careful_token_age_hours:
+                # Require higher confidence for new tokens (using config threshold)
+                return signal.confidence > self.config.filters.spam_high_confidence_new_token
 
             return True
         except e:
@@ -357,27 +360,27 @@ struct SpamFilter:
         """
         Check for price manipulation patterns
         """
-        # Check for unrealistic price targets
+        # Check for unrealistic price targets (using config threshold)
         if signal.price_target > 0:
             expected_return = (signal.price_target - signal.stop_loss) / signal.stop_loss
-            if expected_return > 10.0:  # More than 1000% expected return
+            if expected_return > self.config.filters.spam_expected_return_limit:  # Using config threshold
                 return False
 
         # Check stop loss placement
         if signal.stop_loss <= 0:
             return False
 
-        # Check if stop loss is too tight
+        # Check if stop loss is too tight (using config threshold)
         current_price_estimate = signal.price_target if signal.price_target > 0 else signal.stop_loss * 1.5
         stop_loss_distance = abs(current_price_estimate - signal.stop_loss) / current_price_estimate
-        if stop_loss_distance < 0.05:  # Less than 5% stop loss
+        if stop_loss_distance < self.config.filters.spam_min_stop_loss_distance:  # Using config threshold
             return False
 
         # Check for round number targets (might be psychological manipulation)
         if signal.price_target > 0:
             if self._is_round_number(signal.price_target):
-                # Reduce confidence for round number targets
-                return signal.confidence > 0.85
+                # Reduce confidence for round number targets (using config threshold)
+                return signal.confidence > self.config.filters.spam_round_number_confidence
 
         return True
 
@@ -453,10 +456,10 @@ struct SpamFilter:
         except:
             pass
 
-        # Check volume patterns
+        # Check volume patterns (using config threshold)
         if market_data.volume_24h > 0 and market_data.liquidity_usd > 0:
             volume_to_liquidity = market_data.volume_24h / market_data.liquidity_usd
-            if volume_to_liquidity > 20.0:
+            if volume_to_liquidity > self.config.risk_thresholds.volume_to_liquidity_suspicious:
                 health_score -= 0.2
                 risk_factors.append("Unusual volume patterns")
 

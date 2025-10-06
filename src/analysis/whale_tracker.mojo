@@ -254,7 +254,7 @@ struct WhaleTransactionAnalyzer:
         """
         # High volume + low holder count = likely whale activity
         var volume_score = min(market_data.volume_24h / 100000.0, 1.0)  # $100k = max
-        var holder_concentration = 1.0 - (market_data.holder_count / 100.0)  # Fewer holders = higher concentration
+        var holder_concentration = 1.0 - (market_data.holder_count / self.config.whale.max_holder_reference)  # Configurable holder concentration
 
         return min((volume_score + holder_concentration * 0.5) / 1.5, 1.0)
 

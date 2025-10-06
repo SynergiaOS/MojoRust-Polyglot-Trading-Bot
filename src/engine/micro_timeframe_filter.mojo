@@ -6,7 +6,7 @@
 
 from time import time
 from collections import Dict, List, Set
-from core.types import TradingSignal, TradingAction
+from core.types import TradingSignal, TradingAction, Config
 from core.logger import get_main_logger
 
 @value
@@ -16,7 +16,8 @@ struct MicroTimeframeFilter:
     Highest spam risk timeframes requiring extreme filtering
     """
 
-    # Filter configuration constants
+    # Configuration-driven filter parameters
+    var config: Config
     var MIN_VOLUME_USD: Float
     var MIN_CONFIDENCE: Float
     var COOLDOWN_SECONDS: Float
@@ -33,15 +34,16 @@ struct MicroTimeframeFilter:
     # Logger
     var logger
 
-    fn __init__(inout self):
-        """Initialize micro timeframe filter with ultra-strict parameters"""
-        # Ultra-strict thresholds for high-risk timeframes
-        self.MIN_VOLUME_USD = 15000.0  # $15k minimum volume
-        self.MIN_CONFIDENCE = 0.75      # 75% minimum confidence
-        self.COOLDOWN_SECONDS = 60.0     # 60s cooldown between signals
-        self.MIN_PRICE_STABILITY = 0.80   # 80% minimum price stability
-        self.MAX_PRICE_CHANGE_5MIN = 0.30 # 30% max price change in 5min
-        self.EXTREME_PRICE_SPIKE_THRESHOLD = 0.50  # 50% extreme spike threshold
+    fn __init__(config: Config):
+        """Initialize micro timeframe filter with configuration-driven parameters"""
+        # Load thresholds from config for micro timeframe filter
+        self.config = config
+        self.MIN_VOLUME_USD = config.filters.micro_min_volume_usd
+        self.MIN_CONFIDENCE = config.filters.micro_min_confidence
+        self.COOLDOWN_SECONDS = config.filters.micro_cooldown_seconds
+        self.MIN_PRICE_STABILITY = config.filters.micro_min_price_stability
+        self.MAX_PRICE_CHANGE_5MIN = config.filters.micro_max_price_change_5min
+        self.EXTREME_PRICE_SPIKE_THRESHOLD = config.filters.micro_extreme_price_spike
 
         # Target ultra-short timeframes
         self.TARGET_TIMEFRAMES = {"1s", "5s", "15s"}
@@ -56,7 +58,8 @@ struct MicroTimeframeFilter:
             "min_volume_usd": self.MIN_VOLUME_USD,
             "min_confidence": self.MIN_CONFIDENCE,
             "cooldown_seconds": self.COOLDOWN_SECONDS,
-            "target_timeframes": list(self.TARGET_TIMEFRAMES)
+            "target_timeframes": list(self.TARGET_TIMEFRAMES),
+            "loaded_from": "config.filters.micro_*"
         })
 
     fn filter_signals(self, signals: List[TradingSignal]) -> List[TradingSignal]:
@@ -205,24 +208,24 @@ struct MicroTimeframeFilter:
                 })
                 return True
 
-        # Check for classic pump & dump indicators
+        # Check for classic pump & dump indicators (using config thresholds)
         pump_dump_indicators = 0
 
-        # High volume spike (>3x normal)
-        if volume_spike_ratio > 3.0:
+        # High volume spike (using config threshold)
+        if volume_spike_ratio > self.config.filters.micro_volume_spike_ratio:
             pump_dump_indicators += 1
 
-        # Extreme price change (>20% in 5min)
-        if abs(price_change_5m) > 0.20:
+        # Extreme price change (using config threshold)
+        if abs(price_change_5m) > self.config.filters.micro_extreme_price_change:
             pump_dump_indicators += 1
 
-        # High holder concentration (>80%)
-        if holder_concentration > 0.80:
+        # High holder concentration (using config threshold)
+        if holder_concentration > self.config.filters.micro_max_holder_concentration:
             pump_dump_indicators += 1
 
-        # Low liquidity relative to volume
+        # Low liquidity relative to volume (using config threshold)
         liquidity_to_volume_ratio = signal.liquidity / signal.volume if signal.volume > 0 else 0.0
-        if liquidity_to_volume_ratio < 0.5:  # Liquidity less than 50% of volume
+        if liquidity_to_volume_ratio < self.config.filters.micro_min_liquidity_ratio:
             pump_dump_indicators += 1
 
         # If 2 or more indicators, flag as pump & dump
@@ -245,9 +248,9 @@ struct MicroTimeframeFilter:
         micro_checks_passed = 0
         total_checks = 0
 
-        # 1. RSI sanity check for micro timeframes
+        # 1. RSI sanity check for micro timeframes (using config thresholds)
         total_checks += 1
-        if 20.0 <= signal.rsi_value <= 80.0:  # Not extreme RSI
+        if self.config.filters.micro_min_rsi <= signal.rsi_value <= self.config.filters.micro_max_rsi:  # Using config RSI bounds
             micro_checks_passed += 1
         else:
             self.logger.debug("extreme_rsi_micro", {
@@ -256,10 +259,10 @@ struct MicroTimeframeFilter:
                 "timeframe": signal.timeframe
             })
 
-        # 2. Volume consistency check
+        # 2. Volume consistency check (using config threshold)
         total_checks += 1
         volume_consistency = signal.metadata.get("volume_consistency", 0.0)
-        if volume_consistency > 0.6:  # Reasonable volume consistency
+        if volume_consistency > self.config.filters.micro_volume_consistency:  # Using config threshold
             micro_checks_passed += 1
         else:
             self.logger.debug("poor_volume_consistency", {
@@ -268,9 +271,9 @@ struct MicroTimeframeFilter:
                 "timeframe": signal.timeframe
             })
 
-        # 3. Liquidity depth check
+        # 3. Liquidity depth check (using config threshold)
         total_checks += 1
-        if signal.liquidity > signal.volume * 1.5:  # Liquidity should be 1.5x volume
+        if signal.liquidity > signal.volume * self.config.filters.micro_liquidity_multiplier:  # Using config multiplier
             micro_checks_passed += 1
         else:
             self.logger.debug("insufficient_liquidity_depth", {
@@ -280,13 +283,13 @@ struct MicroTimeframeFilter:
                 "timeframe": signal.timeframe
             })
 
-        # 4. Transaction size consistency
+        # 4. Transaction size consistency (using config thresholds)
         total_checks += 1
         avg_tx_size = signal.metadata.get("avg_tx_size", 0.0)
         if avg_tx_size > 0:  # Should have transaction data
-            # Check if transaction sizes are reasonable (not too small, not too large)
+            # Check if transaction sizes are reasonable (using config thresholds)
             tx_size_to_volume_ratio = avg_tx_size / signal.volume if signal.volume > 0 else 0.0
-            if 0.001 <= tx_size_to_volume_ratio <= 0.1:  # 0.1% to 10% of volume
+            if self.config.filters.micro_min_tx_size_ratio <= tx_size_to_volume_ratio <= self.config.filters.micro_max_tx_size_ratio:
                 micro_checks_passed += 1
             else:
                 self.logger.debug("suspicious_tx_sizes", {
@@ -301,8 +304,8 @@ struct MicroTimeframeFilter:
                 "timeframe": signal.timeframe
             })
 
-        # Must pass at least 75% of micro timeframe checks
-        required_passes = int(total_checks * 0.75)
+        # Must pass at least required percentage of micro timeframe checks (using config threshold)
+        required_passes = int(total_checks * self.config.filters.micro_required_checks_percentage)
         return micro_checks_passed >= required_passes
 
     def get_filter_statistics(self) -> Dict[String, Int]:

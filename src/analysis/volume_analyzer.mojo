@@ -3,9 +3,9 @@
 # =============================================================================
 
 from time import time
-from collections import Dict, List
+from collections import Dict, List, Any
 from math import min, max, clamp, sqrt
-from core.types import MarketData
+from core.types import MarketData, Config
 from core.constants import MIN_VOLUME_USD, MIN_LIQUIDITY_USD
 
 # =============================================================================
@@ -139,12 +139,14 @@ struct VolumeAnalyzer:
     var pattern_analyzer: VolumePatternAnalyzer
     var anomaly_detector: VolumeAnomalyDetector
     var quality_assessor: VolumeQualityAssessor
+    var config: Config
 
-    fn __init__():
-        self.spike_detector = VolumeSpikeDetector()
-        self.pattern_analyzer = VolumePatternAnalyzer()
-        self.anomaly_detector = VolumeAnomalyDetector()
-        self.quality_assessor = VolumeQualityAssessor()
+    fn __init__(config: Config):
+        self.config = config
+        self.spike_detector = VolumeSpikeDetector(config)
+        self.pattern_analyzer = VolumePatternAnalyzer(config)
+        self.anomaly_detector = VolumeAnomalyDetector(config)
+        self.quality_assessor = VolumeQualityAssessor(config)
 
     fn analyze(self, market_data: MarketData) -> VolumeAnalysis:
         """
@@ -193,9 +195,9 @@ struct VolumeAnalyzer:
         Determine volume trend direction
         """
         # Use price changes as proxy for volume trend
-        if market_data.price_change_5m > 0.02:
+        if market_data.price_change_5m > self.config.volume.trend_threshold:
             return "BULLISH"
-        elif market_data.price_change_5m < -0.02:
+        elif market_data.price_change_5m < -self.config.volume.trend_threshold:
             return "BEARISH"
         else:
             return "NEUTRAL"
@@ -205,11 +207,11 @@ struct VolumeAnalyzer:
         Calculate volume volatility score
         """
         # Use transaction count variability as proxy
-        transaction_density = market_data.transaction_count / 24.0  # Per hour
+        transaction_density = market_data.transaction_count / self.config.volume.hours_per_day  # Per hour
         price_volatility = abs(market_data.price_change_5m)
 
         # Combine transaction density with price volatility
-        volatility_score = min((transaction_density / 50.0 + price_volatility / 0.1) / 2.0, 1.0)
+        volatility_score = min((transaction_density / self.config.volume.volatility_tx_threshold + price_volatility / self.config.volume.volatility_price_threshold) / 2.0, 1.0)
         return volatility_score
 
     fn _calculate_volume_momentum(self, market_data: MarketData) -> Float:
@@ -220,7 +222,7 @@ struct VolumeAnalyzer:
         volume_momentum = market_data.volume_24h / MIN_VOLUME_USD
         price_momentum = abs(market_data.price_change_1h)
 
-        momentum_score = min((volume_momentum / 10.0 + price_momentum / 0.1) / 2.0, 1.0)
+        momentum_score = min((volume_momentum / self.config.volume.momentum_volume_multiplier + price_momentum / self.config.volume.momentum_price_threshold) / 2.0, 1.0)
         return momentum_score
 
 # =============================================================================
@@ -232,6 +234,11 @@ struct VolumeSpikeDetector:
     """
     Detects abnormal volume spikes
     """
+    var config: Config
+
+    fn __init__(config: Config):
+        self.config = config
+
     fn detect_spikes(self, market_data: MarketData) -> List[VolumeSpike]:
         """
         Detect volume spikes in market data
@@ -242,9 +249,9 @@ struct VolumeSpikeDetector:
         var expected_volume = self._calculate_expected_volume(market_data)
         var current_volume = market_data.volume_24h
 
-        if current_volume > expected_volume * 2.0:  # 2x expected volume
+        if current_volume > expected_volume * self.config.volume.spike_multiplier:  # Configurable spike multiplier
             var spike_ratio = current_volume / expected_volume
-            var significance = min(spike_ratio / 10.0, 1.0)  # Normalize significance
+            var significance = min(spike_ratio / self.config.volume.significance_divisor, 1.0)  # Normalize significance
 
             spikes.append(VolumeSpike(
                 timestamp=time(),
@@ -256,14 +263,14 @@ struct VolumeSpikeDetector:
             ))
 
         # Check for 5-minute volume spikes (using transaction count as proxy)
-        if market_data.transaction_count > 100:  # High transaction count
+        if market_data.transaction_count > self.config.volume.high_tx_threshold:  # Configurable high transaction count
             spikes.append(VolumeSpike(
                 timestamp=time(),
                 volume=market_data.volume_5m,
-                expected_volume=market_data.volume_5m / 3.0,  # Assume 3x normal
-                spike_ratio=3.0,
+                expected_volume=market_data.volume_5m / self.config.volume.normal_tx_multiplier,  # Configurable normal multiplier
+                spike_ratio=self.config.volume.normal_tx_multiplier,
                 price_change=market_data.price_change_5m,
-                significance=0.7
+                significance=self.config.volume.tx_spike_significance
             ))
 
         return spikes
@@ -273,16 +280,16 @@ struct VolumeSpikeDetector:
         Calculate expected volume based on market characteristics
         """
         # Base expected volume on market cap
-        var base_volume = market_data.market_cap * 0.05  # 5% of market cap daily
+        var base_volume = market_data.market_cap * self.config.volume.market_cap_percentage  # Configurable % of market cap daily
 
         # Adjust for liquidity
         if market_data.liquidity_usd > 0:
-            var liquidity_multiplier = min(market_data.liquidity_usd / 50000.0, 2.0)
+            var liquidity_multiplier = min(market_data.liquidity_usd / self.config.volume.liquidity_reference, self.config.volume.max_liquidity_multiplier)
             base_volume *= liquidity_multiplier
 
         # Adjust for holder count
         if market_data.holder_count > 0:
-            var holder_multiplier = min(market_data.holder_count / 100.0, 2.0)
+            var holder_multiplier = min(market_data.holder_count / self.config.volume.holder_reference, self.config.volume.max_holder_multiplier)
             base_volume *= holder_multiplier
 
         return max(base_volume, MIN_VOLUME_USD)
@@ -296,6 +303,11 @@ struct VolumePatternAnalyzer:
     """
     Analyzes volume patterns for trading insights
     """
+    var config: Config
+
+    fn __init__(config: Config):
+        self.config = config
+
     fn analyze_patterns(self, market_data: MarketData) -> List[VolumePattern]:
         """
         Analyze volume patterns in market data

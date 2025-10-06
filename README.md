@@ -41,6 +41,205 @@ Data Layer (APIs) → Processing Layer (Algorithmic Engines) → Execution Layer
 - **Risk Management**: Kelly Criterion position sizing, portfolio diversification, drawdown monitoring
 - **Execution**: Optimized trade execution via Jupiter with slippage control
 
+## 🛡️ Production Safety & Monitoring
+
+### Circuit Breakers
+Automated trading halt mechanisms to protect capital:
+- **Max Drawdown Protection**: Halts trading if portfolio drops >15%
+- **Consecutive Loss Protection**: Stops after 5 consecutive losing trades
+- **Daily Loss Limit**: Halts if daily losses exceed 10%
+- **Position Concentration**: Prevents over-exposure to single positions
+- **Trade Velocity Control**: Limits rapid-fire trading on same symbol
+- **Rapid Drawdown Detection**: Catches sudden portfolio drops
+
+### Performance Analytics
+Comprehensive performance tracking and analysis:
+- **Win Rate**: Percentage of profitable trades
+- **Sharpe Ratio**: Risk-adjusted return metric
+- **Sortino Ratio**: Downside risk-adjusted return
+- **Max Drawdown**: Peak-to-trough portfolio decline
+- **Profit Factor**: Gross profit / gross loss ratio
+- **Expectancy**: Expected value per trade
+- **Trade Distribution Analysis**: Win/loss patterns
+- **Equity Curve Tracking**: Portfolio value over time
+
+### Data Persistence
+TimescaleDB/PostgreSQL integration for:
+- **Trade History**: Complete record of all trades
+- **Portfolio Snapshots**: Regular portfolio state saves
+- **Market Data Archive**: Historical market data storage
+- **Performance Metrics**: Time-series performance tracking
+- **Backup & Recovery**: Automatic portfolio state restoration
+
+### Alert System
+Multi-channel notifications for:
+- **Trade Execution**: Real-time trade confirmations
+- **Error Alerts**: Critical error notifications
+- **Performance Alerts**: Threshold breach warnings
+- **Circuit Breaker Triggers**: Trading halt notifications
+- **Daily Summaries**: End-of-day performance reports
+
+Supported channels:
+- Console (always enabled)
+- Discord/Slack webhooks
+- Telegram bot
+- Email (coming soon)
+
+### Strategy Adaptation
+Dynamic parameter adjustment based on performance:
+- **Confidence Threshold Tuning**: Adjust selectivity based on win rate
+- **Position Sizing Adaptation**: Scale up/down based on performance
+- **Stop Loss/Take Profit Optimization**: Adjust risk/reward ratios
+- **Market Regime Detection**: Adapt to trending vs ranging markets
+- **Performance-Based Learning**: Improve over time without external AI
+
+## 📊 Complete Trading Workflow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DATA INGESTION                           │
+│  DexScreener → QuickNode → Helius → Market Data            │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 CIRCUIT BREAKER CHECK                       │
+│  ✓ Drawdown OK  ✓ No consecutive losses  ✓ Velocity OK     │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  CONTEXT ANALYSIS                           │
+│  RSI + Support/Resistance + Market Regime Detection         │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 SIGNAL GENERATION                           │
+│  Strategy Engine → Raw Signals (100-1000/hour)             │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│              MASTER FILTER PIPELINE                         │
+│  Instant Filter → Aggressive Filter → Micro Filter          │
+│  (90-95% rejection rate)                                    │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 RISK MANAGEMENT                             │
+│  Position Sizing + Stop Loss + Portfolio Limits             │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│              TRADE EXECUTION                                │
+│  Jupiter Swap → Blockchain → Confirmation                   │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│          MONITORING & PERSISTENCE                           │
+│  • Record trade in database                                 │
+│  • Update performance analytics                             │
+│  • Send alerts                                              │
+│  • Update circuit breakers                                  │
+│  • Save portfolio snapshot                                  │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│            STRATEGY ADAPTATION (24h)                        │
+│  Analyze performance → Adjust parameters → Optimize         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 🗄️ Database Setup
+
+### TimescaleDB Installation
+
+```bash
+# Install TimescaleDB (PostgreSQL extension)
+sudo apt-get install timescaledb-postgresql-14
+
+# Create database
+sudo -u postgres psql
+CREATE DATABASE trading_bot;
+CREATE USER trader WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE trading_bot TO trader;
+\c trading_bot
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+```
+
+### Environment Variables
+
+```bash
+export DB_PASSWORD="your_database_password"
+export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+export TELEGRAM_BOT_TOKEN="your_telegram_bot_token"
+export TELEGRAM_CHAT_ID="your_telegram_chat_id"
+```
+
+### Database Schema
+
+The bot automatically creates required tables on first run:
+- `trades` - Complete trade history
+- `portfolio_snapshots` - Portfolio state over time
+- `market_data` - Historical market data (TimescaleDB hypertable)
+- `performance_metrics` - Performance statistics over time
+
+## 📱 Alert Configuration
+
+### Discord Webhook
+
+1. Go to Discord Server Settings → Integrations → Webhooks
+2. Create new webhook, copy URL
+3. Set `DISCORD_WEBHOOK_URL` environment variable
+4. Enable in `config/trading.toml`: `channels = ["console", "webhook"]`
+
+### Telegram Bot
+
+1. Create bot via [@BotFather](https://t.me/botfather)
+2. Get bot token
+3. Get your chat ID via [@userinfobot](https://t.me/userinfobot)
+4. Set environment variables:
+   ```bash
+   export TELEGRAM_BOT_TOKEN="your_token"
+   export TELEGRAM_CHAT_ID="your_chat_id"
+   ```
+5. Enable in config: `channels = ["console", "telegram"]`
+
+## 🎯 Strategy Adaptation
+
+The bot automatically adapts its strategy every 24 hours based on recent performance:
+
+**Low Win Rate (<40%)**
+- Increases confidence threshold (more selective)
+- Reduces position sizes (lower risk)
+- Reason: "Low win rate - increasing selectivity"
+
+**High Win Rate (>70%)**
+- Decreases confidence threshold (more trades)
+- Increases position sizes (higher returns)
+- Reason: "High win rate - increasing aggression"
+
+**Poor Profit Factor (<1.5)**
+- Tightens stop losses
+- Widens take profit targets
+- Reason: "Poor profit factor - adjusting risk/reward"
+
+**High Volatility Market**
+- Reduces position sizes
+- Decreases max concurrent positions
+- Reason: "High volatility - reducing exposure"
+
+Adaptation can be disabled in `config/trading.toml`:
+```toml
+[strategy_adaptation]
+enabled = false
+```
+
 ## 🛠️ Tech Stack
 
 - **Performance**: Mojo 24.4+ (for hot paths and computational efficiency)
@@ -115,17 +314,43 @@ MAX_DRAWDOWN=0.15  # 15%
 
 ## 📊 Project Structure
 
-```
+```text
 ├── src/                    # Mojo source code
 │   ├── main.mojo          # Application entry point
 │   ├── core/              # Core data structures and utilities
+│   │   ├── config.mojo    # Configuration management
+│   │   ├── types.mojo     # Core data types
+│   │   └── logger.mojo    # Structured logging
 │   ├── data/              # External API clients
+│   │   ├── helius_client.mojo
+│   │   ├── quicknode_client.mojo
+│   │   ├── dexscreener_client.mojo
+│   │   └── jupiter_client.mojo
 │   ├── engine/            # Trading and analysis engines
+│   │   ├── enhanced_context_engine.mojo
+│   │   ├── master_filter.mojo
+│   │   ├── strategy_engine.mojo
+│   │   ├── spam_filter.mojo
+│   │   ├── instant_spam_detector.mojo
+│   │   ├── micro_timeframe_filter.mojo
+│   │   └── strategy_adaptation.mojo
 │   ├── risk/              # Risk management
+│   │   ├── risk_manager.mojo
+│   │   └── circuit_breakers.mojo
+│   ├── monitoring/        # Production monitoring components
+│   │   ├── performance_analytics.mojo
+│   │   └── alert_system.mojo
+│   ├── persistence/       # Data persistence
+│   │   └── database_manager.mojo
 │   ├── execution/         # Trade execution
+│   │   └── execution_engine.mojo
 │   └── analysis/          # Algorithmic analysis engines
+│       ├── sentiment_analyzer.mojo
+│       ├── pattern_recognizer.mojo
+│       └── whale_tracker.mojo
 ├── rust-modules/          # Rust security modules
 ├── config/                # Configuration files
+│   └── trading.toml       # Main configuration
 ├── tests/                 # Unit and integration tests
 ├── scripts/               # Deployment and utility scripts
 └── docs/                  # Documentation

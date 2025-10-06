@@ -4,7 +4,7 @@
 # <10ms ultra-fast checks for obvious spam cases
 # No external dependencies for maximum speed
 
-from core.types import TradingSignal
+from core.types import TradingSignal, Config
 from core.logger import get_logger
 from collections import List, Dict
 
@@ -15,7 +15,8 @@ struct InstantSpamDetector:
     Designed for <10ms processing time with zero external dependencies
     """
 
-    # Hard-coded thresholds for maximum speed
+    # Configuration-driven thresholds for maximum flexibility
+    var config: Config
     var MIN_VOLUME_USD: Float
     var MIN_LIQUIDITY_USD: Float
     var MIN_CONFIDENCE: Float
@@ -25,14 +26,15 @@ struct InstantSpamDetector:
     # Logger
     var logger
 
-    fn __init__(inout self):
-        """Initialize with hard-coded thresholds and logger"""
-        # Ultra-conservative thresholds for instant rejection
-        self.MIN_VOLUME_USD = 1000.0      # $1k minimum volume
-        self.MIN_LIQUIDITY_USD = 5000.0   # $5k minimum liquidity
-        self.MIN_CONFIDENCE = 0.30        # 30% minimum confidence
-        self.EXTREME_RSI_LOW = 5.0        # Reject RSI < 5
-        self.EXTREME_RSI_HIGH = 95.0      # Reject RSI > 95
+    fn __init__(config: Config):
+        """Initialize with configuration-driven thresholds and logger"""
+        # Load thresholds from config for instant filter
+        self.config = config
+        self.MIN_VOLUME_USD = config.filters.instant_min_volume_usd
+        self.MIN_LIQUIDITY_USD = config.filters.instant_min_liquidity_usd
+        self.MIN_CONFIDENCE = config.filters.instant_min_confidence
+        self.EXTREME_RSI_LOW = config.filters.instant_extreme_rsi_low
+        self.EXTREME_RSI_HIGH = config.filters.instant_extreme_rsi_high
 
         # Initialize logger
         self.logger = get_logger("InstantSpamDetector")
@@ -42,7 +44,8 @@ struct InstantSpamDetector:
             "min_liquidity_usd": self.MIN_LIQUIDITY_USD,
             "min_confidence": self.MIN_CONFIDENCE,
             "extreme_rsi_low": self.EXTREME_RSI_LOW,
-            "extreme_rsi_high": self.EXTREME_RSI_HIGH
+            "extreme_rsi_high": self.EXTREME_RSI_HIGH,
+            "loaded_from": "config.filters.instant_*"
         })
 
     fn instant_check(self, signal: TradingSignal) -> Bool:

@@ -19,7 +19,12 @@ from analysis.sentiment_analyzer import SentimentAnalyzer
 from analysis.pattern_recognizer import PatternRecognizer
 from analysis.whale_tracker import WhaleTracker
 from risk.risk_manager import RiskManager
+from risk.circuit_breakers import CircuitBreakers
 from execution.execution_engine import ExecutionEngine
+from monitoring.performance_analytics import PerformanceAnalytics, TradeRecord
+from persistence.database_manager import DatabaseManager
+from monitoring.alert_system import AlertSystem, AlertLevel
+from engine.strategy_adaptation import StrategyAdaptation
 
 # Standard library imports
 from os import getenv, environ
@@ -57,6 +62,13 @@ struct TradingBot:
     var strategy_engine: StrategyEngine
     var risk_manager: RiskManager
     var execution_engine: ExecutionEngine
+
+    # Production Components
+    var circuit_breakers: CircuitBreakers
+    var performance_analytics: PerformanceAnalytics
+    var database_manager: DatabaseManager
+    var alert_system: AlertSystem
+    var strategy_adaptation: StrategyAdaptation
 
     # Algorithmic Intelligence Components
     var sentiment_analyzer: SentimentAnalyzer
@@ -109,10 +121,17 @@ struct TradingBot:
             config=config
         )
 
-        # Initialize Algorithmic Intelligence Components
+        # Initialize Algorithmic Intelligence Components with config
         self.sentiment_analyzer = SentimentAnalyzer()
         self.pattern_recognizer = PatternRecognizer()
-        self.whale_tracker = WhaleTracker()
+        self.whale_tracker = WhaleTracker(config)
+
+        # Initialize production components
+        self.circuit_breakers = CircuitBreakers(config)
+        self.performance_analytics = PerformanceAnalytics(config)
+        self.database_manager = DatabaseManager(config)
+        self.alert_system = AlertSystem(config)
+        self.strategy_adaptation = StrategyAdaptation(config)
 
         # Initialize portfolio
         self.portfolio = Portfolio(
@@ -245,14 +264,21 @@ struct TradingBot:
             print(f"❌ Failed to connect to QuickNode RPC: {e}")
             exit(1)
 
-        # Initialize database connections if configured
-        if self.config.database.timescale_enabled:
+        # Initialize database connection
+        if self.config.database.enabled:
             try:
-                self._init_database_connections()
-                print("✅ Database connections initialized")
+                if self.database_manager.connect():
+                    self.database_manager.initialize_schema()
+                    print("✅ Database connection initialized")
+
+                    # Try to restore portfolio state
+                    var restored_portfolio = self.database_manager.load_portfolio_state()
+                    if restored_portfolio:
+                        self.portfolio = restored_portfolio
+                        print(f"✅ Portfolio state restored: {self.portfolio.total_value:.4f} SOL")
             except e:
-                print(f"❌ Failed to initialize database connections: {e}")
-                exit(1)
+                print(f"⚠️  Database initialization failed: {e}")
+                print("   Continuing without persistence...")
 
         print("✅ All connections initialized successfully")
 
@@ -297,11 +323,22 @@ struct TradingBot:
         Execute one complete trading cycle
         """
         try:
+            # 🛡️ CHECK CIRCUIT BREAKERS FIRST
+            if not self.circuit_breakers.check_all_conditions(self.portfolio):
+                var halt_status = self.circuit_breakers.get_halt_status()
+                print(f"🛑 Trading halted: {halt_status['reason']}")
+                return
+
             # 1. Discover new tokens (DexScreener)
             self._discover_new_tokens()
 
             # 2. Fetch market data for monitored symbols
             market_data = self._fetch_market_data()
+
+            # Save market data to database
+            if self.config.database.enabled:
+                for symbol, data in market_data.items():
+                    self.database_manager.save_market_data(data)
 
             # 3. Run context analysis on all symbols
             contexts = {}
@@ -346,6 +383,13 @@ struct TradingBot:
                     if result.success:
                         self.trades_executed += 1
                         self._update_portfolio(signal, approval, result)
+
+                        # 📊 Record trade result for circuit breakers
+                        self.circuit_breakers.record_trade_result(True, 0.0)  # Will calculate PnL on close
+
+                        # 📱 Send trade alert
+                        self.alert_system.send_trade_alert(signal, result, AlertLevel.INFO)
+
                         self.logger.log_trade(
                             action="EXECUTED",
                             symbol=signal.symbol,
@@ -354,6 +398,15 @@ struct TradingBot:
                             reason="Trade execution successful"
                         )
                     else:
+                        # 📊 Record failed trade
+                        self.circuit_breakers.record_trade_result(False, 0.0)
+
+                        # 📱 Send error alert
+                        self.alert_system.send_error_alert(
+                            f"Trade execution failed: {signal.symbol}",
+                            {"error": result.error_message}
+                        )
+
                         self.logger.error(f"Trade failed: {signal.symbol}",
                                          symbol=signal.symbol,
                                          error=result.error_message)
@@ -370,6 +423,7 @@ struct TradingBot:
 
         except e as e:
             print(f"❌ Error in trading cycle: {e}")
+            self.alert_system.send_error_alert(f"Trading cycle error: {e}", {})
             raise
 
     fn _discover_new_tokens(self) -> List[String]:
@@ -614,6 +668,34 @@ struct TradingBot:
             if result.success:
                 # Calculate realized P&L
                 realized_pnl = (result.executed_price - position.entry_price) * position.size
+                pnl_percentage = (result.executed_price - position.entry_price) / position.entry_price
+
+                # 📊 Record trade for performance analytics
+                var trade_record = TradeRecord(
+                    symbol=symbol,
+                    action=TradingAction.SELL,
+                    entry_price=position.entry_price,
+                    exit_price=result.executed_price,
+                    size=position.size,
+                    pnl=realized_pnl,
+                    pnl_percentage=pnl_percentage,
+                    entry_timestamp=position.entry_timestamp,
+                    exit_timestamp=time(),
+                    hold_duration_seconds=time() - position.entry_timestamp,
+                    was_profitable=realized_pnl > 0,
+                    close_reason=reason
+                )
+                self.performance_analytics.record_trade(trade_record)
+
+                # 💾 Save trade to database
+                if self.config.database.enabled:
+                    self.database_manager.save_trade(trade_record)
+
+                # 📊 Record for circuit breakers
+                self.circuit_breakers.record_trade_result(realized_pnl > 0, realized_pnl)
+
+                # 📱 Send position close alert
+                self.alert_system.send_position_alert(symbol, position, f"Closed: {reason}")
 
                 # Remove from portfolio
                 del self.portfolio.positions[symbol]
@@ -624,12 +706,17 @@ struct TradingBot:
 
                 print(f"✅ Position closed: {symbol} "
                       f"Reason: {reason} "
-                      f"P&L: {realized_pnl:.4f} SOL")
+                      f"P&L: {realized_pnl:.4f} SOL ({pnl_percentage:.2%})")
             else:
                 print(f"❌ Failed to close position {symbol}: {result.error_message}")
+                self.alert_system.send_error_alert(
+                    f"Failed to close position: {symbol}",
+                    {"reason": reason, "error": result.error_message}
+                )
 
         except e as e:
             print(f"❌ Error closing position {symbol}: {e}")
+            self.alert_system.send_error_alert(f"Error closing position: {symbol}", {"error": str(e)})
 
     fn _update_portfolio(self, signal: TradingSignal, approval: RiskApproval, result: ExecutionResult):
         """
@@ -681,12 +768,20 @@ struct TradingBot:
         # Update portfolio peak value
         self.portfolio.peak_value = max(self.portfolio.peak_value, current_value)
 
-        # Calculate drawdown for logging using portfolio peak value
+        # Update daily P&L
+        self.portfolio.daily_pnl = current_value - self.config.trading.initial_capital
+
+        # 📊 Update equity curve
+        self.performance_analytics.update_equity_curve(current_value)
+
+        # Calculate drawdown
         current_drawdown = (self.portfolio.peak_value - current_value) / self.portfolio.peak_value if self.portfolio.peak_value > 0 else 0.0
 
-        # Check if circuit breaker should trigger
-        if current_drawdown > self.config.trading.max_drawdown:
-            print(f"🚨 Circuit breaker triggered! Drawdown: {current_drawdown:.2%}")
+        # 🛡️ Check circuit breakers
+        if not self.circuit_breakers.check_all_conditions(self.portfolio):
+            var halt_status = self.circuit_breakers.get_halt_status()
+            print(f"🚨 Circuit breaker triggered! {halt_status['reason']}")
+            self.alert_system.send_circuit_breaker_alert(halt_status['reason'], self.portfolio)
             self.is_running = False
 
     fn _monitoring_loop(self):
@@ -700,6 +795,9 @@ struct TradingBot:
 
                 # Get MasterFilter statistics
                 filter_stats = self.master_filter.get_filter_stats()
+
+                # Get performance statistics
+                perf_stats = self.performance_analytics.get_performance_summary()
 
                 self.metrics = {
                     "uptime": time() - self.start_time,
@@ -716,11 +814,37 @@ struct TradingBot:
                     "total_signals_rejected": filter_stats["total_rejected"],
                     "instant_rejections": filter_stats["instant_rejections"],
                     "aggressive_rejections": filter_stats["aggressive_rejections"],
-                    "micro_rejections": filter_stats["micro_rejections"]
+                    "micro_rejections": filter_stats["micro_rejections"],
+                    # Performance statistics
+                    "win_rate": perf_stats.get("win_rate", 0.0),
+                    "sharpe_ratio": perf_stats.get("sharpe_ratio", 0.0),
+                    "profit_factor": perf_stats.get("profit_factor", 0.0)
                 }
+
+                # 💾 Save portfolio snapshot to database
+                if self.config.database.enabled:
+                    self.database_manager.save_portfolio_snapshot(self.portfolio)
+                    self.database_manager.save_performance_metrics(perf_stats)
 
                 # Health checks
                 self._perform_health_checks()
+
+                # 📊 Hourly performance report
+                if time() - self.start_time >= 3600 and int(time() - self.start_time) % 3600 < 30:  # Every hour
+                    self.performance_analytics.print_performance_report()
+
+                # 🎯 Strategy adaptation check
+                if self.strategy_adaptation.should_adapt():
+                    var recent_trades = self.performance_analytics.get_trade_history(48)  # 48 hours
+                    var adjustment = self.strategy_adaptation.adapt_strategy(recent_trades, [])
+                    if adjustment.reason:
+                        self.strategy_adaptation.apply_adjustments(adjustment)
+                        self.alert_system.send_performance_alert(
+                            metric="strategy_adapted",
+                            value=0.0,
+                            threshold=0.0
+                        )
+                        print(f"🎯 Strategy adapted: {adjustment.reason}")
 
                 # Sleep for monitoring interval
                 sleep(30.0)  # Check every 30 seconds
@@ -760,22 +884,37 @@ struct TradingBot:
         """
         Save portfolio state to database
         """
-        # This would implement database persistence
-        pass
+        if self.config.database.enabled:
+            try:
+                self.database_manager.save_portfolio_snapshot(self.portfolio)
+                self.database_manager.flush_pending_writes()
+                print("✅ Portfolio state saved")
+            except e:
+                print(f"⚠️  Failed to save portfolio state: {e}")
 
     fn _flush_metrics(self):
         """
         Flush metrics to monitoring system
         """
-        # This would implement metrics export to Prometheus
-        pass
+        if self.config.database.enabled:
+            try:
+                var perf_stats = self.performance_analytics.get_performance_summary()
+                self.database_manager.save_performance_metrics(perf_stats)
+                self.database_manager.flush_pending_writes()
+                print("✅ Metrics flushed")
+            except e:
+                print(f"⚠️  Failed to flush metrics: {e}")
 
     fn _close_connections(self):
         """
         Close all external connections
         """
-        # Close database connections, WebSocket connections, etc.
-        pass
+        if self.config.database.enabled:
+            try:
+                self.database_manager.disconnect()
+                print("✅ Database connection closed")
+            except e:
+                print(f"⚠️  Error closing database: {e}")
 
     fn _print_final_statistics(self):
         """
@@ -783,6 +922,9 @@ struct TradingBot:
         """
         uptime = time() - self.start_time
         hours = uptime / 3600
+
+        # Get comprehensive performance stats
+        var perf_stats = self.performance_analytics.get_performance_summary()
 
         print("\n" + "="*60)
         print("📊 FINAL TRADING STATISTICS")
@@ -792,11 +934,12 @@ struct TradingBot:
         print(f"📈 Signals Generated: {self.signals_generated:,}")
         print(f"💰 Trades Executed: {self.trades_executed:,}")
         print(f"💵 Total P&L: {self.total_pnl:.4f} SOL")
-        current_drawdown = (self.portfolio.peak_value - self.portfolio.total_value) / self.portfolio.peak_value if self.portfolio.peak_value > 0 else 0.0
-        print(f"📉 Max Drawdown: {current_drawdown:.2%}")
+        print(f"📉 Max Drawdown: {perf_stats.get('max_drawdown', 0.0):.2%}")
         print(f"🏆 Peak Portfolio Value: {self.portfolio.peak_value:.4f} SOL")
         print(f"💼 Final Portfolio Value: {self.portfolio.total_value:.4f} SOL")
-        print(f"🎯 Win Rate: {(self.trades_executed / max(1, self.signals_generated) * 100):.1f}%")
+        print(f"🎯 Win Rate: {perf_stats.get('win_rate', 0.0):.1%}")
+        print(f"📊 Sharpe Ratio: {perf_stats.get('sharpe_ratio', 0.0):.2f}")
+        print(f"💹 Profit Factor: {perf_stats.get('profit_factor', 0.0):.2f}")
 
         # Add MasterFilter statistics
         filter_stats = self.master_filter.get_filter_stats()
@@ -805,7 +948,16 @@ struct TradingBot:
         print(f"⚡ Instant Rejections: {int(filter_stats['instant_rejections']):,}")
         print(f"🔥 Aggressive Rejections: {int(filter_stats['aggressive_rejections']):,}")
         print(f"🔬 Micro Rejections: {int(filter_stats['micro_rejections']):,}")
+
+        # Circuit breaker stats
+        var halt_status = self.circuit_breakers.get_halt_status()
+        print(f"🛡️  Circuit Breaker Status: {halt_status.get('status', 'ACTIVE')}")
+        print(f"📊 Consecutive Losses: {halt_status.get('consecutive_losses', 0)}")
+
         print("="*60)
+
+        # Send final summary alert
+        self.alert_system.send_daily_summary(perf_stats)
 
 # =============================================================================
 # Command Line Interface
