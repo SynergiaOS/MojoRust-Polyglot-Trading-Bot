@@ -2,6 +2,57 @@
 
 A high-performance trading bot designed for Solana memecoin markets using **pure algorithmic intelligence**, optimized execution, and comprehensive risk management. **No external AI dependencies required!**
 
+---
+
+## 🚀 Quick Deployment to Production Server
+
+### Server Information
+- **Production Server**: `38.242.239.150`
+- **Quick Connect**: `ssh root@38.242.239.150`
+
+### ⚡ One-Command Deployment
+```bash
+# From your local machine
+./scripts/deploy_to_server.sh
+
+# Or on the server directly
+ssh root@38.242.239.150
+curl -sSL https://raw.githubusercontent.com/SynergiaOS/MojoRust/main/scripts/quick_deploy.sh | bash
+```
+
+### 📖 Quick Links
+- 📖 [Immediate Deployment Guide](DEPLOY_NOW.md) - English
+- 📖 [Przewodnik Wdrożenia](DEPLOY_NOW_PL.md) - Polski
+- 📖 [Full Deployment Documentation](DEPLOYMENT.md)
+- 🔧 [Infisical Setup](https://app.infisical.com)
+
+### 🛠️ Deployment Options
+- **Automated deployment**: `./scripts/deploy_to_server.sh`
+- **Manual VPS setup**: `./scripts/vps_setup.sh`
+- **Quick deploy**: `./scripts/quick_deploy.sh`
+- **Filtered deployment**: `./scripts/deploy_with_filters.sh`
+- **Docker deployment**: `docker-compose up -d`
+
+### 🔍 Health Monitoring
+```bash
+# Check server health
+./scripts/server_health.sh --remote
+
+# View logs
+ssh root@38.242.239.150 'tail -f ~/mojo-trading-bot/logs/trading-bot-*.log'
+```
+
+### ⚠️ Pre-Deployment Requirements
+- ✅ Infisical account at https://app.infisical.com
+- ✅ Helius API key
+- ✅ QuickNode RPC endpoint
+- ✅ Solana wallet configured
+- ✅ SSH access to 38.242.239.150
+
+> **🚨 WARNING**: Always start with **PAPER TRADING MODE**. Monitor for at least 24 hours before switching to LIVE trading with real funds.
+
+---
+
 ## 🎯 Performance Targets
 
 - **Daily ROI**: 2-5%
