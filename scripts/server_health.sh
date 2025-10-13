@@ -245,22 +245,61 @@ check_system_resources() {
     else
         json_output["load_average"]="unknown"
     fi
+
+    # Network reachability tests
+    print_status "INFO" "Testing network connectivity..."
+
+    # Test basic internet connectivity
+    local internet_test=$(execute "ping -c 1 8.8.8.8 >/dev/null 2>&1 && echo 'online' || echo 'offline'" true)
+    if [ "$internet_test" = "online" ]; then
+        print_status "SUCCESS" "Internet connectivity: OK"
+        json_output["internet_connectivity"]="online"
+    else
+        print_status "WARNING" "Internet connectivity: FAILED"
+        json_output["internet_connectivity"]="offline"
+    fi
+
+    # Test DNS resolution
+    local dns_test=$(execute "nslookup google.com >/dev/null 2>&1 && echo 'working' || echo 'failed'" true)
+    if [ "$dns_test" = "working" ]; then
+        print_status "SUCCESS" "DNS resolution: OK"
+        json_output["dns_resolution"]="working"
+    else
+        print_status "WARNING" "DNS resolution: FAILED"
+        json_output["dns_resolution"]="failed"
+    fi
+
+    # Test Solana RPC connectivity (if QUICKNODE_RPC_URL is set)
+    local rpc_url=$(execute "echo \$QUICKNODE_RPC_URL | head -c 50" true)
+    if [ "$rpc_url" != "ERROR" ] && [ -n "$rpc_url" ] && [[ "$rpc_url" == *"quicknode"* ]]; then
+        local rpc_test=$(execute "timeout 10 curl -s -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlot\"}' \$QUICKNODE_RPC_URL | grep -q 'result' && echo 'connected' || echo 'failed'" true)
+        if [ "$rpc_test" = "connected" ]; then
+            print_status "SUCCESS" "QuickNode RPC: Connected"
+            json_output["quicknode_rpc"]="connected"
+        else
+            print_status "WARNING" "QuickNode RPC: Failed"
+            json_output["quicknode_rpc"]="failed"
+        fi
+    else
+        print_status "INFO" "QuickNode RPC: Not configured"
+        json_output["quicknode_rpc"]="not_configured"
+    fi
 }
 
 # Function to check bot service status
 check_bot_service() {
     print_status "HEADER" "Trading Bot Service"
 
-    # Check if bot process is running
-    local bot_processes=$(execute "pgrep -f 'mojo run' | wc -l" true)
+    # Check if trading-bot process is running (check multiple patterns)
+    local bot_processes=$(execute "pgrep -f 'trading-bot\\|mojo run\\|main.mojo' | wc -l" true)
     if [ "$bot_processes" != "ERROR" ]; then
         if [ "$bot_processes" -gt 0 ]; then
-            print_status "SUCCESS" "Bot is running ($bot_processes processes)"
+            print_status "SUCCESS" "Trading bot is running ($bot_processes processes)"
             json_output["bot_processes"]="$bot_processes"
             json_output["bot_status"]="running"
 
-            # Get process details
-            local bot_details=$(execute "ps aux | grep 'mojo run' | grep -v grep | head -3" true)
+            # Get process details with memory usage
+            local bot_details=$(execute "ps aux | grep -E 'trading-bot|mojo run|main.mojo' | grep -v grep | head -5" true)
             if [ "$bot_details" != "ERROR" ] && [ -n "$bot_details" ]; then
                 print_status "INFO" "Process details:"
                 echo "$bot_details" | while IFS= read -r line; do
@@ -268,19 +307,31 @@ check_bot_service() {
                 done
             fi
 
-            # Get uptime
-            local bot_pid=$(execute "pgrep -f 'mojo run' | head -1" true)
-            if [ "$bot_pid" != "ERROR" ] && [ -n "$bot_pid" ]; then
-                local bot_uptime=$(execute "ps -o etimes= -p $bot_pid | xargs" true)
-                if [ "$bot_uptime" != "ERROR" ] && [ -n "$bot_uptime" ]; then
-                    local uptime_hours=$((bot_uptime / 3600))
-                    local uptime_minutes=$(((bot_uptime % 3600) / 60))
-                    print_status "INFO" "Bot uptime: ${uptime_hours}h ${uptime_minutes}m"
-                    json_output["bot_uptime"]="${uptime_hours}h ${uptime_minutes}m"
-                fi
+            # Get PIDs and uptime/memory for each process
+            local bot_pids=$(execute "pgrep -f 'trading-bot\\|mojo run\\|main.mojo'" true)
+            if [ "$bot_pids" != "ERROR" ] && [ -n "$bot_pids" ]; then
+                echo "$bot_pids" | while IFS= read -r pid; do
+                    if [ -n "$pid" ]; then
+                        local bot_uptime=$(execute "ps -o etimes= -p $pid 2>/dev/null | xargs" true)
+                        local bot_memory=$(execute "ps -o rss= -p $pid 2>/dev/null | xargs" true)
+                        local bot_cmd=$(execute "ps -o cmd= -p $pid 2>/dev/null" true)
+
+                        if [ "$bot_uptime" != "ERROR" ] && [ -n "$bot_uptime" ]; then
+                            local uptime_hours=$((bot_uptime / 3600))
+                            local uptime_minutes=$(((bot_uptime % 3600) / 60))
+                            local memory_mb=0
+                            if [ "$bot_memory" != "ERROR" ] && [ -n "$bot_memory" ]; then
+                                memory_mb=$((bot_memory / 1024))
+                            fi
+                            print_status "INFO" "PID $pid: ${uptime_hours}h ${uptime_minutes}m, ${memory_mb}MB RAM"
+                            json_output["pid_${pid}_uptime"]="${uptime_hours}h ${uptime_minutes}m"
+                            json_output["pid_${pid}_memory"]="${memory_mb}MB"
+                        fi
+                    fi
+                done
             fi
         else
-            print_status "ERROR" "Bot process not found"
+            print_status "ERROR" "Trading bot process not found"
             json_output["bot_processes"]="0"
             json_output["bot_status"]="stopped"
         fi
@@ -289,16 +340,28 @@ check_bot_service() {
         json_output["bot_status"]="unknown"
     fi
 
-    # Check if systemd service exists (optional)
-    local service_status=$(execute "systemctl is-active mojo-trading-bot 2>/dev/null || echo 'no-service'" true)
+    # Check if systemd service exists and show status
+    local service_status=$(execute "systemctl is-active trading-bot 2>/dev/null || echo 'no-service'" true)
+    local service_enabled=$(execute "systemctl is-enabled trading-bot 2>/dev/null || echo 'not-found'" true)
+
     if [ "$service_status" != "no-service" ] && [ "$service_status" != "ERROR" ]; then
-        if [ "$service_status" = "active" ]; then
-            print_status "SUCCESS" "Systemd service is active"
-            json_output["systemd_service"]="active"
-        else
-            print_status "WARNING" "Systemd service status: $service_status"
-            json_output["systemd_service"]="$service_status"
+        print_status "INFO" "Systemd service 'trading-bot' status: $service_status"
+        json_output["systemd_service"]="$service_status"
+
+        # Show detailed service status if available
+        local detailed_status=$(execute "systemctl status trading-bot --no-pager 2>/dev/null | head -10" true)
+        if [ "$detailed_status" != "ERROR" ] && [ -n "$detailed_status" ]; then
+            print_status "INFO" "Service details:"
+            echo "$detailed_status" | sed 's/^/  /'
         fi
+
+        if [ "$service_enabled" != "not-found" ]; then
+            print_status "INFO" "Service enabled: $service_enabled"
+            json_output["systemd_enabled"]="$service_enabled"
+        fi
+    else
+        print_status "INFO" "No systemd service 'trading-bot' found"
+        json_output["systemd_service"]="not-found"
     fi
 }
 
@@ -362,34 +425,64 @@ check_recent_logs() {
         local latest_log=$(execute "ls -t $log_dir/trading-bot-*.log 2>/dev/null | head -1" true)
 
         if [ "$latest_log" != "ERROR" ] && [ -n "$latest_log" ]; then
-            # Count errors in last hour
-            local error_count=$(execute "tail -n 1000 $latest_log | grep -i error | wc -l" true)
-            local warning_count=$(execute "tail -n 1000 $latest_log | grep -i warning | wc -l" true)
+            # Count errors and critical issues in last 200 lines
+            local error_count=$(execute "tail -n 200 $latest_log | grep -i 'ERROR\\|CRITICAL' | wc -l" true)
+            local warning_count=$(execute "tail -n 200 $latest_log | grep -i 'warning' | wc -l" true)
 
             if [ "$error_count" -gt 0 ]; then
-                print_status "ERROR" "Found $error_count errors in recent logs"
+                print_status "ERROR" "Found $error_count errors/critical issues in last 200 lines"
                 json_output["log_errors"]="$error_count"
+
+                # Show last 3 errors
+                local last_errors=$(execute "tail -n 200 $latest_log | grep -i 'ERROR\\|CRITICAL' | tail -3" true)
+                if [ "$last_errors" != "ERROR" ] && [ -n "$last_errors" ]; then
+                    print_status "INFO" "Last 3 errors:"
+                    echo "$last_errors" | while IFS= read -r line; do
+                        echo "  $line"
+                    done
+                fi
             else
-                print_status "SUCCESS" "No errors in recent logs"
+                print_status "SUCCESS" "No errors/critical issues in last 200 lines"
                 json_output["log_errors"]="0"
             fi
 
             if [ "$warning_count" -gt 10 ]; then
-                print_status "WARNING" "Found $warning_count warnings in recent logs"
+                print_status "WARNING" "Found $warning_count warnings in last 200 lines"
                 json_output["log_warnings"]="$warning_count"
             else
                 print_status "SUCCESS" "Low warning count: $warning_count"
                 json_output["log_warnings"]="$warning_count"
             fi
 
-            # Show recent trades if any
-            local recent_trades=$(execute "tail -n 100 $latest_log | grep -i 'trade\\|executed\\|position' | tail -5" true)
+            # Summarize filter performance
+            local filter_performance=$(execute "tail -n 200 $latest_log | grep -i 'Filter Performance' | tail -5" true)
+            if [ "$filter_performance" != "ERROR" ] && [ -n "$filter_performance" ]; then
+                print_status "INFO" "Recent filter performance:"
+                echo "$filter_performance" | while IFS= read -r line; do
+                    echo "  $line"
+                done
+                json_output["filter_performance"]="available"
+            else
+                print_status "INFO" "No filter performance data in recent logs"
+                json_output["filter_performance"]="not-found"
+            fi
+
+            # Summarize recent trades (EXECUTED|PROFIT|LOSS)
+            local recent_trades=$(execute "tail -n 200 $latest_log | grep -i 'EXECUTED\\|PROFIT\\|LOSS' | tail -5" true)
             if [ "$recent_trades" != "ERROR" ] && [ -n "$recent_trades" ]; then
-                print_status "INFO" "Recent trading activity:"
+                print_status "INFO" "Recent trade results:"
                 echo "$recent_trades" | while IFS= read -r line; do
                     echo "  $line"
                 done
                 json_output["recent_activity"]="yes"
+
+                # Count trades
+                local executed_count=$(execute "tail -n 200 $latest_log | grep -i 'EXECUTED' | wc -l" true)
+                local profit_count=$(execute "tail -n 200 $latest_log | grep -i 'PROFIT' | wc -l" true)
+                local loss_count=$(execute "tail -n 200 $latest_log | grep -i 'LOSS' | wc -l" true)
+                json_output["trades_executed"]="$executed_count"
+                json_output["trades_profit"]="$profit_count"
+                json_output["trades_loss"]="$loss_count"
             else
                 print_status "INFO" "No recent trading activity in logs"
                 json_output["recent_activity"]="no"
@@ -492,6 +585,13 @@ show_alerts() {
     fi
 
     json_output["total_alerts"]="$alerts"
+
+    # Return non-zero exit code if critical issues found
+    if [ $alerts -gt 0 ]; then
+        return 1
+    else
+        return 0
+    fi
 }
 
 # Function to output JSON
@@ -571,8 +671,10 @@ main_health_check() {
     check_recent_logs
     check_performance_metrics
 
+    local alerts_result=0
     if [ "$ALERTS_ONLY" = false ]; then
         show_alerts
+        alerts_result=$?
         if [ "$JSON_OUTPUT" = false ]; then
             echo ""
             show_summary
@@ -582,6 +684,7 @@ main_health_check() {
         local total_alerts="${json_output[total_alerts]}"
         if [ "$total_alerts" -gt 0 ]; then
             show_alerts
+            alerts_result=$?
         else
             if [ "$JSON_OUTPUT" = false ]; then
                 print_status "SUCCESS" "✅ No alerts - all systems healthy"
@@ -593,6 +696,9 @@ main_health_check() {
     if [ "$JSON_OUTPUT" = true ]; then
         output_json
     fi
+
+    # Return the alerts result for exit code
+    return $alerts_result
 }
 
 # Function to run in watch mode
@@ -614,4 +720,8 @@ if [ "$WATCH_MODE" = true ]; then
     watch_mode
 else
     main_health_check
+    exit_code=$?
+    if [ "$exit_code" -ne 0 ]; then
+        exit $exit_code
+    fi
 fi

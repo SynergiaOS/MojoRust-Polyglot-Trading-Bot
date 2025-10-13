@@ -69,12 +69,14 @@ mkdir -p logs data secrets
 # Login to Infisical
 infisical login
 
-# Set project configuration (get from https://app.infisical.com)
-infisical config set projectId <YOUR_PROJECT_ID>
-infisical config setEnvironment production
+# Initialize Infisical project (creates .infisical.json)
+infisical init
+# Set workspaceId and defaultEnvironment when prompted
+# Or list secrets explicitly:
+infisical secrets list --projectId <PROJECT_ID> --env production
 
 # Test connection
-infisical secrets list
+infisical secrets list --projectId <PROJECT_ID> --env production
 ```
 
 ---
@@ -118,6 +120,9 @@ QUICKNODE_RPC_URL=your_quicknode_url
 
 # Or run directly with Mojo
 mojo run src/main.mojo --mode=paper
+
+# Or run with Infisical secrets (recommended)
+infisical run --projectId <PROJECT_ID> --env production -- ./scripts/deploy_with_filters.sh
 ```
 
 **The deployment script will:**
@@ -253,8 +258,8 @@ which mojo && which rustc && which infisical
 
 ### API Connection Issues
 ```bash
-# Test Infisical
-infisical secrets list
+# Test Infisical (with project ID if set)
+infisical secrets list --projectId <PROJECT_ID> --env production
 
 # Test Helius API
 curl -H "Authorization: Bearer $HELIUS_API_KEY" \

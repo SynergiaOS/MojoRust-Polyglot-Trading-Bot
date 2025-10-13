@@ -69,12 +69,14 @@ mkdir -p logs data secrets
 # Zaloguj się do Infisical
 infisical login
 
-# Ustaw konfigurację projektu (pobierz z https://app.infisical.com)
-infisical config set projectId <TWOJ_PROJECT_ID>
-infisical config setEnvironment production
+# Zainicjalizuj projekt Infisical (tworzy .infisical.json)
+infisical init
+# Ustaw workspaceId i defaultEnvironment when prompted
+# Lub listuj sekrety jawnie:
+infisical secrets list --projectId <PROJECT_ID> --env production
 
 # Testuj połączenie
-infisical secrets list
+infisical secrets list --projectId <PROJECT_ID> --env production
 ```
 
 ---

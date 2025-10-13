@@ -71,6 +71,61 @@ ssh root@38.242.239.150 'tail -f ~/mojo-trading-bot/logs/trading-bot-*.log'
 - **Privacy & Security**: No data sharing with external AI services
 - **Reliability**: No dependency on third-party AI availability
 
+---
+
+## ⚡ Quick Start (5 Minutes)
+
+Get the trading bot running in just 5 minutes with our streamlined setup process.
+
+### 🚀 One-Command Quick Start
+```bash
+# Clone and setup in seconds
+git clone https://github.com/SynergiaOS/MojoRust.git
+cd MojoRust
+chmod +x scripts/*.sh
+
+# Configure API keys (minimum required)
+cp .env.example .env
+nano .env  # Add your HELIUS_API_KEY and QUICKNODE_RPC_URL
+
+# Start trading in safe paper mode
+./scripts/start_bot.sh --mode=paper --verbose
+```
+
+### 📋 What You Need (2 minutes)
+- **API Keys**:
+  - [Helius](https://www.helius.dev/) (Get free API key)
+  - [QuickNode](https://www.quicknode.com/) (Get free RPC endpoint)
+- **Solana Wallet**: Automatically detected or create new one
+- **Basic Tools**: `git`, `curl`, command line
+
+### 🎯 Instant Results
+Your bot will immediately start:
+- ✅ Analyzing Solana memecoin markets
+- ✅ Executing paper trades (no real money)
+- ✅ Providing real-time metrics at `http://localhost:8080`
+- ✅ Logging activity to `logs/trading-bot-*.log`
+
+### 📊 Monitor Your Bot
+```bash
+# Check bot status
+curl http://localhost:8080/api/health
+
+# View recent activity
+curl http://localhost:8080/api/status
+
+# Watch real-time logs
+tail -f logs/trading-bot-*.log
+```
+
+### 🔧 Need Help?
+- 📖 **Complete Guide**: [Bot Startup Guide](docs/BOT_STARTUP_GUIDE.md)
+- ⚡ **Fastest Path**: [5-Minute Quick Start](docs/QUICK_START.md)
+- 🔐 **Wallet Setup**: [Wallet Setup Guide](docs/WALLET_SETUP_GUIDE.md)
+- 🚀 **Production Deploy**: [Deployment Guide](DEPLOYMENT.md)
+
+---
+
 ## 🏗️ System Architecture
 
 ```
