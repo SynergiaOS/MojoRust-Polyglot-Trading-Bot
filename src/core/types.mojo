@@ -548,6 +548,48 @@ struct ExecutionResult:
         if self.requested_price > 0 and self.executed_price > 0:
             self.slippage_percentage = abs(self.executed_price - self.requested_price) / self.requested_price * 100.0
 
+@value
+struct TradeRecord:
+    """
+    Record of a completed trade
+    """
+    var symbol: String
+    var action: String  # "BUY" or "SELL"
+    var quantity: Float
+    var price: Float
+    var executed_price: Float
+    var timestamp: Float
+    var tx_hash: String
+    var status: String  # "COMPLETED", "FAILED", "PENDING"
+    var gas_cost: Float
+    var slippage: Float
+    var portfolio_id: String
+
+    fn __init__(
+        symbol: String = "",
+        action: String = "",
+        quantity: Float = 0.0,
+        price: Float = 0.0,
+        executed_price: Float = 0.0,
+        timestamp: Float = time(),
+        tx_hash: String = "",
+        status: String = "PENDING",
+        gas_cost: Float = 0.0,
+        slippage: Float = 0.0,
+        portfolio_id: String = ""
+    ):
+        self.symbol = symbol
+        self.action = action
+        self.quantity = quantity
+        self.price = price
+        self.executed_price = executed_price
+        self.timestamp = timestamp
+        self.tx_hash = tx_hash
+        self.status = status
+        self.gas_cost = gas_cost
+        self.slippage = slippage
+        self.portfolio_id = portfolio_id
+
 # =============================================================================
 # API Client Types
 # =============================================================================

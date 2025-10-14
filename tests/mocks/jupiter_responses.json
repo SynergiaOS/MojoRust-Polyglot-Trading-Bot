@@ -1,0 +1,135 @@
+{
+  "sol_to_token": {
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "inputAmount": 1000000000,
+    "outputAmount": 98500000,
+    "otherAmountThreshold": 98000000,
+    "swapMode": "ExactIn",
+    "slippageBps": 100,
+    "priceImpactPct": 0.15,
+    "routePlan": [
+      {
+        "swapInfo": {
+          "ammKey": "58oQChx4yWmvKdwLLZzBi4ChoCc2iqCUbhTVJzpB8osR",
+          "label": "Raydium",
+          "inputMint": "So11111111111111111111111111111111111111112",
+          "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "inAmount": "1000000000",
+          "outAmount": "98500000",
+          "feeAmount": "1000000",
+          "feeMint": "So11111111111111111111111111111111111111112"
+        },
+        "percent": 100
+      }
+    ],
+    "contextSlot": 250000000,
+    "timeTaken": 0.045
+  },
+  "token_to_sol": {
+    "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "outputMint": "So11111111111111111111111111111111111111112",
+    "inputAmount": 100000000,
+    "outputAmount": 1015000000,
+    "otherAmountThreshold": 1010000000,
+    "swapMode": "ExactIn",
+    "slippageBps": 100,
+    "priceImpactPct": 0.12,
+    "routePlan": [
+      {
+        "swapInfo": {
+          "ammKey": "58oQChx4yWmvKdwLLZzBi4ChoCc2iqCUbhTVJzpB8osR",
+          "label": "Raydium",
+          "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "outputMint": "So11111111111111111111111111111111111111112",
+          "inAmount": "100000000",
+          "outAmount": "1015000000",
+          "feeAmount": "100000",
+          "feeMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        "percent": 100
+      }
+    ],
+    "contextSlot": 250000001,
+    "timeTaken": 0.038
+  },
+  "multi_hop": {
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+    "inputAmount": 1000000000,
+    "outputAmount": 99800000000,
+    "otherAmountThreshold": 99500000000,
+    "swapMode": "ExactIn",
+    "slippageBps": 100,
+    "priceImpactPct": 0.08,
+    "routePlan": [
+      {
+        "swapInfo": {
+          "ammKey": "58oQChx4yWmvKdwLLZzBi4ChoCc2iqCUbhTVJzpB8osR",
+          "label": "Raydium SOL-USDC",
+          "inputMint": "So11111111111111111111111111111111111111112",
+          "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "inAmount": "1000000000",
+          "outAmount": "98500000",
+          "feeAmount": "1000000",
+          "feeMint": "So11111111111111111111111111111111111111112"
+        },
+        "percent": 100
+      },
+      {
+        "swapInfo": {
+          "ammKey": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+          "label": "Raydium USDC-USDT",
+          "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "outputMint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "inAmount": "98500000",
+          "outAmount": "99800000000",
+          "feeAmount": "98000",
+          "feeMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        "percent": 100
+      }
+    ],
+    "contextSlot": 250000002,
+    "timeTaken": 0.089
+  },
+  "no_route": {
+    "error": "No routes found for this swap",
+    "code": "NO_ROUTES"
+  },
+  "insufficient_liquidity": {
+    "error": "Insufficient liquidity",
+    "code": "INSUFFICIENT_LIQUIDITY"
+  },
+  "invalid_mint": {
+    "error": "Invalid mint address",
+    "code": "INVALID_MINT"
+  },
+  "large_trade": {
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "inputAmount": 100000000000,
+    "outputAmount": 9750000000,
+    "otherAmountThreshold": 9700000000,
+    "swapMode": "ExactIn",
+    "slippageBps": 500,
+    "priceImpactPct": 2.5,
+    "routePlan": [
+      {
+        "swapInfo": {
+          "ammKey": "58oQChx4yWmvKdwLLZzBi4ChoCc2iqCUbhTVJzpB8osR",
+          "label": "Raydium",
+          "inputMint": "So11111111111111111111111111111111111111112",
+          "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "inAmount": "100000000000",
+          "outAmount": "9750000000",
+          "feeAmount": "100000000",
+          "feeMint": "So11111111111111111111111111111111111111112"
+        },
+        "percent": 100
+      }
+    ],
+    "contextSlot": 250000003,
+    "timeTaken": 0.156
+  }
+}

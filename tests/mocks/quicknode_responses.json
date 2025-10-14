@@ -1,0 +1,246 @@
+{
+  "account_info": {
+    "jsonrpc": "2.0",
+    "result": {
+      "context": {
+        "slot": 250000000
+      },
+      "value": {
+        "lamports": 1000000000,
+        "data": ["base64 encoded data", "base64"],
+        "owner": "11111111111111111111111111111111",
+        "executable": false,
+        "rentEpoch": 255,
+        "space": 165
+      }
+    },
+    "id": 1
+  },
+  "multiple_accounts": {
+    "jsonrpc": "2.0",
+    "result": {
+      "context": {
+        "slot": 250000001
+      },
+      "value": [
+        {
+          "lamports": 1000000000,
+          "data": ["base64 encoded data 1", "base64"],
+          "owner": "11111111111111111111111111111111",
+          "executable": false,
+          "rentEpoch": 255,
+          "space": 165
+        },
+        {
+          "lamports": 2000000000,
+          "data": ["base64 encoded data 2", "base64"],
+          "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "executable": false,
+          "rentEpoch": 255,
+          "space": 320
+        }
+      ]
+    },
+    "id": 1
+  },
+  "token_balance": {
+    "jsonrpc": "2.0",
+    "result": {
+      "context": {
+        "slot": 250000002
+      },
+      "value": {
+        "amount": "1000000000",
+        "decimals": 6,
+        "uiAmount": 1000.0,
+        "uiAmountString": "1000"
+      }
+    },
+    "id": 1
+  },
+  "transaction_history": {
+    "jsonrpc": "2.0",
+    "result": {
+      "context": {
+        "slot": 250000003
+      },
+      "value": [
+        {
+          "signature": "5j7s6L9J8kK9hTmZp9X8Y7R6wQ5v4U3tS2r1P0oN9m8L7k6J5h4G3f2E1dC",
+          "slot": 249999999,
+          "blockTime": 1705316400,
+          "confirmationStatus": "confirmed",
+          "err": null,
+          "memo": null,
+          "meta": {
+            "fee": 5000,
+            "preBalances": [1000000000, 2000000000],
+            "postBalances": [999995000, 2000000000],
+            "innerInstructions": [],
+            "logMessages": [],
+            "preTokenBalances": [
+              {
+                "accountIndex": 0,
+                "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                "ownerTokenAccount": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+                "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                "uiTokenAmount": {
+                  "amount": "1000.000000",
+                  "decimals": 6,
+                  "uiAmount": 1000.0,
+                  "uiAmountString": "1000"
+                }
+              }
+            ],
+            "postTokenBalances": [
+              {
+                "accountIndex": 0,
+                "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                "ownerTokenAccount": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+                "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                "uiTokenAmount": {
+                  "amount": "999.995000",
+                  "decimals": 6,
+                  "uiAmount": 999.995,
+                  "uiAmountString": "999.995"
+                }
+              }
+            ],
+            "rewards": [],
+            "loadedAddresses": {
+              "writable": [],
+              "readonly": []
+            }
+          },
+          "transaction": {
+            "message": {
+              "accountKeys": [
+                "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+                "11111111111111111111111111111111"
+              ],
+              "recentBlockhash": "mSyJkK8sJpJWnBZvG4H7R6qF5pE4d3C2b1A0zY9xW8v7u6",
+              "instructions": [
+                {
+                  "keys": [
+                    {
+                      "accountIndex": 0,
+                      "isSigner": true,
+                      "isWritable": true
+                    },
+                    {
+                      "accountIndex": 1,
+                      "isSigner": false,
+                      "isWritable": false
+                    }
+                  ],
+                  "programIdIndex": 0,
+                  "data": "base64 encoded instruction data"
+                }
+              ],
+              "addressTableLookups": []
+            },
+            "signatures": [
+              "5j7s6L9J8kK9hTmZp9X8Y7R6wQ5v4U3tS2r1P0oN9m8L7k6J5h4G3f2E1dC"
+            ]
+          },
+          "version": 0
+        }
+      ]
+    },
+    "id": 1
+  },
+  "slot_info": {
+    "jsonrpc": "2.0",
+    "result": {
+      "context": {
+        "slot": 250000004
+      },
+      "value": {
+        "parent": 250000003,
+        "root": 249990000,
+        "processed": true,
+        "time": 1705316400,
+        "blocks": 32
+      }
+    },
+    "id": 1
+  },
+  "health_check": {
+    "jsonrpc": "2.0",
+    "result": {
+      "context": {
+        "slot": 250000005
+      },
+      "value": {
+        "status": "healthy",
+        "nodePubkey": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        "votePubkey": "11111111111111111111111111111111",
+        "activatedStake": 500000000000000,
+        "delinquent": false,
+        "lastVote": 250000000,
+        "rootSlot": 249990000,
+        "version": {
+          "feature_set": 123456789,
+          "solana_core": "1.17.0"
+        }
+      }
+    },
+    "id": 1
+  },
+  "error_invalid_account": {
+    "jsonrpc": "2.0",
+    "error": {
+      "code": -32602,
+      "message": "Invalid params: invalid account"
+    },
+    "id": 1
+  },
+  "error_slot_skipped": {
+    "jsonrpc": "2.0",
+    "error": {
+      "code": -32002,
+      "message": "Slot was skipped, or missing due to ledger jump"
+    },
+    "id": 1
+  },
+  "block_production": {
+    "jsonrpc": "2.0",
+    "result": {
+      "context": {
+        "slot": 250000006
+      },
+      "value": [
+        {
+          "identity": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+          "leaderSlots": 100,
+          "blocksProduced": 95,
+          "skippedSlots": 5
+        }
+      ]
+    },
+    "id": 1
+  },
+  "vote_accounts": {
+    "jsonrpc": "2.0",
+    "result": {
+      "current": [
+        {
+          "votePubkey": "11111111111111111111111111111111",
+          "nodePubkey": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+          "activatedStake": 500000000000000,
+          "commission": 5,
+          "lastVote": 250000000,
+          "rootSlot": 249990000,
+          "epoch": 500,
+          "epochVoteAccount": true,
+          "version": {
+            "feature_set": 123456789,
+            "solana_core": "1.17.0"
+          }
+        }
+      ],
+      "delinquent": []
+    },
+    "id": 1
+  }
+}

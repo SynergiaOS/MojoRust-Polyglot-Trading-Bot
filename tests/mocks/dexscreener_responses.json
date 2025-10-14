@@ -1,0 +1,252 @@
+{
+  "trending_tokens": {
+    "pairs": [
+      {
+        "chainId": "solana",
+        "dexId": "raydium",
+        "url": "https://raydium.io/swap/?inputMint=sol&outputMint=So11111111111111111111111111111111111111112",
+        "pairAddress": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        "baseToken": {
+          "address": "So11111111111111111111111111111111111111112",
+          "name": "Wrapped SOL",
+          "symbol": "SOL"
+        },
+        "quoteToken": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "name": "USD Coin",
+          "symbol": "USDC"
+        },
+        "priceNative": "98.5",
+        "priceUsd": "$98.50",
+        "txns": {
+          "m5": {
+            "buys": 1250,
+            "sells": 890
+          },
+          "h1": {
+            "buys": 15420,
+            "sells": 12300
+          },
+          "h6": {
+            "buys": 92500,
+            "sells": 87600
+          },
+          "h24": {
+            "buys": 372000,
+            "sells": 354000
+          }
+        },
+        "volume": {
+          "h24": 45829000,
+          "h6": 12345000,
+          "h1": 2890000,
+          "m5": 187000
+        },
+        "priceChange": {
+          "m5": 0.85,
+          "h1": 2.34,
+          "h6": 5.67,
+          "h24": 12.45
+        },
+        "liquidity": {
+          "usd": 28473000,
+          "base": 289000,
+          "quote": 28473000
+        },
+        "pairCreatedAt": 1640995200000
+      },
+      {
+        "chainId": "solana",
+        "dexId": "orca",
+        "url": "https://orca.so/swap/?inputCurrency=So11111111111111111111111111111111111111112&outputCurrency=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "pairAddress": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        "baseToken": {
+          "address": "So11111111111111111111111111111111111111112",
+          "name": "Wrapped SOL",
+          "symbol": "SOL"
+        },
+        "quoteToken": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "name": "USD Coin",
+          "symbol": "USDC"
+        },
+        "priceNative": "98.45",
+        "priceUsd": "$98.45",
+        "txns": {
+          "m5": {
+            "buys": 980,
+            "sells": 765
+          },
+          "h1": {
+            "buys": 12300,
+            "sells": 10900
+          },
+          "h6": {
+            "buys": 76800,
+            "sells": 71200
+          },
+          "h24": {
+            "buys": 298000,
+            "sells": 287000
+          }
+        },
+        "volume": {
+          "h24": 38476000,
+          "h6": 10234000,
+          "h1": 2450000,
+          "m5": 156000
+        },
+        "priceChange": {
+          "m5": 0.42,
+          "h1": 1.89,
+          "h6": 4.23,
+          "h24": 10.87
+        },
+        "liquidity": {
+          "usd": 31256000,
+          "base": 318000,
+          "quote": 31256000
+        },
+        "pairCreatedAt": 1640995200000
+      }
+    ]
+  },
+  "token_info": {
+    "pairs": [
+      {
+        "chainId": "solana",
+        "dexId": "raydium",
+        "url": "https://raydium.io/swap/?inputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&outputMint=Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+        "pairAddress": "8sJbNmmwv8QfCvw3FbE9bXNjKx3k4FpQ4kEJwVJrZ2p",
+        "baseToken": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "name": "USD Coin",
+          "symbol": "USDC"
+        },
+        "quoteToken": {
+          "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "name": "Tether USD",
+          "symbol": "USDT"
+        },
+        "priceNative": "1.0002",
+        "priceUsd": "$1.00",
+        "txns": {
+          "m5": {
+            "buys": 2340,
+            "sells": 2190
+          },
+          "h1": {
+            "buys": 28900,
+            "sells": 27600
+          },
+          "h6": {
+            "buys": 173400,
+            "sells": 168900
+          },
+          "h24": {
+            "buys": 697600,
+            "sells": 682000
+          }
+        },
+        "volume": {
+          "h24": 823450000,
+          "h6": 205860000,
+          "h1": 56780000,
+          "m5": 4560000
+        },
+        "priceChange": {
+          "m5": 0.02,
+          "h1": 0.08,
+          "h6": 0.15,
+          "h24": 0.25
+        },
+        "liquidity": {
+          "usd": 45678000,
+          "base": 45678000,
+          "quote": 45667000
+        },
+        "pairCreatedAt": 1640995200000,
+        "fdv": 45678000000,
+        "marketCap": 45678000000
+      }
+    ]
+  },
+  "pump_fun_token": {
+    "schemaVersion": "1.0.0",
+    "pairs": [
+      {
+        "chainId": "solana",
+        "dexId": "pump-fun",
+        "url": "https://pump.fun/coin/0x1234567890abcdef",
+        "pairAddress": "1234567890abcdef1234567890abcdef12345678",
+        "baseToken": {
+          "address": "1234567890abcdef1234567890abcdef12345678",
+          "name": "Pump Token",
+          "symbol": "PUMP"
+        },
+        "quoteToken": {
+          "address": "So11111111111111111111111111111111111111112",
+          "name": "Wrapped SOL",
+          "symbol": "SOL"
+        },
+        "priceNative": "0.00001",
+        "priceUsd": "$0.00098",
+        "txns": {
+          "m5": {
+            "buys": 850,
+            "sells": 320
+          },
+          "h1": {
+            "buys": 12500,
+            "sells": 5600
+          },
+          "h6": {
+            "buys": 48700,
+            "sells": 22300
+          },
+          "h24": {
+            "buys": 187000,
+            "sells": 98000
+          }
+        },
+        "volume": {
+          "h24": 284760,
+          "h6": 72340,
+          "h1": 18790,
+          "m5": 1234
+        },
+        "priceChange": {
+          "m5": 15.67,
+          "h1": 45.23,
+          "h6": 87.45,
+          "h24": 234.56
+        },
+        "liquidity": {
+          "usd": 45670,
+          "base": 46580000,
+          "quote": 45.67
+        },
+        "pairCreatedAt": 1704729600000,
+        "fdv": 9876500,
+        "marketCap": 9876500,
+        "buzz": {
+          "hours": [
+            {
+              "hour": "2024-01-15T10:00:00Z",
+              "buys": 12500,
+              "sells": 5600
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "no_liquidity": {
+    "schemaVersion": "1.0.0",
+    "pairs": []
+  },
+  "error_response": {
+    "error": "Invalid token address",
+    "message": "The provided token address is not valid"
+  }
+}

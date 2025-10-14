@@ -1,0 +1,166 @@
+{
+  "valid_token": {
+    "onChain": {
+      "account": {
+        "owner": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        "lamports": 1000000000,
+        "data": {
+          "type": "mint",
+          "info": {
+            "mintAuthority": null,
+            "supply": "1000000000000",
+            "decimals": 6,
+            "isInitialized": true,
+            "freezeAuthority": null
+          }
+        }
+      },
+      "metadata": {
+        "name": "Test Token",
+        "symbol": "TEST",
+        "uri": "https://example.com/metadata.json",
+        "sellerFeeBasisPoints": 500,
+        "creators": [
+          {
+            "address": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+            "verified": true,
+            "share": 100
+          }
+        ],
+        "collection": null,
+        "uses": null
+      }
+    },
+    "tokenMetadata": {
+      "name": "Test Token",
+      "symbol": "TEST",
+      "description": "A test token for integration testing",
+      "image": "https://example.com/image.png",
+      "external_url": "https://example.com",
+      "attributes": [
+        {
+          "trait_type": "category",
+          "value": "utility"
+        }
+      ],
+      "properties": {
+        "category": "image",
+        "creators": [
+          {
+            "address": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+            "share": 100
+          }
+        ]
+      }
+    },
+    "enrichments": {
+      "organicScore": 0.85,
+      "confidence": 0.92,
+      "riskLevel": "low",
+      "factors": {
+        "holderDistribution": 0.9,
+        "liquidityLock": 0.95,
+        "authorityRevocation": 1.0,
+        "socialPresence": 0.7,
+        "transactionPatterns": 0.8
+      }
+    },
+    "priceInfo": {
+      "price": 0.01,
+      "priceInSol": 0.0001,
+      "vsToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "vsTokenSymbol": "USDC"
+    },
+    "securityInfo": {
+      "isVerified": true,
+      "isHoneypot": false,
+      "buyTax": 0.0,
+      "sellTax": 0.0,
+      "liquidityLocked": true,
+      "lpBurnPercentage": 95.0,
+      "topHoldersShare": 15.0
+    }
+  },
+  "scam_token": {
+    "onChain": {
+      "account": {
+        "owner": "11111111111111111111111111111111",
+        "lamports": 1000000,
+        "data": {
+          "type": "mint",
+          "info": {
+            "mintAuthority": "11111111111111111111111111111111",
+            "supply": "1000000000000000",
+            "decimals": 9,
+            "isInitialized": true,
+            "freezeAuthority": "11111111111111111111111111111111"
+          }
+        }
+      },
+      "metadata": {
+        "name": "Scam Token",
+        "symbol": "SCAM",
+        "uri": "https://scam.example.com/metadata.json",
+        "sellerFeeBasisPoints": 1000,
+        "creators": [
+          {
+            "address": "11111111111111111111111111111111",
+            "verified": false,
+            "share": 100
+          }
+        ]
+      }
+    },
+    "tokenMetadata": {
+      "name": "Scam Token",
+      "symbol": "SCAM",
+      "description": "A scam token for testing detection",
+      "image": "https://scam.example.com/image.png",
+      "external_url": "https://scam.example.com"
+    },
+    "enrichments": {
+      "organicScore": 0.15,
+      "confidence": 0.89,
+      "riskLevel": "high",
+      "factors": {
+        "holderDistribution": 0.2,
+        "liquidityLock": 0.1,
+        "authorityRevocation": 0.0,
+        "socialPresence": 0.3,
+        "transactionPatterns": 0.4
+      }
+    },
+    "priceInfo": {
+      "price": 0.000001,
+      "priceInSol": 0.00000001,
+      "vsToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "vsTokenSymbol": "USDC"
+    },
+    "securityInfo": {
+      "isVerified": false,
+      "isHoneypot": true,
+      "buyTax": 10.0,
+      "sellTax": 20.0,
+      "liquidityLocked": false,
+      "lpBurnPercentage": 5.0,
+      "topHoldersShare": 85.0
+    }
+  },
+  "error_response": {
+    "error": {
+      "code": -32602,
+      "message": "Invalid params: invalid address: invalid_token_address",
+      "data": null
+    }
+  },
+  "empty_response": {
+    "jsonrpc": "2.0",
+    "result": null,
+    "id": 1
+  },
+  "health_response": {
+    "status": "healthy",
+    "timestamp": "2025-01-15T10:30:00Z",
+    "version": "1.0.0"
+  }
+}

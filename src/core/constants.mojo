@@ -107,7 +107,7 @@ let SYSTEM_PROGRAM_ID = "11111111111111111111111111111111"
 # API Endpoints
 # =============================================================================
 
-let HELIUS_BASE_URL = "https://api.helius.xyz/v0"
+let HELIUS_BASE_URL = "https://api.helius.xyz"
 let DEXSCREENER_BASE_URL = "https://api.dexscreener.com/latest"
 let JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6"
 let JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap"

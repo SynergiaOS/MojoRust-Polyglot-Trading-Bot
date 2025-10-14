@@ -415,3 +415,37 @@ enable_triangular = true
 enable_cross_dex = true
 enable_statistical = false
 enable_flash_loan = false
+
+# =============================================================================
+# Sniper Filters Configuration for PumpFun Memecoin Trading
+# =============================================================================
+[arbitrage.sniper_filters]
+# LP Burn Requirements
+min_lp_burn_rate = 90.0                       # Minimum % of LP tokens burned (90%+ recommended)
+
+# Authority Requirements
+revoke_authority_required = true              # Require mint/freeze authority to be revoked
+
+# Custom TP/SL for Sniper Trades
+tp_threshold = 1.5                            # Take profit multiplier (1.5 = 50% gain)
+sl_threshold = 0.8                            # Stop loss multiplier (0.8 = 20% loss)
+
+# Holder Distribution
+max_top_holders_share = 30.0                  # Max % held by top 5 holders (30% max)
+
+# Volume Requirements
+min_active_volume = 5000.0                    # Min USD volume in 5 minutes ($5,000+)
+
+# Social Mentions Check
+min_social_mentions = 10                      # Min mentions on X/Twitter in 10 minutes
+social_check_enabled = true                   # Enable social mentions check
+social_check_window_minutes = 10              # Time window for social mentions
+
+# Honeypot Detection
+honeypot_check = true                         # Enable honeypot API check (recommended for safety)
+
+# Additional Sniper Configuration
+honeypot_api_enabled = true                    # Use Honeypot.is API
+sniper_mode = "balanced"                      # Trading mode: aggressive, balanced, conservative
+max_slippage_bps = 500                        # Maximum slippage in basis points (5%)
+default_buy_amount_sol = 0.1                 # Default buy amount in SOL

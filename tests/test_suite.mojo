@@ -11,8 +11,12 @@ from time import time
 from collections import Dict, List
 from math import abs, min, max
 
-# Import test modules
-sys.path.append("../src")
+# Import core types and modules
+from core.types import (
+    MarketData, TradingSignal, SignalSource, TradingAction,
+    Portfolio, RiskApproval, SocialMetrics, BlockchainMetrics
+)
+from core.config import Config
 
 # Mock data and utilities for testing
 struct MockData:
@@ -30,7 +34,9 @@ struct MockData:
             price_change_5m=0.02,
             holder_count=150,
             transaction_count=500,
-            age_hours=6.0
+            age_hours=6.0,
+            social_metrics=SocialMetrics(twitter_mentions=50, telegram_members=100),
+            blockchain_metrics=BlockchainMetrics(unique_traders=75, wash_trading_score=0.1)
         )
 
     @staticmethod
@@ -97,6 +103,36 @@ fn assert_close(actual: Float, expected: Float, tolerance: Float, test_name: Str
         failed_tests += 1
         print(f"❌ FAIL: {test_name}")
         print(f"   Expected: {expected} ± {tolerance}, Got: {actual}")
+
+fn assert_in_range(value: Float, min_val: Float, max_val: Float, test_name: String):
+    test_count += 1
+    if value >= min_val and value <= max_val:
+        passed_tests += 1
+        print(f"✅ PASS: {test_name}")
+    else:
+        failed_tests += 1
+        print(f"❌ FAIL: {test_name}")
+        print(f"   Expected range: [{min_val}, {max_val}], Got: {value}")
+
+fn assert_dict_contains(dict_obj: Dict[String, Any], key: String, test_name: String):
+    test_count += 1
+    if key in dict_obj:
+        passed_tests += 1
+        print(f"✅ PASS: {test_name}")
+    else:
+        failed_tests += 1
+        print(f"❌ FAIL: {test_name}")
+        print(f"   Dictionary missing key: {key}")
+
+fn assert_list_not_empty(list_obj: List[Any], test_name: String):
+    test_count += 1
+    if len(list_obj) > 0:
+        passed_tests += 1
+        print(f"✅ PASS: {test_name}")
+    else:
+        failed_tests += 1
+        print(f"❌ FAIL: {test_name}")
+        print(f"   Expected non-empty list")
 
 # =============================================================================
 # SentimentAnalyzer Tests
@@ -246,7 +282,7 @@ fn _create_legitimate_signal(market_data: MarketData) -> TradingSignal:
         timestamp=time(),
         price_target=market_data.current_price * 1.1,
         stop_loss=market_data.current_price * 0.9,
-        volume=market_data.volume_5m,
+        volume=market_data.volume_24h / (24 * 12),  # Approximate 5m volume
         liquidity=market_data.liquidity_usd,
         rsi_value=45.0,
         support_level=market_data.current_price * 0.95,
@@ -254,7 +290,7 @@ fn _create_legitimate_signal(market_data: MarketData) -> TradingSignal:
         signal_source=SignalSource.RSI_SUPPORT,
         metadata={
             "price_change_5m": market_data.price_change_5m,
-            "volume_5m": market_data.volume_5m,
+            "volume_5m": market_data.volume_24h / (24 * 12),  # Approximate 5m volume
             "holder_count": market_data.holder_count,
             "age_hours": market_data.age_hours
         }

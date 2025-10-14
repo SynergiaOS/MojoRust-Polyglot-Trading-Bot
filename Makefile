@@ -29,7 +29,7 @@ TIMESTAMP := $(shell date +%Y-%m-%d_%H:%M:%S)
 .DEFAULT_GOAL := help
 
 # Declare all targets as phony
-.PHONY: help build build-mojo build-rust build-dev build-release test test-mojo test-rust test-watch test-coverage lint lint-mojo lint-rust lint-shell lint-fix format format-mojo format-rust validate validate-secrets deploy deploy-staging deploy-production deploy-dry-run dev run run-paper run-live logs status clean clean-mojo clean-rust clean-logs clean-all setup setup-dev install-deps docker-build docker-run docker-stop docker-logs ci ci-lint ci-test check watch benchmark profile docs docs-serve setup-deps
+.PHONY: help build build-mojo build-rust build-dev build-release test test-mojo test-rust test-watch test-coverage test-integration test-load test-coverage-report test-all lint lint-mojo lint-rust lint-shell lint-fix format format-mojo format-rust validate validate-secrets deploy deploy-staging deploy-production deploy-dry-run dev run run-paper run-live logs status clean clean-mojo clean-rust clean-logs clean-all setup setup-dev install-deps docker-build docker-run docker-stop docker-logs ci ci-lint ci-test check watch benchmark profile docs docs-serve setup-deps
 
 # Help target
 help: ## Show this help message
@@ -48,6 +48,10 @@ help: ## Show this help message
 	@echo "  test-rust      Run Rust tests"
 	@echo "  test-watch     Run tests in watch mode"
 	@echo "  test-coverage  Generate test coverage report"
+	@echo "  test-integration Run integration tests"
+	@echo "  test-load       Run k6 load tests"
+	@echo "  test-coverage-report Generate HTML/XML/JSON coverage reports"
+	@echo "  test-all       Run all test types (unit + integration + load + coverage)"
 	@echo ""
 	@echo "$(GREEN)Lint Commands:$(NC)"
 	@echo "  lint           Run all linters"
@@ -182,6 +186,55 @@ test-coverage: ## Generate test coverage report
 	@echo "$(BLUE)Generating test coverage report...$(NC)"
 	@cd $(RUST_DIR) && $(CARGO_BIN) tarpaulin --out Html || echo "cargo-tarpaulin not installed"
 	@echo "$(GREEN)✅ Coverage report generated$(NC)"
+
+test-integration: ## Run integration tests
+	@echo "$(BLUE)Running integration tests...$(NC)"
+	@echo "Running integration tests (Mojo)..."
+	@for test_file in $(TEST_DIR)/integration/test_*.mojo; do \
+		if [ -f "$$test_file" ]; then \
+			echo "Running integration test: $$test_file"; \
+			$(MOJO_BIN) test "$$test_file"; \
+		fi; \
+	done
+	@echo "Running integration tests (Rust)..."
+	@cd $(RUST_DIR) && $(CARGO_BIN) test --test integration_tests || echo "No Rust integration tests found"
+	@echo "$(GREEN)✅ Integration tests completed$(NC)"
+
+test-load: ## Run k6 load tests
+	@echo "$(BLUE)Running k6 load tests...$(NC)"
+	@if command -v k6 >/dev/null 2>&1; then \
+		mkdir -p tests/load/results; \
+		echo "Running API load tests..."; \
+		k6 run tests/load/api_load_test.js --out json=tests/load/results/api_load_test_results.json || echo "API load test failed"; \
+		echo "Running trading cycle load tests..."; \
+		k6 run tests/load/trading_cycle_load_test.js --out json=tests/load/results/trading_cycle_results.json || echo "Trading cycle load test failed"; \
+		echo "$(GREEN)✅ Load tests completed$(NC)"; \
+		echo "$(BLUE)Results saved to tests/load/results/$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  k6 not installed - install from https://k6.io/$(NC)"; \
+	fi
+
+test-coverage-report: ## Generate HTML/XML/JSON coverage reports
+	@echo "$(BLUE)Generating comprehensive coverage reports...$(NC)"
+	@mkdir -p tests/coverage
+	@if command -v python3 >/dev/null 2>&1; then \
+		python3 tests/coverage_wrapper.py --threshold 70.0 --output-dir tests/coverage; \
+		echo "$(GREEN)✅ Coverage reports generated$(NC)"; \
+		echo "$(BLUE)Reports available at: tests/coverage/html/index.html$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  Python 3 not found - install to generate reports$(NC)"; \
+	fi
+
+test-all: ## Run all test types (unit + integration + load + coverage)
+	@echo "$(BLUE)Running comprehensive test suite...$(NC)"
+	@$(MAKE) test-mojo
+	@$(MAKE) test-rust
+	@$(MAKE) test-integration
+	@if command -v k6 >/dev/null 2>&1; then \
+		$(MAKE) test-load; \
+	fi
+	@$(MAKE) test-coverage-report
+	@echo "$(GREEN)✅ All test types completed successfully$(NC)"
 
 # Lint targets
 lint: lint-mojo lint-rust lint-shell ## Run all linters

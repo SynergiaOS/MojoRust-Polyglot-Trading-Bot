@@ -51,6 +51,15 @@ struct ExecutionEngine:
         self.execution_count += 1
 
         try:
+            # Check if this is a sniper trade and use specialized execution
+            if signal.metadata.get('is_sniper_trade', False):
+                self.logger.debug("detected_sniper_trade",
+                                symbol=signal.symbol,
+                                action=signal.action,
+                                using_specialized_execution=True)
+                return self.execute_sniper_trade_with_tp_sl(signal, approval)
+
+            # Regular trade execution flow
             # Validate execution parameters
             if not self._validate_execution_params(signal, approval):
                 return ExecutionResult(
@@ -460,3 +469,311 @@ struct ExecutionEngine:
         self.successful_executions = 0
         self.total_slippage = 0.0
         self.total_execution_time = 0.0
+
+    # =============================================================================
+    # Sniper TP/SL Methods
+    # =============================================================================
+
+    fn calculate_sniper_tp_sl(self, signal: TradingSignal, entry_price: Float) -> Dict[String, Any]:
+        """
+        Calculate custom Take Profit and Stop Loss for sniper trades
+        Uses sniper-specific TP/SL thresholds from config
+        """
+        try:
+            # Get sniper TP/SL thresholds from config
+            tp_threshold = self.config.sniper_filters.tp_threshold  # 1.5 (50% profit)
+            sl_threshold = self.config.sniper_filters.sl_threshold  # 0.8 (20% loss)
+
+            # Calculate TP and SL prices
+            if signal.action == TradingAction.BUY:
+                # For BUY orders: TP is higher, SL is lower
+                take_profit_price = entry_price * tp_threshold
+                stop_loss_price = entry_price * sl_threshold
+            else:  # SELL order
+                # For SELL orders: TP is lower, SL is higher
+                take_profit_price = entry_price * sl_threshold
+                stop_loss_price = entry_price * tp_threshold
+
+            # Calculate potential profit/loss percentages
+            potential_profit_pct = abs(take_profit_price - entry_price) / entry_price * 100
+            potential_loss_pct = abs(entry_price - stop_loss_price) / entry_price * 100
+
+            # Calculate risk-reward ratio
+            risk_reward_ratio = potential_profit_pct / potential_loss_pct if potential_loss_pct > 0 else 0
+
+            tp_sl_result = {
+                "entry_price": entry_price,
+                "take_profit_price": take_profit_price,
+                "stop_loss_price": stop_loss_price,
+                "potential_profit_pct": potential_profit_pct,
+                "potential_loss_pct": potential_loss_pct,
+                "risk_reward_ratio": risk_reward_ratio,
+                "tp_threshold": tp_threshold,
+                "sl_threshold": sl_threshold,
+                "action": signal.action,
+                "symbol": signal.symbol,
+                "calculation_timestamp": time()
+            }
+
+            self.logger.info("sniper_tp_sl_calculated",
+                           symbol=signal.symbol,
+                           entry_price=entry_price,
+                           tp_price=take_profit_price,
+                           sl_price=stop_loss_price,
+                           profit_pct=potential_profit_pct,
+                           loss_pct=potential_loss_pct,
+                           risk_reward=risk_reward_ratio)
+
+            return tp_sl_result
+
+        except e:
+            self.logger.error("Error calculating sniper TP/SL",
+                            symbol=signal.symbol,
+                            entry_price=entry_price,
+                            error=str(e))
+            return {
+                "entry_price": entry_price,
+                "take_profit_price": 0.0,
+                "stop_loss_price": 0.0,
+                "error": str(e)
+            }
+
+    fn execute_sniper_trade_with_tp_sl(self, signal: TradingSignal, approval: RiskApproval) -> ExecutionResult:
+        """
+        Execute sniper trade with custom TP/SL logic
+        This method handles the complete sniper trade execution with specific profit/loss targets
+        """
+        execution_start = time()
+        self.execution_count += 1
+
+        try:
+            # Execute the entry trade using internal methods to avoid recursion
+            # Validate execution parameters
+            if not self._validate_execution_params(signal, approval):
+                return ExecutionResult(
+                    success=False,
+                    error_message="Invalid execution parameters"
+                )
+
+            # Get swap quote
+            quote = self._get_swap_quote(signal, approval)
+            if not quote or quote.output_amount <= 0:
+                return ExecutionResult(
+                    success=False,
+                    error_message="Failed to get valid swap quote"
+                )
+
+            # Execute swap
+            entry_result = self._execute_swap(signal, approval, quote)
+
+            if not entry_result.success:
+                return entry_result
+
+            # Get entry price from execution result
+            entry_price = entry_result.executed_price
+
+            if entry_price <= 0:
+                self.logger.error("Invalid entry price for sniper trade",
+                                symbol=signal.symbol,
+                                entry_price=entry_price)
+                return ExecutionResult(
+                    success=False,
+                    error_message="Invalid entry price"
+                )
+
+            # Calculate sniper-specific TP/SL
+            tp_sl_calculations = self.calculate_sniper_tp_sl(signal, entry_price)
+
+            if "error" in tp_sl_calculations:
+                return ExecutionResult(
+                    success=False,
+                    error_message=f"TP/SL calculation failed: {tp_sl_calculations['error']}"
+                )
+
+            # Store TP/SL information for monitoring
+            self._store_sniper_position_info(signal, entry_result, tp_sl_calculations)
+
+            # In a real implementation, we would set up automatic TP/SL orders here
+            # For now, we'll log the information and return the entry result
+
+            self.logger.info("sniper_trade_executed",
+                           symbol=signal.symbol,
+                           entry_price=entry_price,
+                           tp_price=tp_sl_calculations["take_profit_price"],
+                           sl_price=tp_sl_calculations["stop_loss_price"],
+                           tx_hash=entry_result.tx_hash)
+
+            # Return enhanced execution result with TP/SL info
+            enhanced_result = ExecutionResult(
+                success=entry_result.success,
+                tx_hash=entry_result.tx_hash,
+                executed_price=entry_result.executed_price,
+                requested_price=entry_result.requested_price,
+                slippage_percentage=entry_result.slippage_percentage,
+                gas_cost=entry_result.gas_cost,
+                execution_time_ms=entry_result.execution_time_ms
+            )
+
+            # Add TP/SL metadata to the result
+            enhanced_result.metadata = {
+                "sniper_trade": True,
+                "tp_price": tp_sl_calculations["take_profit_price"],
+                "sl_price": tp_sl_calculations["stop_loss_price"],
+                "potential_profit_pct": tp_sl_calculations["potential_profit_pct"],
+                "potential_loss_pct": tp_sl_calculations["potential_loss_pct"],
+                "risk_reward_ratio": tp_sl_calculations["risk_reward_ratio"],
+                "tp_threshold": self.config.sniper_filters.tp_threshold,
+                "sl_threshold": self.config.sniper_filters.sl_threshold
+            }
+
+            return enhanced_result
+
+        except e:
+            self.logger.error("Error executing sniper trade with TP/SL",
+                            symbol=signal.symbol,
+                            error=str(e))
+            return ExecutionResult(
+                success=False,
+                error_message=str(e),
+                execution_time_ms=(time() - execution_start) * 1000
+            )
+
+    fn _store_sniper_position_info(self, signal: TradingSignal, execution_result: ExecutionResult, tp_sl_calculations: Dict[String, Any]):
+        """
+        Store sniper position information for monitoring and TP/SL execution
+        """
+        try:
+            # This would typically store in a database or memory cache
+            # For now, we'll just log the information
+
+            position_info = {
+                "symbol": signal.symbol,
+                "action": signal.action,
+                "entry_price": execution_result.executed_price,
+                "entry_time": execution_result.execution_time_ms or time(),
+                "tp_price": tp_sl_calculations["take_profit_price"],
+                "sl_price": tp_sl_calculations["stop_loss_price"],
+                "position_size": signal.position_size or 0.0,
+                "tx_hash": execution_result.tx_hash,
+                "status": "active",
+                "created_at": time()
+            }
+
+            self.logger.info("sniper_position_stored",
+                           symbol=signal.symbol,
+                           entry_price=position_info["entry_price"],
+                           tp_price=position_info["tp_price"],
+                           sl_price=position_info["sl_price"],
+                           position_size=position_info["position_size"])
+
+        except e:
+            self.logger.error("Error storing sniper position info",
+                            symbol=signal.symbol,
+                            error=str(e))
+
+    def check_sniper_tp_sl_conditions(self, current_price: Float, position_info: Dict[String, Any]) -> Dict[String, Any]:
+        """
+        Check if current price triggers TP or SL conditions for a sniper position
+        """
+        try:
+            tp_price = position_info.get("tp_price", 0.0)
+            sl_price = position_info.get("sl_price", 0.0)
+            action = position_info.get("action", TradingAction.BUY)
+            entry_price = position_info.get("entry_price", 0.0)
+
+            if tp_price <= 0 or sl_price <= 0 or entry_price <= 0:
+                return {"triggered": False, "reason": "Invalid prices"}
+
+            triggered = False
+            trigger_type = None
+            exit_price = current_price
+
+            if action == TradingAction.BUY:
+                # For BUY positions: TP when price goes up, SL when price goes down
+                if current_price >= tp_price:
+                    triggered = True
+                    trigger_type = "take_profit"
+                    exit_price = tp_price
+                elif current_price <= sl_price:
+                    triggered = True
+                    trigger_type = "stop_loss"
+                    exit_price = sl_price
+            else:  # SELL position
+                # For SELL positions: TP when price goes down, SL when price goes up
+                if current_price <= tp_price:
+                    triggered = True
+                    trigger_type = "take_profit"
+                    exit_price = tp_price
+                elif current_price >= sl_price:
+                    triggered = True
+                    trigger_type = "stop_loss"
+                    exit_price = sl_price
+
+            # Calculate profit/loss
+            if triggered:
+                if action == TradingAction.BUY:
+                    profit_loss_pct = (exit_price - entry_price) / entry_price * 100
+                else:  # SELL
+                    profit_loss_pct = (entry_price - exit_price) / entry_price * 100
+
+                return {
+                    "triggered": True,
+                    "trigger_type": trigger_type,
+                    "exit_price": exit_price,
+                    "profit_loss_pct": profit_loss_pct,
+                    "is_profit": profit_loss_pct > 0,
+                    "symbol": position_info.get("symbol", ""),
+                    "check_timestamp": time()
+                }
+            else:
+                return {
+                    "triggered": False,
+                    "current_price": current_price,
+                    "tp_distance_pct": abs(current_price - tp_price) / entry_price * 100,
+                    "sl_distance_pct": abs(current_price - sl_price) / entry_price * 100,
+                    "symbol": position_info.get("symbol", ""),
+                    "check_timestamp": time()
+                }
+
+        except e:
+            self.logger.error("Error checking sniper TP/SL conditions",
+                            position_info=position_info,
+                            current_price=current_price,
+                            error=str(e))
+            return {"triggered": False, "error": str(e)}
+
+    def get_sniper_performance_stats(self) -> Dict[String, Any]:
+        """
+        Get sniper-specific performance statistics
+        """
+        try:
+            # In a real implementation, this would query a database for sniper trades
+            # For now, we'll return mock statistics
+
+            mock_stats = {
+                "total_sniper_trades": 0,
+                "winning_sniper_trades": 0,
+                "losing_sniper_trades": 0,
+                "sniper_win_rate": 0.0,
+                "average_sniper_profit_pct": 0.0,
+                "average_sniper_loss_pct": 0.0,
+                "total_sniper_profit_pct": 0.0,
+                "best_sniper_trade_pct": 0.0,
+                "worst_sniper_trade_pct": 0.0,
+                "tp_hits": 0,
+                "sl_hits": 0,
+                "tp_hit_rate": 0.0,
+                "average_hold_time_minutes": 0.0,
+                "current_active_positions": 0,
+                "last_updated": time()
+            }
+
+            return mock_stats
+
+        except e:
+            self.logger.error("Error getting sniper performance stats",
+                            error=str(e))
+            return {
+                "error": str(e),
+                "last_updated": time()
+            }

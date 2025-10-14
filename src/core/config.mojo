@@ -387,6 +387,88 @@ struct FilterConfig:
         self.micro_required_checks_percentage = micro_required_checks_percentage
 
 # =============================================================================
+# Sniper Filters Configuration
+# =============================================================================
+
+@value
+struct SniperFilterConfig:
+    """
+    Configuration for PumpFun memecoin sniper filters
+    """
+    # LP Burn Requirements
+    var min_lp_burn_rate: Float
+
+    # Authority Requirements
+    var revoke_authority_required: Bool
+
+    # Custom TP/SL for Sniper Trades
+    var tp_threshold: Float
+    var sl_threshold: Float
+
+    # Holder Distribution
+    var max_top_holders_share: Float
+
+    # Volume Requirements
+    var min_active_volume: Float
+
+    # Social Mentions Check
+    var min_social_mentions: Int
+    var social_check_enabled: Bool
+    var social_check_window_minutes: Int
+
+    # Honeypot Detection
+    var honeypot_check: Bool
+
+    fn __init__(
+        # LP Burn Requirements
+        min_lp_burn_rate: Float = 90.0,
+
+        # Authority Requirements
+        revoke_authority_required: Bool = True,
+
+        # Custom TP/SL for Sniper Trades
+        tp_threshold: Float = 1.5,
+        sl_threshold: Float = 0.8,
+
+        # Holder Distribution
+        max_top_holders_share: Float = 30.0,
+
+        # Volume Requirements
+        min_active_volume: Float = 5000.0,
+
+        # Social Mentions Check
+        min_social_mentions: Int = 10,
+        social_check_enabled: Bool = True,
+        social_check_window_minutes: Int = 10,
+
+        # Honeypot Detection
+        honeypot_check: Bool = True
+    ):
+        # LP Burn Requirements
+        self.min_lp_burn_rate = min_lp_burn_rate
+
+        # Authority Requirements
+        self.revoke_authority_required = revoke_authority_required
+
+        # Custom TP/SL for Sniper Trades
+        self.tp_threshold = tp_threshold
+        self.sl_threshold = sl_threshold
+
+        # Holder Distribution
+        self.max_top_holders_share = max_top_holders_share
+
+        # Volume Requirements
+        self.min_active_volume = min_active_volume
+
+        # Social Mentions Check
+        self.min_social_mentions = min_social_mentions
+        self.social_check_enabled = social_check_enabled
+        self.social_check_window_minutes = social_check_window_minutes
+
+        # Honeypot Detection
+        self.honeypot_check = honeypot_check
+
+# =============================================================================
 # Risk Thresholds Configuration
 # =============================================================================
 
@@ -914,6 +996,7 @@ struct Config:
     var strategy_thresholds: StrategyThresholdsConfig
     var volume: VolumeConfig
     var whale: WhaleConfig
+    var sniper_filters: SniperFilterConfig
 
     # Environment-specific
     var trading_env: String
@@ -1189,6 +1272,9 @@ struct Config:
         # Whale Configuration
         whale_config = WhaleConfig()
 
+        # Sniper Filter Configuration
+        sniper_filter_config = SniperFilterConfig()
+
         # Wallet configuration
         wallet_address = getenv("WALLET_ADDRESS", "")
         wallet_private_key_path = getenv("WALLET_PRIVATE_KEY_PATH", "")
@@ -1209,6 +1295,7 @@ struct Config:
             strategy_thresholds=strategy_thresholds_config,
             volume=volume_config,
             whale=whale_config,
+            sniper_filters=sniper_filter_config,
             trading_env=trading_env,
             wallet_address=wallet_config.address,
             wallet_private_key_path=wallet_config.private_key_path

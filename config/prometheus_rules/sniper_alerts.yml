@@ -1,0 +1,371 @@
+# =============================================================================
+# Sniper Filter Prometheus Alerting Rules
+# =============================================================================
+# Comprehensive alerting for PumpFun sniper trading system
+# Monitors filter performance, API health, trading metrics, and system health
+
+groups:
+  - name: sniper_filter_performance
+    rules:
+      # High rejection rate alert
+      - alert: SniperFilterHighRejectionRate
+        expr: (sniper_filter_rejections_total / sniper_filter_signals_total) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: master_filter
+        annotations:
+          summary: "Sniper filter rejection rate is too high"
+          description: "Sniper filter rejection rate is {{ $value | printf \"%.2f\" }}% for the last 5 minutes, which exceeds the 80% threshold. This may indicate overly aggressive filtering or market conditions not suitable for sniper trading."
+          runbook_url: "https://docs.mojorust.com/runbooks/sniper-filters"
+
+      # Low signal processing alert
+      - alert: SniperFilterLowSignalProcessing
+        expr: rate(sniper_filter_signals_total[5m]) < 1
+        for: 10m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: master_filter
+        annotations:
+          summary: "Sniper filter processing very low signals"
+          description: "Sniper filter is processing {{ $value | printf \"%.2f\" }} signals per minute, which is below the minimum threshold of 1 signal/minute. This may indicate data source issues or market inactivity."
+          runbook_url: "https://docs.mojorust.com/runbooks/low-signal-activity"
+
+      # Filter pipeline bottleneck alert
+      - alert: SniperFilterPipelineBottleneck
+        expr: sniper_filter_processing_duration_seconds{quantile="0.95"} > 0.5
+        for: 3m
+        labels:
+          severity: critical
+          service: sniper_trading
+          component: master_filter
+        annotations:
+          summary: "Sniper filter processing bottleneck detected"
+          description: "95th percentile processing time is {{ $value | printf \"%.3f\" }} seconds, exceeding the 0.5s threshold. This may cause missed trading opportunities."
+          runbook_url: "https://docs.mojorust.com/runbooks/filter-performance"
+
+  - name: sniper_api_health
+    rules:
+      # Helius API health alert
+      - alert: HeliusApiUnhealthy
+        expr: helius_api_health_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: sniper_trading
+          component: helius_client
+        annotations:
+          summary: "Helius API is unhealthy"
+          description: "Helius API health check has been failing for 2 minutes. This will affect LP burn rate checks, authority revocation verification, and holder distribution analysis."
+          runbook_url: "https://docs.mojorust.com/runbooks/helius-api-health"
+
+      # Honeypot API health alert
+      - alert: HoneypotApiUnhealthy
+        expr: honeypot_api_health_status == 0
+        for: 2m
+        labels:
+          severity: high
+          service: sniper_trading
+          component: honeypot_client
+        annotations:
+          summary: "Honeypot detection API is unhealthy"
+          description: "Honeypot API health check has been failing for 2 minutes. Sniper trading may proceed without honeypot protection, increasing risk."
+          runbook_url: "https://docs.mojorust.com/runbooks/honeypot-api-health"
+
+      # Social API health alert
+      - alert: SocialApiUnhealthy
+        expr: social_api_health_status == 0
+        for: 2m
+        labels:
+          severity: medium
+          service: sniper_trading
+          component: social_client
+        annotations:
+          summary: "Social media API is unhealthy"
+          description: "Social media API health check has been failing for 2 minutes. Social mentions filtering will be disabled, potentially missing high-quality signals."
+          runbook_url: "https://docs.mojorust.com/runbooks/social-api-health"
+
+      # API error rate alert
+      - alert: SniperApiHighErrorRate
+        expr: rate(sniper_api_errors_total[5m]) / rate(sniper_api_requests_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: api_clients
+        annotations:
+          summary: "High API error rate for sniper filters"
+          description: "API error rate is {{ $value | printf \"%.2f\" }}% over the last 5 minutes, exceeding the 10% threshold. This may affect filter accuracy."
+          runbook_url: "https://docs.mojorust.com/runbooks/api-errors"
+
+  - name: sniper_trading_performance
+    rules:
+      # Low win rate alert
+      - alert: SniperTradingLowWinRate
+        expr: (sniper_trades_won_total / sniper_trades_total) * 100 < 30
+        for: 20m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: trading_engine
+        annotations:
+          summary: "Sniper trading win rate is low"
+          description: "Sniper trading win rate is {{ $value | printf \"%.1f\" }}% over the last 20 minutes, below the 30% threshold. Consider reviewing filter settings or market conditions."
+          runbook_url: "https://docs.mojorust.com/runbooks/low-win-rate"
+
+      # High drawdown alert
+      - alert: SniperTradingHighDrawdown
+        expr: sniper_portfolio_drawdown_percent > 15
+        for: 5m
+        labels:
+          severity: high
+          service: sniper_trading
+          component: risk_management
+        annotations:
+          summary: "Sniper trading portfolio high drawdown"
+          description: "Sniper trading portfolio drawdown is {{ $value | printf \"%.1f\" }}%, exceeding the 15% threshold. Consider reducing position sizes or tightening filters."
+          runbook_url: "https://docs.mojorust.com/runbooks/high-drawdown"
+
+      # No trading activity alert
+      - alert: SniperTradingNoActivity
+        expr: increase(sniper_trades_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: trading_engine
+        annotations:
+          summary: "No sniper trading activity detected"
+          description: "No sniper trades have been executed in the last 30 minutes. This may indicate overly strict filters or lack of suitable opportunities."
+          runbook_url: "https://docs.mojorust.com/runbooks/no-trading-activity"
+
+      # High position concentration alert
+      - alert: SniperTradingHighConcentration
+        expr: sniper_portfolio_concentration_percent > 40
+        for: 10m
+        labels:
+          severity: medium
+          service: sniper_trading
+          component: risk_management
+        annotations:
+          summary: "High position concentration in sniper trading"
+          description: "Single position represents {{ $value | printf \"%.1f\" }}% of portfolio, exceeding the 40% threshold. This increases portfolio risk."
+          runbook_url: "https://docs.mojorust.com/runbooks/high-concentration"
+
+  - name: sniper_filter_rejections
+    rules:
+      # High LP burn rejection rate
+      - alert: SniperHighLpBurnRejections
+        expr: (sniper_rejections_lp_burn_total / sniper_filter_signals_total) * 100 > 50
+        for: 10m
+        labels:
+          severity: info
+          service: sniper_trading
+          component: lp_burn_filter
+        annotations:
+          summary: "High LP burn rejection rate"
+          description: "{{ $value | printf \"%.1f\" }}% of signals are rejected for insufficient LP burn rate. Consider adjusting the LP burn threshold if too strict."
+          runbook_url: "https://docs.mojorust.com/runbooks/lp-burn-rejections"
+
+      # High authority rejection rate
+      - alert: SniperHighAuthorityRejections
+        expr: (sniper_rejections_authority_total / sniper_filter_signals_total) * 100 > 40
+        for: 10m
+        labels:
+          severity: info
+          service: sniper_trading
+          component: authority_filter
+        annotations:
+          summary: "High authority revocation rejection rate"
+          description: "{{ $value | printf \"%.1f\" }}% of signals are rejected for insufficient authority revocation. Many new tokens may not meet this criteria."
+          runbook_url: "https://docs.mojorust.com/runbooks/authority-rejections"
+
+      # High distribution rejection rate
+      - alert: SniperHighDistributionRejections
+        expr: (sniper_rejections_distribution_total / sniper_filter_signals_total) * 100 > 30
+        for: 10m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: distribution_filter
+        annotations:
+          summary: "High holder distribution rejection rate"
+          description: "{{ $value | printf \"%.1f\" }}% of signals are rejected for poor holder distribution. This may indicate many tokens have high concentration."
+          runbook_url: "https://docs.mojorust.com/runbooks/distribution-rejections"
+
+      # High social rejection rate
+      - alert: SniperHighSocialRejections
+        expr: (sniper_rejections_social_total / sniper_filter_signals_total) * 100 > 60
+        for: 15m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: social_filter
+        annotations:
+          summary: "High social mentions rejection rate"
+          description: "{{ $value | printf \"%.1f\" }}% of signals are rejected for insufficient social mentions. Consider lowering the social threshold if too strict."
+          runbook_url: "https://docs.mojorust.com/runbooks/social-rejections"
+
+      # High honeypot rejection rate
+      - alert: SniperHighHoneypotRejections
+        expr: (sniper_rejections_honeypot_total / sniper_filter_signals_total) * 100 > 20
+        for: 5m
+        labels:
+          severity: high
+          service: sniper_trading
+          component: honeypot_filter
+        annotations:
+          summary: "High honeypot rejection rate"
+          description: "{{ $value | printf \"%.1f\" }}% of signals are rejected as potential honeypots. This may indicate increased scam activity or API issues."
+          runbook_url: "https://docs.mojorust.com/runbooks/honeypot-rejections"
+
+  - name: sniper_jito_mev_performance
+    rules:
+      # Low bundle success rate alert
+      - alert: JitoLowBundleSuccessRate
+        expr: (jito_bundles_confirmed_total / jito_bundles_submitted_total) * 100 < 50
+        for: 10m
+        labels:
+          severity: high
+          service: sniper_trading
+          component: jito_mev
+        annotations:
+          summary: "Jito bundle success rate is low"
+          description: "Jito bundle success rate is {{ $value | printf \"%.1f\" }}% over the last 10 minutes, below the 50% threshold. This indicates network issues or insufficient tips."
+          runbook_url: "https://docs.mojorust.com/runbooks/jito-bundle-success"
+
+      # High bundle timeout rate alert
+      - alert: JitoHighBundleTimeoutRate
+        expr: (jito_bundles_timeout_total / jito_bundles_submitted_total) * 100 > 30
+        for: 5m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: jito_mev
+        annotations:
+          summary: "High Jito bundle timeout rate"
+          description: "{{ $value | printf \"%.1f\" }}% of Jito bundles are timing out, exceeding the 30% threshold. Consider increasing tips or bundle timeout."
+          runbook_url: "https://docs.mojorust.com/runbooks/jito-bundle-timeouts"
+
+      # Low MEV profit alert
+      - alert: JitoLowMevProfit
+        expr: rate(jito_mev_profit_sol[15m]) < 0.001
+        for: 30m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: jito_mev
+        annotations:
+          summary: "Low MEV profit generation"
+          description: "MEV profit rate is {{ $value | printf \"%.6f\" }} SOL/minute over the last 15 minutes, below the 0.001 SOL/min threshold."
+          runbook_url: "https://docs.mojorust.com/runbooks/low-mev-profit"
+
+      # High tip cost alert
+      - alert: JitoHighTipCost
+        expr: (jito_tips_paid_total_sol / jito_trades_total) > 0.01
+        for: 20m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: jito_mev
+        annotations:
+          summary: "High Jito tip costs"
+          description: "Average tip per trade is {{ $value | printf \"%.6f\" }} SOL, exceeding the 0.01 SOL threshold. This may reduce overall profitability."
+          runbook_url: "https://docs.mojorust.com/runbooks/high-tip-costs"
+
+  - name: sniper_system_health
+    rules:
+      # High memory usage alert
+      - alert: SniperHighMemoryUsage
+        expr: (sniper_process_memory_bytes / sniper_process_memory_limit_bytes) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: system_health
+        annotations:
+          summary: "High memory usage in sniper trading system"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}% of limit, exceeding the 85% threshold. This may affect system performance."
+          runbook_url: "https://docs.mojorust.com/runbooks/high-memory-usage"
+
+      # High CPU usage alert
+      - alert: SniperHighCpuUsage
+        expr: sniper_process_cpu_percent > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: system_health
+        annotations:
+          summary: "High CPU usage in sniper trading system"
+          description: "CPU usage is {{ $value | printf \"%.1f\" }}%, exceeding the 80% threshold. This may cause processing delays."
+          runbook_url: "https://docs.mojorust.com/runbooks/high-cpu-usage"
+
+      # Disk space alert
+      - alert: SniperLowDiskSpace
+        expr: (sniper_disk_available_bytes / sniper_disk_total_bytes) * 100 < 10
+        for: 2m
+        labels:
+          severity: critical
+          service: sniper_trading
+          component: system_health
+        annotations:
+          summary: "Low disk space in sniper trading system"
+          description: "Disk space available is {{ $value | printf \"%.1f\" }}%, below the 10% threshold. System may run out of space for logs."
+          runbook_url: "https://docs.mojorust.com/runbooks/low-disk-space"
+
+      # Service down alert
+      - alert: SniperServiceDown
+        expr: up{job=~"sniper-.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: sniper_trading
+          component: system_health
+        annotations:
+          summary: "Sniper trading service is down"
+          description: "Service {{ $labels.job }} on {{ $labels.instance }} has been down for 1 minute. Immediate attention required."
+          runbook_url: "https://docs.mojorust.com/runbooks/service-down"
+
+  - name: sniper_quality_metrics
+    rules:
+      # Low signal quality alert
+      - alert: SniperLowSignalQuality
+        expr: sniper_signal_quality_score < 0.5
+        for: 15m
+        labels:
+          severity: warning
+          service: sniper_trading
+          component: signal_quality
+        annotations:
+          summary: "Low signal quality score"
+          description: "Signal quality score is {{ $value | printf \"%.2f\" }}, below the 0.5 threshold. Filter settings may need adjustment."
+          runbook_url: "https://docs.mojorust.com/runbooks/low-signal-quality"
+
+      # High false positive rate alert
+      - alert: SniperHighFalsePositiveRate
+        expr: (sniper_false_positive_trades_total / sniper_trades_total) * 100 > 40
+        for: 30m
+        labels:
+          severity: high
+          service: sniper_trading
+          component: signal_quality
+        annotations:
+          summary: "High false positive rate in sniper trading"
+          description: "False positive rate is {{ $value | printf \"%.1f\" }}%, exceeding the 40% threshold. Filters are allowing too many poor trades."
+          runbook_url: "https://docs.mojorust.com/runbooks/high-false-positive-rate"
+
+      # Low opportunity detection alert
+      - alert: SniperLowOpportunityDetection
+        expr: rate(sniper_opportunities_detected_total[10m]) < 0.5
+        for: 20m
+        labels:
+          severity: info
+          service: sniper_trading
+          component: opportunity_detection
+        annotations:
+          summary: "Low opportunity detection rate"
+          description: "Opportunity detection rate is {{ $value | printf \"%.2f\" }} per minute, below the 0.5 threshold. Market may be slow or filters too strict."
+          runbook_url: "https://docs.mojorust.com/runbooks/low-opportunity-detection"

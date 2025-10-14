@@ -514,3 +514,388 @@ struct SpamFilter:
             "cooldown_entries_remaining": len(self.last_signal_times),
             "old_entries_cleaned": len(old_symbols)
         })
+
+    # =============================================================================
+    # Sniper Filter Methods
+    # =============================================================================
+
+    fn check_sniper_filters(self, signal: TradingSignal, honeypot_client, social_client) -> Dict[String, Any]:
+        """
+        Apply sniper-specific filters to a trading signal
+        Returns comprehensive sniper filter analysis
+        """
+        try:
+            # Initialize filter results
+            filter_results = {
+                "passed": False,
+                "reason": "",
+                "confidence_score": 0.0,
+                "individual_checks": {},
+                "recommendation": "avoid",
+                "token_address": signal.symbol,
+                "analysis_timestamp": time()
+            }
+
+            # Check LP burn rate
+            lp_burn_result = self._check_lp_burn_requirement(signal)
+            filter_results["individual_checks"]["lp_burn"] = lp_burn_result
+
+            if not lp_burn_result["passed"]:
+                filter_results["passed"] = False
+                filter_results["reason"] = f"LP burn rate too low: {lp_burn_result['lp_burn_rate']}%"
+                filter_results["recommendation"] = "avoid"
+                return filter_results
+
+            # Check authority revocation
+            authority_result = self._check_authority_revocation_requirement(signal)
+            filter_results["individual_checks"]["authority"] = authority_result
+
+            if not authority_result["passed"]:
+                filter_results["passed"] = False
+                filter_results["reason"] = "Mint/freeze authorities not revoked"
+                filter_results["recommendation"] = "avoid"
+                return filter_results
+
+            # Check holder distribution
+            holder_result = self._check_holder_distribution_requirement(signal)
+            filter_results["individual_checks"]["holder_distribution"] = holder_result
+
+            if not holder_result["passed"]:
+                filter_results["passed"] = False
+                filter_results["reason"] = f"Holder concentration too high: {holder_result['top_holders_share']}%"
+                filter_results["recommendation"] = "avoid"
+                return filter_results
+
+            # Check volume requirements
+            volume_result = self._check_volume_requirement(signal)
+            filter_results["individual_checks"]["volume"] = volume_result
+
+            if not volume_result["passed"]:
+                filter_results["passed"] = False
+                filter_results["reason"] = f"Insufficient volume: ${volume_result['volume_usd']}"
+                filter_results["recommendation"] = "avoid"
+                return filter_results
+
+            # Check social mentions (if enabled)
+            if self.config.sniper_filters.social_check_enabled:
+                social_result = self._check_social_mentions_requirement(signal, social_client)
+                filter_results["individual_checks"]["social"] = social_result
+
+                if not social_result["passed"]:
+                    filter_results["passed"] = False
+                    filter_results["reason"] = f"Insufficient social mentions: {social_result['mention_count']}"
+                    filter_results["recommendation"] = "caution"
+                    return filter_results
+
+            # Check honeypot status (if enabled)
+            if self.config.sniper_filters.honeypot_check:
+                honeypot_result = self._check_honeypot_requirement(signal, honeypot_client)
+                filter_results["individual_checks"]["honeypot"] = honeypot_result
+
+                if not honeypot_result["passed"]:
+                    filter_results["passed"] = False
+                    filter_results["reason"] = "Honeypot detected or safety check failed"
+                    filter_results["recommendation"] = "avoid"
+                    return filter_results
+
+            # Calculate overall confidence score
+            confidence_scores = [
+                lp_burn_result.get("confidence_score", 0.0),
+                authority_result.get("confidence_score", 0.0),
+                holder_result.get("confidence_score", 0.0),
+                volume_result.get("confidence_score", 0.0)
+            ]
+
+            if self.config.sniper_filters.social_check_enabled:
+                confidence_scores.append(social_result.get("confidence_score", 0.0))
+
+            if self.config.sniper_filters.honeypot_check:
+                confidence_scores.append(honeypot_result.get("confidence_score", 0.0))
+
+            filter_results["confidence_score"] = sum(confidence_scores) / len(confidence_scores)
+
+            # Final decision
+            filter_results["passed"] = True
+            filter_results["reason"] = "All sniper filters passed"
+            filter_results["recommendation"] = "proceed" if filter_results["confidence_score"] >= 0.7 else "caution"
+
+            self.logger.info("sniper_filter_analysis_completed",
+                           token_address=signal.symbol,
+                           passed=filter_results["passed"],
+                           confidence=filter_results["confidence_score"],
+                           recommendation=filter_results["recommendation"])
+
+            return filter_results
+
+        except e:
+            self.logger.error("Error in sniper filter analysis",
+                            token_address=signal.symbol,
+                            error=str(e))
+            return {
+                "passed": False,
+                "reason": f"Sniper filter analysis failed: {str(e)}",
+                "confidence_score": 0.0,
+                "recommendation": "avoid",
+                "error": str(e)
+            }
+
+    fn _check_lp_burn_requirement(self, signal: TradingSignal) -> Dict[String, Any]:
+        """
+        Check LP burn rate requirement for sniper trading
+        """
+        try:
+            # Get LP burn analysis from Helius
+            lp_analysis = self.helius_client.check_lp_burn_rate(signal.symbol)
+            lp_burn_rate = lp_analysis.get("lp_burn_rate", 0.0)
+
+            min_required = self.config.sniper_filters.min_lp_burn_rate
+            passed = lp_burn_rate >= min_required
+
+            return {
+                "passed": passed,
+                "lp_burn_rate": lp_burn_rate,
+                "required_rate": min_required,
+                "confidence_score": lp_analysis.get("confidence_score", 0.0),
+                "details": lp_analysis
+            }
+
+        except e:
+            self.logger.error("Error checking LP burn requirement",
+                            token_address=signal.symbol,
+                            error=str(e))
+            return {
+                "passed": False,
+                "lp_burn_rate": 0.0,
+                "required_rate": self.config.sniper_filters.min_lp_burn_rate,
+                "confidence_score": 0.0,
+                "error": str(e)
+            }
+
+    fn _check_authority_revocation_requirement(self, signal: TradingSignal) -> Dict[String, Any]:
+        """
+        Check authority revocation requirement for sniper trading
+        """
+        try:
+            # Get authority analysis from Helius
+            authority_analysis = self.helius_client.check_authority_revocation(signal.symbol)
+            mint_revoked = authority_analysis.get("mint_authority", {}).get("is_revoked", False)
+            freeze_revoked = authority_analysis.get("freeze_authority", {}).get("is_revoked", False)
+            complete_revocation = authority_analysis.get("authority_revocation_complete", False)
+
+            # Check if revocation is required and if it's complete
+            if self.config.sniper_filters.revoke_authority_required:
+                passed = complete_revocation and mint_revoked and freeze_revoked
+            else:
+                passed = True  # Authority revocation not required
+
+            return {
+                "passed": passed,
+                "mint_authority_revoked": mint_revoked,
+                "freeze_authority_revoked": freeze_revoked,
+                "complete_revocation": complete_revocation,
+                "revocation_required": self.config.sniper_filters.revoke_authority_required,
+                "confidence_score": authority_analysis.get("confidence_score", 0.0),
+                "details": authority_analysis
+            }
+
+        except e:
+            self.logger.error("Error checking authority revocation requirement",
+                            token_address=signal.symbol,
+                            error=str(e))
+            return {
+                "passed": False,
+                "mint_authority_revoked": False,
+                "freeze_authority_revoked": False,
+                "complete_revocation": False,
+                "revocation_required": self.config.sniper_filters.revoke_authority_required,
+                "confidence_score": 0.0,
+                "error": str(e)
+            }
+
+    fn _check_holder_distribution_requirement(self, signal: TradingSignal) -> Dict[String, Any]:
+        """
+        Check holder distribution requirement for sniper trading
+        """
+        try:
+            # Get holder distribution analysis from Helius
+            distribution_analysis = self.helius_client.get_holder_distribution_analysis(signal.symbol)
+            top_holders_share = distribution_analysis.get("top_holders_share", 100.0)
+            is_well_distributed = distribution_analysis.get("is_well_distributed", False)
+
+            max_allowed = self.config.sniper_filters.max_top_holders_share
+            passed = top_holders_share <= max_allowed
+
+            return {
+                "passed": passed,
+                "top_holders_share": top_holders_share,
+                "max_allowed_share": max_allowed,
+                "is_well_distributed": is_well_distributed,
+                "concentration_risk": distribution_analysis.get("concentration_risk", "high"),
+                "confidence_score": distribution_analysis.get("confidence_score", 0.0),
+                "details": distribution_analysis
+            }
+
+        except e:
+            self.logger.error("Error checking holder distribution requirement",
+                            token_address=signal.symbol,
+                            error=str(e))
+            return {
+                "passed": False,
+                "top_holders_share": 100.0,
+                "max_allowed_share": self.config.sniper_filters.max_top_holders_share,
+                "is_well_distributed": False,
+                "concentration_risk": "high",
+                "confidence_score": 0.0,
+                "error": str(e)
+            }
+
+    fn _check_volume_requirement(self, signal: TradingSignal) -> Dict[String, Any]:
+        """
+        Check volume requirement for sniper trading
+        """
+        try:
+            # Get volume data from signal
+            volume_usd = signal.volume
+
+            min_required = self.config.sniper_filters.min_active_volume
+            passed = volume_usd >= min_required
+
+            # Calculate confidence based on volume excess
+            volume_ratio = volume_usd / min_required
+            confidence_score = min(1.0, volume_ratio / 5.0)  # Max confidence at 5x required volume
+
+            return {
+                "passed": passed,
+                "volume_usd": volume_usd,
+                "required_volume": min_required,
+                "volume_ratio": volume_ratio,
+                "confidence_score": confidence_score
+            }
+
+        except e:
+            self.logger.error("Error checking volume requirement",
+                            token_address=signal.symbol,
+                            error=str(e))
+            return {
+                "passed": False,
+                "volume_usd": 0.0,
+                "required_volume": self.config.sniper_filters.min_active_volume,
+                "volume_ratio": 0.0,
+                "confidence_score": 0.0,
+                "error": str(e)
+            }
+
+    fn _check_social_mentions_requirement(self, signal: TradingSignal, social_client) -> Dict[String, Any]:
+        """
+        Check social mentions requirement for sniper trading
+        """
+        try:
+            # Check if social client is disabled
+            if not social_client.enabled:
+                self.logger.debug("social_client_disabled_passing",
+                                token_address=signal.symbol,
+                                reason="Social client disabled - passing check")
+                return {
+                    "passed": True,
+                    "mention_count": 0,
+                    "required_mentions": self.config.sniper_filters.min_social_mentions,
+                    "social_score": 0.5,  # Neutral score when disabled
+                    "sentiment": "neutral",
+                    "confidence_score": 0.5,
+                    "reason": "social_client_disabled",
+                    "details": {"enabled": False, "message": "Social client disabled - assuming neutral"}
+                }
+
+            # Get social analysis from social client
+            social_analysis = social_client.comprehensive_social_analysis(
+                signal.symbol,
+                signal.symbol,
+                self.config.sniper_filters.min_social_mentions
+            )
+
+            mention_count = social_analysis.get("total_mentions", 0)
+            meets_threshold = social_analysis.get("meets_sniper_requirements", False)
+            overall_score = social_analysis.get("overall_social_score", 0.0)
+
+            min_required = self.config.sniper_filters.min_social_mentions
+            passed = meets_threshold and mention_count >= min_required
+
+            return {
+                "passed": passed,
+                "mention_count": mention_count,
+                "required_mentions": min_required,
+                "social_score": overall_score,
+                "sentiment": social_analysis.get("sentiment_details", {}).get("current_sentiment", "neutral"),
+                "confidence_score": social_analysis.get("confidence_score", 0.0),
+                "details": social_analysis
+            }
+
+        except e:
+            self.logger.error("Error checking social mentions requirement",
+                            token_address=signal.symbol,
+                            error=str(e))
+            return {
+                "passed": False,
+                "mention_count": 0,
+                "required_mentions": self.config.sniper_filters.min_social_mentions,
+                "social_score": 0.0,
+                "sentiment": "unknown",
+                "confidence_score": 0.0,
+                "error": str(e)
+            }
+
+    fn _check_honeypot_requirement(self, signal: TradingSignal, honeypot_client) -> Dict[String, Any]:
+        """
+        Check honeypot requirement for sniper trading
+        """
+        try:
+            # Get honeypot analysis from honeypot client
+            honeypot_analysis = honeypot_client.comprehensive_honeypot_analysis(signal.symbol)
+            is_safe = honeypot_analysis.get("is_safe_for_sniping", False)
+            overall_safety_score = honeypot_analysis.get("overall_safety_score", 0.0)
+
+            # Consider safe if score is above 0.7
+            passed = is_safe or overall_safety_score >= 0.7
+
+            return {
+                "passed": passed,
+                "is_honeypot": honeypot_analysis.get("overall_safety_score", 0.0) < 0.3,
+                "is_safe_for_sniping": is_safe,
+                "safety_score": overall_safety_score,
+                "risk_level": honeypot_analysis.get("risk_level", "high"),
+                "can_buy": honeypot_analysis.get("key_metrics", {}).get("can_buy", False),
+                "can_sell": honeypot_analysis.get("key_metrics", {}).get("can_sell", False),
+                "confidence_score": honeypot_analysis.get("confidence_score", 0.0),
+                "details": honeypot_analysis
+            }
+
+        except e:
+            self.logger.error("Error checking honeypot requirement",
+                            token_address=signal.symbol,
+                            error=str(e))
+            return {
+                "passed": False,
+                "is_honeypot": True,  # Fail safe
+                "is_safe_for_sniping": False,
+                "safety_score": 0.0,
+                "risk_level": "high",
+                "can_buy": False,
+                "can_sell": False,
+                "confidence_score": 0.0,
+                "error": str(e)
+            }
+
+    def get_sniper_filter_statistics(self) -> Dict[String, Int]:
+        """
+        Get sniper filter statistics
+        """
+        return {
+            "lp_burn_rejections": 0,
+            "authority_revocation_rejections": 0,
+            "holder_concentration_rejections": 0,
+            "volume_requirement_rejections": 0,
+            "social_mentions_rejections": 0,
+            "honeypot_rejections": 0,
+            "total_sniper_rejections": 0,
+            "sniper_approvals": 0
+        }
