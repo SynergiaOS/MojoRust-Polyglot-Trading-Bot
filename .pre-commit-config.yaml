@@ -1,0 +1,273 @@
+# Pre-commit hooks configuration for MojoRust Trading Bot
+# Runs automated checks before each commit to maintain code quality
+
+# Minimum pre-commit version
+minimum_pre_commit_version: 2.20.0
+
+# Don't fail fast - run all hooks to catch multiple issues
+fail_fast: false
+
+# Default stages to run hooks on
+default_stages: [commit, push]
+
+# Repositories and hooks configuration
+repos:
+  # Pre-commit built-in hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      # Remove trailing whitespace
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+
+      # Ensure files end with newline
+      - id: end-of-file-fixer
+
+      # Validate YAML syntax
+      - id: check-yaml
+        args: [--unsafe]  # Allow custom YAML types
+
+      # Validate TOML syntax (for mojo.toml, Cargo.toml, config/*.toml)
+      - id: check-toml
+
+      # Validate JSON files
+      - id: check-json
+
+      # Prevent committing large files (>500KB)
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+
+      # Detect merge conflict markers
+      - id: check-merge-conflict
+
+      # Detect case conflicts in filenames (case-insensitive filesystems)
+      - id: check-case-conflict
+
+      # Ensure consistent line endings (LF)
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+      # Detect private keys in commits
+      - id: detect-private-key
+
+      # Prevent committing to main branch
+      - id: no-commit-to-branch
+        args: [--branch, main, --branch, master]
+
+      # Sort requirements files
+      - id: sort-simple-yaml
+        files: 'requirements.*\.txt$'
+
+  # Shell script hooks
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.6
+    hooks:
+      # Lint shell scripts
+      - id: shellcheck
+        files: \.sh$
+        args: [-x, -e, SC1091]  # Follow source, ignore source errors
+
+  # Shell script formatter
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.7.0-3
+    hooks:
+      # Format shell scripts
+      - id: shfmt
+        files: \.sh$
+        args: [-i, 4, -ci, -sr]  # 4-space indent, indent case statements, sort redirects
+
+  # Rust hooks
+  - repo: local
+    hooks:
+      # Format Rust code
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt
+        language: system
+        files: \.rs$
+        args: [--all, --]
+        pass_filenames: false
+
+      # Lint Rust code
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy
+        language: system
+        files: \.rs$
+        args: [--all-targets, --all-features, --, -D, warnings]
+        pass_filenames: false
+
+      # Check Rust code compiles
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check
+        language: system
+        files: \.rs$
+        args: [--all-features]
+        pass_filenames: false
+        always_run: true
+
+  # Mojo hooks (custom local hooks)
+  - repo: local
+    hooks:
+      # Format Mojo code
+      - id: mojo-format
+        name: mojo format
+        entry: mojo format
+        language: system
+        files: \.mojo$
+        args: [src/, tests/]
+        pass_filenames: true
+
+      # Lint Mojo code (if linter available)
+      - id: mojo-lint
+        name: mojo lint
+        entry: mojo lint
+        language: system
+        files: \.mojo$
+        pass_filenames: true
+        # Skip if mojo lint is not available
+        language_version: python3
+
+  # Security hooks
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      # Detect hardcoded secrets
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: |
+          (?x)^(
+            \.env\.example|
+            \.md$|
+            docs/.*|
+            tests/.*
+          )$
+        # Skip files that are known to contain false positives
+
+  - repo: local
+    hooks:
+      # Run Gitleaks for secret detection
+      - id: gitleaks
+        name: gitleaks
+        entry: gitleaks protect --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Run configuration validation
+      - id: validate-config
+        name: validate config
+        entry: scripts/validate_config.sh
+        args: [--env-file, .env.example, --strict]
+        language: system
+        pass_filenames: false
+        files: config/.*\.toml$|\.env\.example$
+        always_run: true
+
+  # Documentation hooks
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.37.0
+    hooks:
+      # Lint markdown files
+      - id: markdownlint
+        files: \.md$
+        # Exclude auto-generated files
+        exclude: ^CHANGELOG\.md$
+
+  - repo: https://github.com/tcort/markdown-link-check
+    rev: v3.11.2
+    hooks:
+      # Check for broken links in documentation
+      - id: markdown-link-check
+        files: \.md$
+        args: [--config, .markdownlinkcheck.json]
+        # Create .markdownlinkcheck.json with ignore patterns if needed
+
+  # Commit message hooks
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.2.2
+    hooks:
+      # Enforce conventional commit messages
+      - id: commitizen
+        stages: [commit-msg]
+
+  # Python hooks (for any Python utilities)
+  - repo: https://github.com/psf/black
+    rev: 23.7.0
+    hooks:
+      # Format Python code
+      - id: black
+        files: \.py$
+        language_version: python3
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+      # Lint Python code
+      - id: flake8
+        files: \.py$
+        args: [--max-line-length=88, --extend-ignore=E203,W503]
+
+  # File size and content checks
+  - repo: local
+    hooks:
+      # Check for files that should be in .gitignore
+      - id: check-forbidden-strings
+        name: check for API keys in code
+        entry: |
+          bash -c '
+          patterns=(
+            "AIza[0-9A-Za-z_-]{35}"  # Google API keys
+            "AKIA[0-9A-Z]{16}"       # AWS access keys
+            "[0-9]+:AA[A-Za-z0-9_-]{35}"  # Telegram bot tokens
+            "-----BEGIN[ A-Z]+-----"  # Private keys/certificates
+          )
+          for pattern in "${patterns[@]}"; do
+            if grep -r "$pattern" --include="*.rs" --include="*.mojo" --include="*.py" --include="*.sh" --include="*.toml" --include="*.yaml" --include="*.yml" .; then
+              echo "Found potential hardcoded credentials matching pattern: $pattern"
+              echo "Please remove hardcoded secrets and use environment variables"
+              exit 1
+            fi
+          done
+          '
+        language: system
+        pass_filenames: false
+        files: ''
+        exclude: |
+          (?x)^(
+            \.env\.example|
+            \.md$|
+            docs/.*
+          )$
+
+      # Check for TODO/FIXME comments
+      - id: check-todos
+        name: check for TODO/FIXME comments
+        entry: |
+          bash -c '
+          todo_count=$(grep -r "TODO\|FIXME" --include="*.rs" --include="*.mojo" --include="*.py" --include="*.sh" . | wc -l)
+          if [ "$todo_count" -gt 0 ]; then
+            echo "Found $todo_count TODO/FIXME comments:"
+            grep -r "TODO\|FIXME" --include="*.rs" --include="*.mojo" --include="*.py" --include="*.sh" . || true
+            echo "Please address these before committing"
+            exit 1
+          fi
+          '
+        language: system
+        pass_filenames: false
+        files: ''
+
+# Configuration for hook behavior
+default_language_version:
+  python: python3
+
+# CI configuration
+ci:
+  # Skip hooks in CI that are already covered by CI workflows
+  skip: [cargo-check, validate-config]
+
+# Additional configuration options
+# You can create additional configuration files:
+# - .markdownlinkcheck.json: Configure link checking behavior
+# - .secrets.baseline: Known false positives for secret detection

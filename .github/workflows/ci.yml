@@ -1,0 +1,402 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'rust-modules/**'
+      - 'tests/**'
+      - 'config/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'rust-modules/**'
+      - 'tests/**'
+      - 'config/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Setup Mojo
+        run: |
+          curl https://get.modular.com | sh -
+          echo 'export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"' >> $GITHUB_ENV
+          source ~/.bashrc
+          modular install mojo
+
+      - name: Lint Shell Scripts
+        run: shellcheck scripts/*.sh
+
+      - name: Lint YAML Files
+        run: yamllint .github/workflows/ docker-compose.yml
+
+      - name: Lint Rust Code
+        run: |
+          cd rust-modules
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Check Mojo Code Format
+        run: |
+          source ~/.bashrc
+          mojo format --check src/
+
+      - name: Validate TOML Files
+        run: |
+          python3 -c "
+import tomllib
+import sys
+import glob
+
+# Validate only existing files
+files = []
+files.extend(glob.glob('config/*.toml'))
+files.extend(['mojo.toml', 'rust-modules/Cargo.toml'])
+
+for f in files:
+    try:
+        with open(f, 'rb') as file:
+            tomllib.load(file)
+        print(f'✅ {f} is valid TOML')
+    except Exception as e:
+        print(f'❌ {f} has invalid TOML: {e}')
+        sys.exit(1)
+          "
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run Security Validation Script
+        run: scripts/validate_config.sh --strict
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rust Dependency Audit
+        run: |
+          cd rust-modules
+          cargo audit
+
+      - name: Semgrep Security Scan
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: auto
+          generate-sarif: true
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, security]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-22.04]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-modules/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-modules/Cargo.lock') }}
+
+      - name: Setup Mojo
+        run: |
+          curl https://get.modular.com | sh -
+          echo 'export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"' >> $GITHUB_ENV
+          source ~/.bashrc
+          modular install mojo
+
+      - name: Cache Mojo build
+        uses: actions/cache@v3
+        with:
+          path: |
+            target/
+            .mojocache/
+          key: ${{ runner.os }}-mojo-${{ hashFiles('src/**') }}
+
+      - name: Build Rust Modules
+        run: |
+          cd rust-modules
+          cargo build --release --all-features
+
+      - name: Build Mojo Application
+        run: |
+          source ~/.bashrc
+          mkdir -p target
+          mojo build src/main.mojo -o target/trading-bot
+          mojo build src/main_ultimate.mojo -o target/trading-bot-ultimate
+          chmod +x target/trading-*
+
+      - name: Verify Build Artifacts
+        run: |
+          test -f target/trading-bot
+          test -f target/trading-bot-ultimate
+          # Check for any .so files in rust-modules/target/release/
+          if find rust-modules/target/release/ -name "*.so" | head -1; then
+            echo "✅ All build artifacts created successfully"
+          else
+            echo "⚠️ No .so files found, checking for other Rust artifacts"
+            ls -la rust-modules/target/release/ || echo "Release directory empty"
+          fi
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts-${{ matrix.os }}
+          path: |
+            target/trading-bot
+            target/trading-bot-ultimate
+            rust-modules/target/release/
+          retention-days: 7
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Mojo
+        run: |
+          curl https://get.modular.com | sh -
+          echo 'export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"' >> $GITHUB_ENV
+          source ~/.bashrc
+          modular install mojo
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts-ubuntu-latest
+          path: ./
+
+      - name: Set Executable Permissions
+        run: |
+          chmod +x target/trading-bot*
+          chmod +x rust-modules/target/release/lib*.so
+
+      - name: Setup Test Environment
+        run: |
+          export EXECUTION_MODE=test
+          export MOCK_APIS=true
+          chmod +x target/trading-bot
+          chmod +x target/trading-bot-ultimate
+
+      - name: Run Mojo Tests
+        run: |
+          source ~/.bashrc
+          if [ -f tests/test_suite.mojo ]; then
+            mojo test tests/test_suite.mojo
+          fi
+          for test_file in tests/test_*.mojo; do
+            if [f "$test_file" ]; then
+              echo "Running $test_file"
+              mojo test "$test_file"
+            fi
+          done
+
+      - name: Run Rust Tests
+        run: |
+          cd rust-modules
+          cargo test --all-features
+
+      - name: Run Integration Tests
+        run: |
+          cd rust-modules
+          if [ -f tests/integration_tests.rs ]; then
+            cargo test --test integration_tests
+          fi
+
+      - name: Run Python Arbitrage Tests
+        run: |
+          if [f requirements-test.txt ]; then
+            pip install -r requirements-test.txt
+          else
+            pip install pytest pytest-asyncio aiohttp
+          fi
+          if [f tests/test_arbitrage_integration.py ]; then
+            echo "Running Python arbitrage integration tests..."
+            python -m pytest tests/test_arbitrage_integration.py -v --tb=short
+          else
+            echo "⚠️ Python arbitrage tests not found, skipping"
+          fi
+
+      - name: Run FFI Safety Tests
+        run: |
+          cd rust-modules
+          cargo test --test ffi_safety_tests --features optimizations --verbose
+
+      - name: Generate Test Report
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Mojo tests completed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Rust tests completed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Python arbitrage tests completed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ FFI safety tests completed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Integration tests completed" >> $GITHUB_STEP_SUMMARY
+
+  ffi-benchmarks:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Mojo
+        run: |
+          curl https://get.modular.com | sh -
+          echo 'export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"' >> $GITHUB_ENV
+          source ~/.bashrc
+          modular install mojo
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts-ubuntu-latest
+          path: ./
+
+      - name: Set Executable Permissions
+        run: |
+          chmod +x target/trading-bot*
+          chmod +x rust-modules/target/release/lib*.so
+
+      - name: Setup Benchmark Environment
+        run: |
+          export EXECUTION_MODE=benchmark
+          export MOCK_APIS=true
+          chmod +x target/trading-bot
+          chmod +x target/trading-bot-ultimate
+
+      - name: Run FFI Benchmarks
+        run: |
+          source ~/.bashrc
+          echo "🚀 Running FFI performance benchmarks..."
+          mojo tests/benchmarks/ffi_performance.mojo
+
+      - name: Run Rust Benchmarks
+        run: |
+          cd rust-modules
+          cargo bench --bench ffi_benchmarks -- --features optimizations
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: ffi-benchmark-results
+          path: |
+            target/
+            rust-modules/target/criterion/
+          retention-days: 30
+
+      - name: Generate Benchmark Report
+        run: |
+          echo "## FFI Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ FFI benchmarks completed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Rust benchmarks completed" >> $GITHUB_STEP_SUMMARY
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Mojo
+        run: |
+          curl https://get.modular.com | sh -
+          echo 'export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"' >> $GITHUB_ENV
+          source ~/.bashrc
+          modular install mojo
+
+      - name: Validate Configuration
+        run: scripts/validate_config.sh --env-file .env.example --strict
+
+      - name: Verify FFI Bindings
+        run: |
+          if [ -f scripts/verify_ffi.sh ]; then
+            scripts/verify_ffi.sh
+          else
+            echo "⚠️ FFI verification script not found, skipping"
+          fi
+
+      - name: Test Deployment Script
+        run: |
+          if [ -f scripts/deploy.sh ]; then
+            scripts/deploy.sh --dry-run
+          else
+            echo "⚠️ Deployment script not found, skipping"
+          fi
+
+  workflow-summary:
+    runs-on: ubuntu-latest
+    needs: [lint, security, build, test, integration]
+    if: always()
+    steps:
+      - name: Workflow Summary
+        run: |
+          echo "# CI Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Lint: ${{ needs.lint.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Security: ${{ needs.security.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Build: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Test: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Integration: ${{ needs.integration.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.lint.result }}" == "success" && "${{ needs.security.result }}" == "success" && "${{ needs.build.result }}" == "success" && "${{ needs.test.result }}" == "success" && "${{ needs.integration.result }}" == "success" ]]; then
+            echo "✅ All CI checks passed!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Some CI checks failed. Please review the job results." >> $GITHUB_STEP_SUMMARY
+          fi

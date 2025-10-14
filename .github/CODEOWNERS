@@ -1,0 +1,77 @@
+# Code Owners for MojoRust Trading Bot
+# This file defines who should be automatically assigned for review based on file changes
+# Format: path/to/files @username1 @username2 @team-name
+
+# Global owners - maintainers of the entire repository
+* @SynergiaOS/maintainers
+
+# Component-specific owners
+
+# CI/CD Workflows and DevOps
+.github/workflows/** @SynergiaOS/devops-team
+.github/dependabot.yml @SynergiaOS/devops-team
+
+# Security-critical files - require multiple approvals
+rust-modules/src/crypto/** @SynergiaOS/security-team @SynergiaOS/maintainers
+rust-modules/src/security/** @SynergiaOS/security-team @SynergiaOS/maintainers
+scripts/deploy*.sh @SynergiaOS/devops-team @SynergiaOS/maintainers
+.github/workflows/deploy.yml @SynergiaOS/devops-team @SynergiaOS/maintainers
+
+# Trading strategies and algorithms
+src/strategies/** @SynergiaOS/trading-team
+src/engine/** @SynergiaOS/trading-team
+tests/test_*.mojo @SynergiaOS/trading-team
+
+# Risk management and safety
+src/risk/** @SynergiaOS/risk-team
+src/circuit_breakers/** @SynergiaOS/risk-team
+
+# API clients and data providers
+src/api/** @SynergiaOS/data-team
+src/data/** @SynergiaOS/data-team
+rust-modules/src/api/** @SynergiaOS/data-team
+
+# Rust modules and FFI
+rust-modules/** @SynergiaOS/rust-team @SynergiaOS/ffi-team
+
+# Mojo core and strategy engines
+src/main.mojo @SynergiaOS/core-team
+src/main_ultimate.mojo @SynergiaOS/core-team
+mojo.toml @SynergiaOS/core-team
+
+# Configuration and deployment
+config/** @SynergiaOS/config-team
+.env.example @SynergiaOS/config-team
+scripts/setup*.sh @SynergiaOS/devops-team
+
+# Documentation and guides
+*.md @SynergiaOS/docs-team
+docs/** @SynergiaOS/docs-team
+README.md @SynergiaOS/docs-team
+
+# Testing and quality assurance
+tests/** @SynergiaOS/qa-team
+scripts/validate*.sh @SynergiaOS/qa-team
+scripts/test*.sh @SynergiaOS/qa-team
+
+# Performance and optimization
+scripts/profile*.sh @SynergiaOS/performance-team
+src/performance/** @SynergiaOS/performance-team
+
+# Monitoring and observability
+src/monitoring/** @SynergiaOS/ops-team
+scripts/server_health.sh @SynergiaOS/ops-team
+
+# Docker and infrastructure
+Dockerfile @SynergiaOS/ops-team
+docker-compose.yml @SynergiaOS/ops-team
+
+# Note: Replace @SynergiaOS/team-name with actual GitHub usernames or team handles
+# when implementing this CODEOWNERS file in your repository
+
+# Example replacements:
+# @SynergiaOS/maintainers -> @john @sarah @mike
+# @SynergiaOS/devops-team -> @devops-team
+# @SynergiaOS/security-team -> @security-expert
+# @SynergiaOS/trading-team -> @trading-specialist
+# @SynergiaOS/risk-team -> @risk-analyst

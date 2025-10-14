@@ -1,0 +1,110 @@
+# Loki configuration for MojoRust Trading Bot
+# Centralized log aggregation and storage
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+ingester:
+  lifecycler:
+    address: 127.0.0.1
+    ring:
+      kvstore:
+        store: inmemory
+      replication_factor: 1
+    final_sleep: 0s
+  chunk_idle_period: 5m
+  chunk_retain_period: 30s
+  max_transfer_retries: 0
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  boltdb_shipper:
+    active_index_directory: /loki/boltdb-shipper-active
+    cache_location: /loki/boltdb-shipper-cache
+    shared_store: filesystem
+  filesystem:
+    directory: /loki/chunks
+
+compactor:
+  working_directory: /loki/compactor
+  shared_store: filesystem
+  compaction_interval: 10m
+
+limits_config:
+  enforce_metric_name: false
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20
+  max_query_length: 721h
+  max_query_parallelism: 32
+
+chunk_store_config:
+  max_look_back_period: 0s
+
+table_manager:
+  retention_deletes_enabled: true
+  retention_period: 720h
+
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path: /loki/rules-temp
+  alertmanager_url: http://alertmanager:9093
+  ring:
+    kvstore:
+      store: inmemory
+  enable_api: true
+
+frontend:
+  max_outstanding_requests_per_tenant: 2048
+  compress_responses: true
+
+query_range:
+  split_queries_by_interval: 24h
+  cache_results: true
+  results_cache:
+    cache:
+      enable_fifocache: true
+      fifocache:
+        max_size_items: 1024
+        ttl: 0s
+
+frontend_worker:
+  scheduler_address: 127.0.0.1:9095
+  grpc_server_config:
+    max_recv_msg_size: 104857600
+    max_send_msg_size: 104857600
+
+memberlist:
+  join_members:
+    - 127.0.0.1
+
+querier:
+  query_ingesters_within: 12h
+
+# Enable experimental features for better performance
+query_scheduler:
+  grpc_server_config:
+    max_recv_msg_size: 104857600
+    max_send_msg_size: 104857600
+
+# Enable ruler for alerting on logs
+ruler:
+  enable_alertmanager_v2: true
+  enable_api: true
+  external_url: http://loki:3100

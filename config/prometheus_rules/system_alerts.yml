@@ -1,0 +1,246 @@
+# System-level alert rules for MojoRust Trading Bot
+# Monitors system resources, connectivity, and application health
+
+groups:
+  - name: system_health
+    rules:
+
+      # High CPU Usage Alert
+      - alert: HighCPUUsage
+        expr: trading_bot_cpu_usage > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/high-cpu-usage"
+
+      # Critical CPU Usage Alert
+      - alert: CriticalCPUUsage
+        expr: trading_bot_cpu_usage > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical CPU usage detected"
+          description: "CPU usage is {{ $value | humanizePercentage }} (threshold: 95%)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/critical-cpu-usage"
+
+      # High Memory Usage Alert
+      - alert: HighMemoryUsage
+        expr: trading_bot_memory_usage > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value | humanizePercentage }} (threshold: 85%)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/high-memory-usage"
+
+      # Critical Memory Usage Alert
+      - alert: CriticalMemoryUsage
+        expr: trading_bot_memory_usage > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Memory usage is {{ $value | humanizePercentage }} (threshold: 95%)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/critical-memory-usage"
+
+      # High Disk Usage Alert
+      - alert: HighDiskUsage
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.15
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High disk usage detected"
+          description: "Disk usage is {{ $value | humanizePercentage }} (threshold: 85%)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/high-disk-usage"
+
+      # Critical Disk Usage Alert
+      - alert: CriticalDiskUsage
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical disk usage detected"
+          description: "Disk usage is {{ $value | humanizePercentage }} (threshold: 90%)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/critical-disk-usage"
+
+      # Service Down Alert
+      - alert: ServiceDown
+        expr: up{job="trading-bot"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "Trading bot service is down"
+          description: "Trading bot service has been down for more than 1 minute"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/service-down"
+
+      # High Network Latency Alert
+      - alert: HighNetworkLatency
+        expr: trading_bot_network_latency_ms > 500
+        for: 5m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High network latency detected"
+          description: "Network latency is {{ $value }}ms (threshold: 500ms)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/high-network-latency"
+
+      # Critical Network Latency Alert
+      - alert: CriticalNetworkLatency
+        expr: trading_bot_network_latency_ms > 2000
+        for: 2m
+        labels:
+          severity: critical
+          component: network
+        annotations:
+          summary: "Critical network latency detected"
+          description: "Network latency is {{ $value }}ms (threshold: 2000ms)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/critical-network-latency"
+
+      # Database Connection Failed Alert
+      - alert: DatabaseConnectionFailed
+        expr: trading_bot_database_connected == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection failed"
+          description: "Cannot connect to database for more than 2 minutes"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/database-connection-failed"
+
+      # Redis Connection Failed Alert
+      - alert: RedisConnectionFailed
+        expr: trading_bot_redis_connected == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Redis connection failed"
+          description: "Cannot connect to Redis for more than 2 minutes"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/redis-connection-failed"
+
+      # System Error Rate Alert
+      - alert: SystemErrorRate
+        expr: rate(trading_bot_errors_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "High system error rate"
+          description: "System error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/system-error-rate"
+
+      # Slow Processing Speed Alert
+      - alert: SlowProcessingSpeed
+        expr: trading_bot_processing_speed < 100
+        for: 10m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "Slow processing speed detected"
+          description: "Processing speed is {{ $value }} ops/sec (threshold: 100)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/slow-processing-speed"
+
+      # Stale Data Alert
+      - alert: StaleData
+        expr: time() - trading_bot_last_update_timestamp > 300
+        for: 2m
+        labels:
+          severity: warning
+          component: data
+        annotations:
+          summary: "Stale data detected"
+          description: "Data is stale - last update {{ $value }}s ago (threshold: 5 minutes)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/stale-data"
+
+      # Health Check Failed Alert
+      - alert: HealthCheckFailed
+        expr: health_checks_total{check_type="health", status="error"} > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: health
+        annotations:
+          summary: "Health check failed"
+          description: "Health checks are failing - {{ $value }} errors in last minute"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/health-check-failed"
+
+      # Readiness Check Failed Alert
+      - alert: ReadinessCheckFailed
+        expr: health_checks_total{check_type="ready", status="error"} > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: health
+        annotations:
+          summary: "Readiness check failed"
+          description: "Readiness checks are failing - service not ready for traffic"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/readiness-check-failed"
+
+      # Queue Size Alert
+      - alert: LargeQueueSize
+        expr: trading_bot_queue_size > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "Large queue size detected"
+          description: "Queue size is {{ $value }} (threshold: 1000)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/large-queue-size"
+
+      # API Error Rate Alert
+      - alert: APIErrorRate
+        expr: rate(trading_bot_api_errors_total[5m]) > 0.02
+        for: 3m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High API error rate"
+          description: "API error rate is {{ $value | humanizePercentage }} (threshold: 2%)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/api-error-rate"
+
+      # Rate Limit Usage Alert
+      - alert: RateLimitUsage
+        expr: trading_bot_rate_limit_usage_percent > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High rate limit usage"
+          description: "Rate limit usage is {{ $value | humanizePercentage }} (threshold: 90%)"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/rate-limit-usage"
+
+      # Container Restart Alert
+      - alert: ContainerRestart
+        expr: increase(container_start_time_seconds{name=~".*trading.*"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: container
+        annotations:
+          summary: "Trading bot container restarted"
+          description: "Container {{ $labels.name }} has restarted"
+          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/container-restart"

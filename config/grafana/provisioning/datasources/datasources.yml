@@ -1,0 +1,94 @@
+# Grafana datasources configuration for MojoRust Trading Bot
+# Automatically configures Prometheus, Loki, and TimescaleDB datasources
+
+apiVersion: 1
+
+# List of datasources to import/update
+datasources:
+
+  # Prometheus - Primary metrics datasource
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: "15s"
+      queryTimeout: "60s"
+      httpMethod: "POST"
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: 2.40.0
+      cacheLevel: 'High'
+      disableRecordingRules: false
+      incrementalQueryOverlapWindow: 10m
+      resultFormat: time_series
+      timeRange:
+        from: now-6h
+        to: now
+    secureJsonData: {}
+    version: 1
+
+  # Loki - Centralized logging datasource
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: true
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: prometheus
+          matcherRegex: "trade_id=(\\w+)"
+          name: "Trade ID"
+          url: "/d/trading-performance?var-trade_id=${__value.raw}"
+          datasource: prometheus
+      step: 300
+      timeout: 60s
+    secureJsonData: {}
+    version: 1
+
+  # TimescaleDB - Time series database for trading data
+  - name: TimescaleDB
+    type: postgres
+    access: proxy
+    url: timescaledb:5432
+    database: trading_db
+    user: trading_user
+    secureJsonData:
+      password: "${TIMESCALEDB_PASSWORD}"
+    jsonData:
+      sslmode: "disable"
+      postgresVersion: 1500
+      timescaledb: true
+      version: "1.0.0"
+      keepCookies: []
+      connectTimeout: 10
+      dialTimeout: 10
+    editable: true
+    version: 1
+
+  # AlertManager - Alert management
+  - name: AlertManager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    editable: true
+    jsonData:
+      implementation: prometheus
+    secureJsonData: {}
+    version: 1
+
+  # Jaeger (optional) - Distributed tracing
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: true
+    jsonData: {}
+    secureJsonData: {}
+    version: 1
+
+# Datasources to delete
+deleteDatasources: []

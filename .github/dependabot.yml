@@ -1,0 +1,132 @@
+# Dependabot configuration for MojoRust Trading Bot
+# Automatically creates pull requests for dependency updates
+
+version: 2
+updates:
+
+  # Rust dependencies (Cargo.toml)
+  - package-ecosystem: "cargo"
+    directory: "/rust-modules"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "SynergiaOS/security-team"
+    assignees:
+      - "SynergiaOS/rust-team"
+    labels:
+      - "dependencies"
+      - "rust"
+      - "automated"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      # Group patch updates together
+      patch-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+      # Group minor updates together
+      minor-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+    ignore:
+      # Ignore major version updates for critical dependencies
+      - dependency-name: "tokio"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "serde"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "serde_json"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "reqwest"
+        update-types: ["version-update:semver-major"]
+    allow:
+      # Allow direct updates for these dependency types
+      - dependency-type: "direct"
+      - dependency-type: "production"
+      - dependency-type: "development"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "SynergiaOS/devops-team"
+    assignees:
+      - "SynergiaOS/devops-team"
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "automated"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      # Group major updates together for review
+      major-version-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "version-update:semver-major"
+      # Group minor updates together
+      minor-version-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "version-update:semver-minor"
+
+  # Docker images (if Dockerfile exists)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "11:00"
+    open-pull-requests-limit: 2
+    reviewers:
+      - "SynergiaOS/devops-team"
+    assignees:
+      - "SynergiaOS/ops-team"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "automated"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    ignore:
+      # Ignore major version updates for base images
+      - dependency-name: "ubuntu"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "alpine"
+        update-types: ["version-update:semver-major"]
+
+  # Python dependencies (if using pip/requirements.txt)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "SynergiaOS/python-team"
+    assignees:
+      - "SynergiaOS/python-team"
+    labels:
+      - "dependencies"
+      - "python"
+      - "automated"
+    commit-message:
+      prefix: "chore"
+      include: "scope"

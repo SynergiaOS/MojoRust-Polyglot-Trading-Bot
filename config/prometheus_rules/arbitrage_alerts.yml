@@ -1,0 +1,273 @@
+# =============================================================================
+# Arbitrage Alert Rules for MojoRust Trading Bot
+# =============================================================================
+# Prometheus alerting rules for arbitrage opportunity detection,
+# execution monitoring, and performance tracking.
+
+groups:
+  - name: arbitrage_opportunities
+    rules:
+      - alert: HighTriangularArbitrageOpportunities
+        expr: arbitrage_active_opportunities_count{type="triangular"} > 5
+        for: 1m
+        labels:
+          severity: info
+          service: trading-bot
+          component: arbitrage
+          opportunity_type: triangular
+        annotations:
+          summary: "High number of triangular arbitrage opportunities detected"
+          description: "{{$value}} triangular arbitrage opportunities are currently active, indicating market inefficiencies."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage"
+          dashboard_url: "http://grafana:3000/d/arbitrage-dashboard"
+
+      - alert: HighCrossDEXArbitrageOpportunities
+        expr: arbitrage_active_opportunities_count{type="cross_dex"} > 10
+        for: 2m
+        labels:
+          severity: info
+          service: trading-bot
+          component: arbitrage
+          opportunity_type: cross_dex
+        annotations:
+          summary: "High number of cross-DEX arbitrage opportunities detected"
+          description: "{{$value}} cross-DEX arbitrage opportunities are currently active across different DEXes."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage"
+          dashboard_url: "http://grafana:3000/d/arbitrage-dashboard"
+
+      - alert: VeryHighProfitOpportunity
+        expr: |
+          (
+            arbitrage_opportunities_detected_total{type="triangular"} -
+            arbitrage_opportunities_detected_total{type="triangular"} offset 5m
+          ) > 20
+        for: 30s
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          opportunity_type: high_profit
+        annotations:
+          summary: "Sudden surge in high-profit arbitrage opportunities"
+          description: "20+ new arbitrage opportunities detected in the last 5 minutes. Check for market anomalies or data issues."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage"
+
+  - name: arbitrage_execution
+    rules:
+      - alert: ArbitrageExecutionFailureRate
+        expr: |
+          (
+            rate(arbitrage_opportunities_executed_total{status="failed"}[5m]) /
+            rate(arbitrage_opportunities_executed_total[5m])
+          ) > 0.2
+        for: 3m
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          execution_status: failed
+        annotations:
+          summary: "High arbitrage execution failure rate"
+          description: "{{ $value | humanizePercentage }} of arbitrage executions are failing. Check gas prices, slippage, or execution logic."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-execution"
+
+      - alert: ArbitrageExecutionTimeout
+        expr: |
+          (
+            histogram_quantile(0.95, rate(arbitrage_execution_duration_seconds_bucket[5m]))
+          ) > 30
+        for: 2m
+        labels:
+          severity: critical
+          service: trading-bot
+          component: arbitrage
+          execution_issue: timeout
+        annotations:
+          summary: "Arbitrage execution timeouts detected"
+          description: "95th percentile execution time is {{ $value }}s, exceeding 30s timeout. Check network conditions and execution pipeline."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-execution"
+
+      - alert: LowArbitrageExecutionRate
+        expr: |
+          rate(arbitrage_opportunities_executed_total[5m]) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          execution_rate: low
+        annotations:
+          summary: "Low arbitrage execution rate"
+          description: "Less than 0.1 executions per minute detected. Check if arbitrage engine is properly processing opportunities."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-execution"
+
+  - name: arbitrage_performance
+    rules:
+      - alert: ArbitrageProfitDecline
+        expr: |
+          (
+            avg_over_time(arbitrage_profit_usd{type="triangular"}[1h]) <
+            avg_over_time(arbitrage_profit_usd{type="triangular"}[24h] offset 23h) * 0.5
+          )
+        for: 10m
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          performance_metric: profit_decline
+        annotations:
+          summary: "Arbitrage profit decline detected"
+          description: "Current average profit is 50% lower than 24-hour average. Market conditions may have changed."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-performance"
+
+      - alert: HighArbitrageGasCosts
+        expr: |
+          (
+            avg(arbitrage_gas_cost_sol) > 0.01
+          )
+        for: 5m
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          cost_issue: gas
+        annotations:
+          summary: "High arbitrage gas costs detected"
+          description: "Average gas cost is {{ $value }} SOL, making many opportunities unprofitable."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-costs"
+
+      - alert: ArbitrageSlippageTooHigh
+        expr: |
+          (
+            histogram_quantile(0.90, rate(arbitrage_slippage_percentage_bucket[5m]))
+          ) > 3.0
+        for: 3m
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          execution_issue: slippage
+        annotations:
+          summary: "High arbitrage slippage detected"
+          description: "90th percentile slippage is {{ $value }}%, exceeding acceptable levels."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-slippage"
+
+  - name: arbitrage_engine_health
+    rules:
+      - alert: ArbitrageEngineDown
+        expr: |
+          (
+            arbitrage_engine_status{component="detector"} == 0 or
+            arbitrage_engine_status{component="scanner"} == 0
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: trading-bot
+          component: arbitrage
+          health_issue: engine_down
+        annotations:
+          summary: "Arbitrage engine component is down"
+          description: "Arbitrage {{ $labels.component }} component is not running. Check engine logs and restart if necessary."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-health"
+
+      - alert: ArbitragePriceUpdateFailure
+        expr: |
+          (
+            rate(arbitrage_price_updates_total{status="error"}[5m]) /
+            rate(arbitrage_price_updates_total[5m])
+          ) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          health_issue: price_updates
+        annotations:
+          summary: "High arbitrage price update failure rate"
+          description: "{{ $value | humanizePercentage }} of price updates are failing. Check API connections and rate limits."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-api"
+
+      - alert: ArbitrageSlowScanning
+        expr: |
+          (
+            histogram_quantile(0.90, rate(arbitrage_scan_duration_seconds_bucket[5m]))
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          performance_issue: slow_scanning
+        annotations:
+          summary: "Arbitrage scanning is slow"
+          description: "90th percentile scan duration is {{ $value }}s, affecting opportunity detection speed."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-performance"
+
+      - alert: ArbitrageLowConfidenceScores
+        expr: |
+          (
+            avg(arbitrage_confidence_score) < 0.5
+          )
+        for: 10m
+        labels:
+          severity: info
+          service: trading-bot
+          component: arbitrage
+          confidence_issue: low_scores
+        annotations:
+          summary: "Low arbitrage confidence scores"
+          description: "Average confidence score is {{ $value }}, indicating low-quality opportunities or market instability."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-confidence"
+
+  - name: arbitrage_business_metrics
+    rules:
+      - alert: ArbitrageDailyProfitTarget
+        expr: |
+          (
+            increase(arbitrage_opportunities_executed_total[24h]) *
+            avg(arbitrage_profit_usd)
+          ) < 50
+        for: 1h
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          business_metric: daily_profit
+        annotations:
+          summary: "Daily arbitrage profit below target"
+          description: "Estimated daily profit of ${{ $value }} is below $50 target. Review strategy and market conditions."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-business"
+
+      - alert: ArbitrageZeroProfitPeriod
+        expr: |
+          (
+            increase(arbitrage_profit_usd_sum[2h]) == 0
+          )
+        for: 30m
+        labels:
+          severity: warning
+          service: trading-bot
+          component: arbitrage
+          business_metric: zero_profit
+        annotations:
+          summary: "No arbitrage profit for 2 hours"
+          description: "No profitable arbitrage executed in the last 2 hours. Check market conditions and strategy parameters."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-business"
+
+      - alert: ArbitrageHighSuccessRate
+        expr: |
+          (
+            rate(arbitrage_opportunities_executed_total{status="success"}[1h]) /
+            rate(arbitrage_opportunities_executed_total[1h])
+          ) > 0.95
+        for: 15m
+        labels:
+          severity: info
+          service: trading-bot
+          component: arbitrage
+          performance_metric: high_success_rate
+        annotations:
+          summary: "Excellent arbitrage success rate"
+          description: "{{ $value | humanizePercentage }} success rate indicates excellent performance. Consider increasing position sizes or frequency."
+          runbook_url: "https://docs.mojorust.com/runbooks/arbitrage-optimization"

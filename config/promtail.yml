@@ -1,0 +1,224 @@
+# Promtail configuration for MojoRust Trading Bot
+# Scrapes logs from trading bot and forwards to Loki
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+# Position tracking for log files
+positions:
+  filename: /tmp/positions.yaml
+
+# Loki client configuration
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+# Scrape configurations
+scrape_configs:
+
+  # Trading Bot Application Logs
+  - job_name: trading-bot
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: trading-bot
+          component: application
+          __path__: /app/logs/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: "level"
+            timestamp: "timestamp"
+            message: "message"
+            component: "component"
+            trade_id: "trade_id"
+            symbol: "symbol"
+            action: "action"
+      - labels:
+          level: ""
+          component: ""
+          symbol: ""
+          action: ""
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+      - output:
+          source: message
+      - regex:
+          expression: '(?P<log_level>DEBUG|INFO|WARN|ERROR|FATAL)'
+      - labels:
+          level: log_level
+
+  # Trading Bot JSON Logs
+  - job_name: trading-bot-json
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: trading-bot
+          format: json
+          __path__: /app/logs/trading-bot-*.json
+    pipeline_stages:
+      - json:
+          expressions:
+            level: "level"
+            timestamp: "timestamp"
+            message: "msg"
+            trade_id: "trade_id"
+            symbol: "symbol"
+            action: "action"
+            strategy: "strategy"
+            position_size: "position_size"
+            pnl: "pnl"
+      - labels:
+          level: ""
+          symbol: ""
+          action: ""
+          strategy: ""
+      - timestamp:
+          source: timestamp
+          format: UnixMs
+      - output:
+          source: message
+
+  # Trading Bot Error Logs
+  - job_name: trading-bot-errors
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: trading-bot
+          level: error
+          __path__: /app/logs/*error*.log
+    pipeline_stages:
+      - regex:
+          expression: '(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (?P<level>\w+) (?P<message>.*)'
+      - timestamp:
+          source: timestamp
+          format: '2006-01-02 15:04:05'
+      - labels:
+          level: level
+      - output:
+          source: message
+
+  # System Logs (Docker container logs)
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        port: 8082
+        filters:
+          - name: label
+            values: ["com.docker.compose.service=trading-bot"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container
+        replacement: '${1}'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: stream
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: service
+    pipeline_stages:
+      - json:
+          expressions:
+            level: "level"
+            message: "message"
+            timestamp: "@timestamp"
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+      - output:
+          source: message
+
+  # Health API Logs
+  - job_name: health-api
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: health-api
+          component: monitoring
+          __path__: /app/logs/health-api*.log
+    pipeline_stages:
+      - regex:
+          expression: '(?P<ip>\S+) \S+ \S+ \[(?P<timestamp>[^\]]+)\] "(?P<method>\S+) (?P<path>\S+) (?P<protocol>\S+)" (?P<status>\d+) (?P<size>\d+)'
+      - timestamp:
+          source: timestamp
+          format: '02/Jan/2006:15:04:05 -0700'
+      - labels:
+          method: method
+          status: status
+          path: path
+      - output:
+          source: message
+
+  # Prometheus Logs
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: prometheus
+          component: monitoring
+          __path__: /prometheus/prometheus.log
+    pipeline_stages:
+      - regex:
+          expression: 'ts=(?P<timestamp>\S+) level=(?P<level>\w+) msg="(?P<message>[^"]*)"'
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+      - labels:
+          level: level
+      - output:
+          source: message
+
+  # Grafana Logs
+  - job_name: grafana
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: grafana
+          component: monitoring
+          __path__: /var/log/grafana/*.log
+    pipeline_stages:
+      - regex:
+          expression: '(?P<timestamp>\S+\s+\d+\s+\d{2}:\d{2}:\d{2}) (?P<level>\w+) (?P<message>.*)'
+      - timestamp:
+          source: timestamp
+          format: 'Jan 02 15:04:05'
+      - labels:
+          level: level
+      - output:
+          source: message
+
+  # AlertManager Logs
+  - job_name: alertmanager
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: alertmanager
+          component: monitoring
+          __path__: /alertmanager/alertmanager.log
+    pipeline_stages:
+      - regex:
+          expression: '(?P<timestamp>\S+\s+\d+\s+\d{2}:\d{2}:\d{2}) (?P<level>\w+) (?P<message>.*)'
+      - timestamp:
+          source: timestamp
+          format: 'Jan 02 15:04:05'
+      - labels:
+          level: level
+      - output:
+          source: message
+
+# Global settings
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+# Target configuration
+target_config:
+  sync_period: 10s

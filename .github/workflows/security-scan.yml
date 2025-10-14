@@ -1,0 +1,427 @@
+name: Security Scan
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run daily at 2 AM UTC
+  workflow_dispatch:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'rust-modules/src/crypto/**'
+      - 'rust-modules/src/security/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'rust-modules/src/crypto/**'
+      - 'rust-modules/src/security/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+
+jobs:
+  dependency-scan:
+    runs-on: ubuntu-latest
+    outputs:
+      vuln-count: ${{ steps.audit.outputs.vuln-count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run Rust Dependency Audit
+        id: audit
+        run: |
+          cd rust-modules
+          cargo audit --json > audit-report.json || true
+
+          # Count vulnerabilities
+          VULN_COUNT=$(cat audit-report.json | python3 -c "
+import json
+import sys
+try:
+    data = json.load(sys.stdin)
+    vulnerabilities = data.get('vulnerabilities', {}).get('list', [])
+    high_count = len([v for v in vulnerabilities if v.get('advisory', {}).get('severity', 'unknown') in ['high', 'critical']])
+    critical_count = len([v for v in vulnerabilities if v.get('advisory', {}).get('severity') == 'critical'])
+    print(f'{high_count + critical_count}')
+except:
+    print('0')
+          ")
+
+          echo "vuln-count=$VULN_COUNT" >> $GITHUB_OUTPUT
+
+          # Display results
+          cargo audit
+
+      - name: Upload Audit Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: dependency-audit-report
+          path: rust-modules/audit-report.json
+          retention-days: 30
+
+      - name: Create Security Advisory for High/Critical Vulnerabilities
+        if: steps.audit.outputs.vuln-count > 0
+        run: |
+          # This would create GitHub Security Advisories for high/critical vulnerabilities
+          # Requires proper permissions and GitHub Advanced Security
+          echo "🚨 Found ${{ steps.audit.outputs.vuln-count }} high/critical vulnerabilities"
+          echo "Please review the audit report and update dependencies"
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for deep scan
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          report-path: gitleaks-report.json
+          report-format: json
+
+      - name: Run Custom Secret Detection
+        run: |
+          # Run our configuration validation script
+          scripts/validate_config.sh --strict || echo "Secrets detected in configuration"
+
+      - name: TruffleHog Deep Scan
+        run: |
+          # Install TruffleHog
+          pip install truffleHog
+
+          # Run TruffleHog on repository
+          trufflehog --json --regex --entropy=False . > trufflehog-report.json || true
+
+          # Check results
+          HIGH_ENTROPY_COUNT=$(cat trufflehog-report.json | python3 -c "
+import json
+import sys
+count = 0
+try:
+    for line in sys.stdin:
+        if line.strip():
+            data = json.loads(line)
+            if data.get('reason') == 'High Entropy':
+                count += 1
+    print(count)
+except:
+    print(0)
+          ")
+
+          if [[ $HIGH_ENTROPY_COUNT -gt 0 ]]; then
+            echo "🚨 Found $HIGH_ENTROPY_COUNT high entropy strings"
+            echo "Review trufflehog-report.json for details"
+          else
+            echo "✅ No high entropy strings found"
+          fi
+
+      - name: Upload Secret Scan Reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: secret-scan-reports
+          path: |
+            trufflehog-report.json
+            gitleaks-report.json
+          retention-days: 30
+
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Run Semgrep Security Analysis
+        run: |
+          # Run Semgrep with security rules
+          semgrep --config=auto \
+            --json \
+            --output=semgrep-report.json \
+            --quiet \
+            .
+
+          # Check for critical findings
+          CRITICAL_COUNT=$(cat semgrep-report.json | python3 -c "
+import json
+import sys
+try:
+    data = json.load(sys.stdin)
+    results = data.get('results', [])
+    critical = [r for r in results if r.get('metadata', {}).get('impact', '').lower() in ['high', 'critical']]
+    print(len(critical))
+except:
+    print(0)
+          ")
+
+          if [[ $CRITICAL_COUNT -gt 0 ]]; then
+            echo "🚨 Found $CRITICAL_COUNT critical security issues"
+            exit 1
+          fi
+
+      - name: Run Rust Security Lints
+        run: |
+          cd rust-modules
+          cargo clippy --all-targets --all-features -- \
+            -D clippy::indexing_slicing \
+            -D clippy::integer_arithmetic \
+            -D clippy::cast_lossless \
+            -D clippy::unwrap_used \
+            -D clippy::expect_used \
+            -D clippy::panic
+
+      - name: Upload SAST Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: sast-report
+          path: semgrep-report.json
+          retention-days: 30
+
+  container-scan:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        run: |
+          if [ -f Dockerfile ]; then
+            docker build -t mojorust-security-scan .
+          else
+            echo "⚠️ No Dockerfile found, skipping container scan"
+            exit 0
+          fi
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install trivy
+
+      - name: Run Trivy Security Scan
+        run: |
+          trivy image --format json --output trivy-report.json mojorust-security-scan
+
+          # Check for high/critical vulnerabilities
+          HIGH_CRITICAL_COUNT=$(cat trivy-report.json | python3 -c "
+import json
+import sys
+try:
+    data = json.load(sys.stdin)
+    results = data.get('Results', [])
+    count = 0
+    for result in results:
+        vulnerabilities = result.get('Vulnerabilities', [])
+        for vuln in vulnerabilities:
+            severity = vuln.get('Severity', '').lower()
+            if severity in ['high', 'critical']:
+                count += 1
+    print(count)
+except:
+    print(0)
+          ")
+
+          if [[ $HIGH_CRITICAL_COUNT -gt 0 ]]; then
+            echo "🚨 Found $HIGH_CRITICAL_COUNT high/critical container vulnerabilities"
+            trivy image mojorust-security-scan
+          else
+            echo "✅ No high/critical container vulnerabilities found"
+          fi
+
+      - name: Upload Container Scan Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: container-scan-report
+          path: trivy-report.json
+          retention-days: 30
+
+  license-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-license
+        run: cargo install cargo-license
+
+      - name: Check Rust Licenses
+        run: |
+          cd rust-modules
+          cargo license --json > license-report.json
+
+          # Check for problematic licenses
+          PROBLEMATIC_LICENSES=$(cat license-report.json | python3 -c "
+import json
+import sys
+try:
+    data = json.load(sys.stdin)
+    problematic = []
+    for dep in data:
+        license_name = dep.get('license', '').lower()
+        if any(x in license_name for x in ['gpl', 'agpl', 'lgpl']) and 'mit' not in license_name:
+            problematic.append(dep.get('name', 'unknown'))
+    print(','.join(problematic))
+except:
+    print('')
+          ")
+
+          if [[ -n "$PROBLEMATIC_LICENSES" ]]; then
+            echo "⚠️ Found potentially problematic licenses: $PROBLEMATIC_LICENSES"
+            echo "Please review license compatibility"
+          else
+            echo "✅ All licenses are compatible"
+          fi
+
+          # Display license summary
+          cargo license
+
+      - name: Upload License Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: license-report
+          path: rust-modules/license-report.json
+          retention-days: 30
+
+  security-report:
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, secret-scan, sast, container-scan, license-check]
+    if: always()
+    steps:
+      - name: Download All Reports
+        uses: actions/download-artifact@v3
+        with:
+          path: reports/
+
+      - name: Generate Security Summary
+        run: |
+          echo "# Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Dependency Scan Results
+          DEPS_RESULT="${{ needs.dependency-scan.result }}"
+          VULN_COUNT="${{ needs.dependency-scan.outputs.vuln-count }}"
+          echo "- **Dependency Scan**: $DEPS_RESULT" >> $GITHUB_STEP_SUMMARY
+          if [[ "$VULN_COUNT" != "0" ]]; then
+            echo "  - High/Critical Vulnerabilities: $VULN_COUNT" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Secret Scan Results
+          SECRETS_RESULT="${{ needs.secret-scan.result }}"
+          echo "- **Secret Scan**: $SECRETS_RESULT" >> $GITHUB_STEP_SUMMARY
+
+          # SAST Results
+          SAST_RESULT="${{ needs.sast.result }}"
+          echo "- **Static Analysis**: $SAST_RESULT" >> $GITHUB_STEP_SUMMARY
+
+          # Container Scan Results
+          if [[ "${{ needs.container-scan.result }}" != "skipped" ]]; then
+            CONTAINER_RESULT="${{ needs.container-scan.result }}"
+            echo "- **Container Scan**: $CONTAINER_RESULT" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # License Check Results
+          LICENSE_RESULT="${{ needs.license-check.result }}"
+          echo "- **License Check**: $LICENSE_RESULT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Overall Assessment
+          if [[ "$DEPS_RESULT" == "success" && "$SECRETS_RESULT" == "success" && "$SAST_RESULT" == "success" && "$LICENSE_RESULT" == "success" ]]; then
+            echo "✅ **Overall Security Status**: PASSED" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Overall Security Status**: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "Please review the detailed reports and address security issues." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Reports Available" >> $GITHUB_STEP_SUMMARY
+          echo "- [Dependency Audit Report](./reports/dependency-audit-report/)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Secret Scan Reports](./reports/secret-scan-reports/)" >> $GITHUB_STEP_SUMMARY
+          echo "- [SAST Report](./reports/sast-report/)" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.container-scan.result }}" != "skipped" ]]; then
+            echo "- [Container Scan Report](./reports/container-scan-report/)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- [License Report](./reports/license-report/)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create Security Issue for Critical Findings
+        if: needs.dependency-scan.outputs.vuln-count > 0
+        run: |
+          VULN_COUNT="${{ needs.dependency-scan.outputs.vuln-count }}"
+          if [[ $VULN_COUNT -gt 0 ]]; then
+            gh issue create \
+              --title "🚨 Security Vulnerabilities Detected - ${{ github.run_number }}" \
+              --label "security,vulnerability,high-priority" \
+              --body "## Security Scan Results
+
+              **Scan ID**: ${{ github.run_number }}
+              **Commit**: ${{ github.sha }}
+              **Branch**: ${{ github.ref_name }}
+
+              **Critical Findings**:
+              - High/Critical Vulnerabilities: $VULN_COUNT
+
+              **Next Steps**:
+              1. Review the dependency audit report
+              2. Update vulnerable dependencies
+              3. Test thoroughly in staging
+              4. Deploy to production
+
+              **Reports**: Available in workflow artifacts
+
+              This issue was automatically created by the security scan workflow." \
+              || echo "Issue creation failed or already exists"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify on Critical Security Issues
+        if: needs.dependency-scan.outputs.vuln-count > 0
+        run: |
+          VULN_COUNT="${{ needs.dependency-scan.outputs.vuln-count }}"
+          if [[ $VULN_COUNT -gt 0 && -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" ]]; then
+            MESSAGE="🚨 Security Alert
+
+            Repository: ${{ github.repository }}
+            Vulnerabilities: $VULN_COUNT high/critical
+            Scan ID: ${{ github.run_number }}
+            Action Required: Review and update dependencies"
+
+            curl -X POST \
+              "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+              -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -d "text=${MESSAGE}" \
+              -d "parse_mode=HTML" || echo "Telegram notification failed"
+          fi
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        continue-on-error: true

@@ -1,0 +1,481 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      mode:
+        description: 'Trading mode'
+        required: true
+        default: 'paper'
+        type: choice
+        options:
+        - paper
+        - live
+      skip_tests:
+        description: 'Skip pre-deployment tests'
+        required: false
+        default: false
+        type: boolean
+  release:
+    types: [published]
+
+env:
+  DEPLOY_PACKAGE_NAME: mojorust-deploy
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit_sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ -f mojo.toml ]; then
+            VERSION=$(python3 -c "
+import toml
+try:
+    data = toml.load(open('mojo.toml'))
+    print(data.get('package', {}).get('version', 'unknown'))
+except:
+    print('unknown')
+            ")
+          else
+            VERSION="unknown"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "ref=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+
+      - name: Install GitHub CLI
+        run: |
+          curl -fsSL https://cli.github.com/packages/github-cli.sh | sh
+
+    - name: Check CI workflow status
+        run: |
+          # Wait for CI to complete
+          sleep 30
+
+          # Check CI workflow
+          CI_STATUS=$(gh api repos/${{ github.repository }}/actions/runs \
+            --jq '.workflow_runs | map(select(.head_sha == "${{ github.sha }}" and .name == "CI")) | .[0].conclusion')
+
+          if [[ "$CI_STATUS" != "success" ]]; then
+            echo "❌ CI workflow did not pass (status: $CI_STATUS)"
+            echo "Please ensure all CI checks pass before deployment"
+            exit 1
+          fi
+
+          echo "✅ CI workflow passed"
+
+      - name: Validate Configuration
+        run: |
+          scripts/validate_config.sh --env-file .env.production.example --strict
+
+  package:
+    runs-on: ubuntu-latest
+    needs: validate
+    outputs:
+      package_name: ${{ steps.package.outputs.PACKAGE_NAME }}
+      package_file: ${{ steps.package.outputs.PACKAGE_FILE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Mojo
+        run: |
+          curl https://get.modular.com | sh -
+          echo 'export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"' >> $GITHUB_ENV
+          source ~/.bashrc
+          modular install mojo
+
+      - name: Build Application
+        run: |
+          mkdir -p target
+          echo 'export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"' >> $GITHUB_ENV
+          mojo build src/main.mojo -o target/trading-bot
+          mojo build src/main_ultimate.mojo -o target/trading-bot-ultimate
+          chmod +x target/trading-*
+
+      - name: Build Rust Modules
+        run: |
+          cd rust-modules
+          cargo build --release --all-features
+
+      - name: Create Deployment Package
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          SHA="${{ needs.validate.outputs.commit_sha }}"
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          PACKAGE_NAME="${{ env.DEPLOY_PACKAGE_NAME }}-${VERSION}-${SHA:0:8}"
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "PACKAGE_FILE=${PACKAGE_NAME}.tar.gz" >> $GITHUB_OUTPUT
+
+          mkdir -p deploy-package
+
+          # Include source files
+          cp -r src/ deploy-package/
+          cp -r scripts/ deploy-package/
+          cp -r config/ deploy-package/
+          cp -r rust-modules/ deploy-package/
+          cp -r tests/ deploy-package/
+
+          # Include configuration files
+          cp mojo.toml deploy-package/
+          cp *.md deploy-package/ 2>/dev/null || true
+          cp .env.production.example deploy-package/
+          cp docker-compose.yml deploy-package/ 2>/dev/null || true
+
+          # Include pre-built binaries
+          cp -r target/ deploy-package/
+
+          # Create deployment manifest
+          cat > deploy-package/deployment-manifest.json << EOF
+          {
+            "version": "$VERSION",
+            "commit_sha": "$SHA",
+            "build_timestamp": "$TIMESTAMP",
+            "environment": "${{ github.event.inputs.environment || github.ref_name }}",
+            "mode": "${{ github.event.inputs.mode || 'paper' }}",
+            "deployed_by": "${{ github.actor }}",
+            "repo": "${{ github.repository }}",
+            "ref": "${{ github.ref_name }}"
+          }
+          EOF
+
+          # Create tarball
+          tar -czf "${PACKAGE_NAME}.tar.gz" -C deploy-package .
+
+      - name: Upload Deployment Package
+        uses: actions/upload-artifact@v3
+        with:
+          name: deployment-package
+          path: ${{ steps.package.outputs.PACKAGE_FILE }}
+          retention-days: 30
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [validate, package]
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Deployment Package
+        uses: actions/download-artifact@v3
+        with:
+          name: deployment-package
+          path: .
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan ${{ secrets.STAGING_SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Test SSH Connection
+        run: |
+          ssh -o ConnectTimeout=10 ${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SERVER_IP }} "echo 'SSH connection successful'"
+
+      - name: Deploy to Staging
+        run: |
+          PACKAGE_FILE="${{ needs.package.outputs.package_file }}"
+          PACKAGE_NAME="${{ needs.package.outputs.package_name }}"
+          STAGING_USER="${{ secrets.STAGING_SSH_USER }}"
+          STAGING_SERVER="${{ secrets.STAGING_SERVER_IP }}"
+
+          echo "🚀 Deploying $PACKAGE_NAME to staging server..."
+
+          # Upload package
+          scp "$PACKAGE_FILE" "${STAGING_USER}@${STAGING_SERVER}:/tmp/"
+
+          # Deploy on staging server
+          ssh "${STAGING_USER}@${STAGING_SERVER}" "
+            set -e
+
+            # Create deployment directory
+            sudo mkdir -p /opt/mojorust-staging
+            cd /opt/mojorust-staging
+
+            # Backup current deployment
+            if [ -d 'current' ]; then
+              sudo mv current backup-\$(date +%Y%m%d-%H%M%S)
+            fi
+
+            # Extract new deployment
+            sudo rm -rf current
+            sudo mkdir current
+            sudo tar -xzf '/tmp/${PACKAGE_FILE}' -C current
+
+            # Set permissions
+            sudo chown -R ${STAGING_USER}:${STAGING_USER} current/
+            sudo chmod +x current/target/trading-bot*
+            sudo chmod +x current/scripts/*.sh
+
+            # Configure environment (staging always uses paper mode)
+            sudo cp current/.env.production.example current/.env
+            echo 'EXECUTION_MODE=paper' | sudo tee -a current/.env
+            echo 'TRADING_ENV=staging' | sudo tee -a current/.env
+
+            # Set environment variables
+            echo 'HELIUS_API_KEY=${{ secrets.HELIUS_API_KEY }}' | sudo tee -a current/.env
+            echo 'QUICKNODE_RPC_URL=${{ secrets.QUICKNODE_RPC_URL }}' | sudo tee -a current/.env
+            echo 'INFISICAL_PROJECT_ID=${{ secrets.INFISICAL_PROJECT_ID }}' | sudo tee -a current/.env
+            echo 'INFISICAL_CLIENT_ID=${{ secrets.INFISICAL_CLIENT_ID }}' | sudo tee -a current/.env
+            echo 'INFISICAL_CLIENT_SECRET=${{ secrets.INFISICAL_CLIENT_SECRET }}' | sudo tee -a current/.env
+
+            # Stop existing bot
+            sudo pkill -f trading-bot || true
+            sleep 5
+
+            # Start new bot
+            cd current
+            nohup ./target/trading-bot --mode=paper > logs/staging-bot.log 2>&1 &
+
+            echo '✅ Deployment completed'
+          "
+
+      - name: Health Check
+        run: |
+          echo "⏳ Waiting for bot to start..."
+          sleep 60
+
+          # Check if bot is running
+          SSH_RESULT=$(ssh ${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SERVER_IP }} "pgrep -f trading-bot || echo 'not_found'")
+
+          if [[ "$SSH_RESULT" == "not_found" ]]; then
+            echo "❌ Bot is not running"
+            ssh ${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SERVER_IP }} "tail -n 50 /opt/mojorust-staging/current/logs/staging-bot.log"
+            exit 1
+          fi
+
+          echo "✅ Bot is running (PID: $SSH_RESULT)"
+
+          # Check logs for errors
+          ssh ${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SERVER_IP }} "tail -n 20 /opt/mojorust-staging/current/logs/staging-bot.log" | grep -i error && echo "⚠️ Found errors in logs" || echo "✅ No errors found in recent logs"
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [validate, package]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+    steps:
+      - name: Pre-deployment Confirmation
+        run: |
+          echo "🚀 Preparing for PRODUCTION deployment"
+          echo "Version: ${{ needs.validate.outputs.version }}"
+          echo "Commit: ${{ needs.validate.outputs.commit_sha }}"
+          echo "Mode: ${{ github.event.inputs.mode || 'paper' }}"
+          echo ""
+          echo "⚠️  This will deploy to PRODUCTION server (38.242.239.150)"
+          echo "⚠️  Ensure you have reviewed the changes"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Deployment Package
+        uses: actions/download-artifact@v3
+        with:
+          name: deployment-package
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan 38.242.239.150 >> ~/.ssh/known_hosts
+
+      - name: Test SSH Connection
+        run: |
+          ssh -o ConnectTimeout=10 root@38.242.239.150 "echo 'SSH connection successful'"
+
+      - name: Create Backup
+        run: |
+          echo "📦 Creating backup of current production deployment..."
+          ssh root@38.242.239.150 "
+            set -e
+            BACKUP_DIR='/root/mojorust-backups'
+            TIMESTAMP=\$(date +%Y%m%d-%H%M%S)
+            BACKUP_PATH='\${BACKUP_DIR}/production-backup-\${TIMESTAMP}'
+
+            sudo mkdir -p '\${BACKUP_DIR}'
+
+            if [ -d '/root/mojorust' ]; then
+              sudo cp -r /root/mojorust '\${BACKUP_PATH}'
+              echo '✅ Backup created: \${BACKUP_PATH}'
+            else
+              echo '⚠️  No existing deployment to backup'
+            fi
+          "
+
+      - name: Deploy to Production
+        run: |
+          PACKAGE_FILE="${{ needs.package.outputs.package_file }}"
+          PACKAGE_NAME="${{ needs.package.outputs.package_name }}"
+          DEPLOY_MODE="${{ github.event.inputs.mode || 'paper' }}"
+
+          echo "🚀 Deploying $PACKAGE_NAME to PRODUCTION server..."
+          echo "Mode: $DEPLOY_MODE"
+
+          # Upload package
+          scp "$PACKAGE_FILE" root@38.242.239.150:/tmp/
+
+          # Deploy on production server
+          ssh root@38.242.239.150 "
+            set -e
+
+            # Create deployment directory
+            mkdir -p /root/mojorust
+            cd /root/mojorust
+
+            # Stop current bot gracefully
+            echo '🛑 Stopping current bot...'
+            pkill -SIGTERM -f trading-bot || true
+            sleep 10
+            pkill -9 -f trading-bot || true
+
+            # Extract new deployment
+            echo '📦 Extracting new deployment...'
+            tar -xzf '/tmp/${PACKAGE_FILE}' --strip-components=1
+
+            # Set permissions
+            chmod +x target/trading-bot*
+            chmod +x scripts/*.sh
+
+            # Configure environment
+            cp .env.production.example .env
+            echo 'EXECUTION_MODE=${DEPLOY_MODE}' >> .env
+            echo 'TRADING_ENV=production' >> .env
+
+            # Set production environment variables
+            echo 'HELIUS_API_KEY=${{ secrets.HELIUS_API_KEY }}' >> .env
+            echo 'QUICKNODE_RPC_URL=${{ secrets.QUICKNODE_RPC_URL }}' >> .env
+            echo 'INFISICAL_PROJECT_ID=${{ secrets.INFISICAL_PROJECT_ID }}' >> .env
+            echo 'INFISICAL_CLIENT_ID=${{ secrets.INFISICAL_CLIENT_ID }}' >> .env
+            echo 'INFISICAL_CLIENT_SECRET=${{ secrets.INFISICAL_CLIENT_SECRET }}' >> .env
+            echo 'TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}' >> .env
+            echo 'TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}' >> .env
+
+            # Start new bot
+            echo '🚀 Starting new bot...'
+            mkdir -p logs
+            nohup ./target/trading-bot --mode=${DEPLOY_MODE} > logs/production-bot.log 2>&1 &
+
+            echo '✅ Deployment completed'
+          "
+
+      - name: Health Check
+        run: |
+          echo "⏳ Waiting for bot to start..."
+          sleep 120
+
+          # Check if bot is running
+          SSH_RESULT=$(ssh root@38.242.239.150 "pgrep -f trading-bot || echo 'not_found'")
+
+          if [[ "$SSH_RESULT" == "not_found" ]]; then
+            echo "❌ Bot is not running - triggering rollback"
+            # You could add automatic rollback logic here
+            ssh root@38.242.239.150 "tail -n 100 logs/production-bot.log"
+            exit 1
+          fi
+
+          echo "✅ Bot is running (PID: $SSH_RESULT)"
+
+          # Check logs for errors
+          ssh root@38.242.239.150 "tail -n 50 logs/production-bot.log" | grep -i error && echo "⚠️ Found errors in logs" || echo "✅ No errors found in recent logs"
+
+      - name: Smoke Tests
+        run: |
+          echo "🔍 Running smoke tests..."
+
+          # Test health endpoint (if available)
+          if curl -f http://38.242.239.150:8080/api/health >/dev/null 2>&1; then
+            echo "✅ Health endpoint responding"
+          else
+            echo "⚠️ Health endpoint not responding (may be starting up)"
+          fi
+
+          # Verify bot process
+          SSH_RESULT=$(ssh root@38.242.239.150 "pgrep -f trading-bot")
+          if [[ -n "$SSH_RESULT" ]]; then
+            echo "✅ Bot process verified"
+          else
+            echo "❌ Bot process not found"
+            exit 1
+          fi
+
+  post-deploy:
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always() && (needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success')
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "# Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Environment: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Version: ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Commit: ${{ needs.validate.outputs.commit_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Mode: ${{ github.event.inputs.mode || 'paper' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.deploy-staging.result }}" == "success" ]]; then
+            echo "✅ Staging deployment successful" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ "${{ needs.deploy-production.result }}" == "success" ]]; then
+            echo "✅ Production deployment successful" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ "${{ needs.deploy-production.result }}" == "failure" ]]; then
+            echo "❌ Production deployment failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Send Notification (Optional)
+        if: env.TELEGRAM_BOT_TOKEN != ''
+        run: |
+          # Send deployment notification to Telegram
+          MESSAGE="🚀 MojoRust Trading Bot Deployment
+
+          Environment: ${{ github.ref_name }}
+          Version: ${{ needs.validate.outputs.version }}
+          Mode: ${{ github.event.inputs.mode || 'paper' }}
+          Status: ${{ job.status }}
+
+          Deployed by: ${{ github.actor }}"
+
+          curl -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=${MESSAGE}" \
+            -d "parse_mode=HTML"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        continue-on-error: true

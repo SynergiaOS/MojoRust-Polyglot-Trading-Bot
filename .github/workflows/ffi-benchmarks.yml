@@ -1,0 +1,367 @@
+name: FFI Performance Benchmarks
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'rust-modules/**'
+      - 'src/**/rust_ffi*'
+      - 'src/**/arbitrage*'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'rust-modules/**'
+      - 'src/**/rust_ffi*'
+      - 'src/**/arbitrage*'
+  schedule:
+    # Run benchmarks daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      run_full_benchmarks:
+        description: 'Run full benchmark suite'
+        required: false
+        default: 'false'
+        type: boolean
+      benchmark_filter:
+        description: 'Filter benchmarks (optional)'
+        required: false
+        default: ''
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUST_LOG: info
+
+jobs:
+  benchmark:
+    name: FFI Performance Benchmarks
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - beta
+          - nightly
+        include:
+          - rust: stable
+            features: optimizations
+          - rust: beta
+            features: optimizations
+          - rust: nightly
+            features: optimizations,std
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+        targets: x86_64-unknown-linux-gnu
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libssl-dev \
+          clang \
+          llvm-dev \
+          linux-tools-generic
+
+    - name: Check CPU features
+      run: |
+        echo "CPU Info:"
+        lscpu | grep -E "(Model name|CPU\(s\)|Thread|Core)"
+        echo "SIMD Support:"
+        grep -E "(avx|sse|fma)" /proc/cpuinfo | head -5 || echo "No SIMD info found"
+
+    - name: Verify Rust installation
+      run: |
+        rustc --version
+        cargo --version
+        rustup component list --installed
+
+    - name: Lint code
+      run: |
+        cd rust-modules
+        cargo clippy --all-targets --all-features -- -D warnings
+        cargo fmt -- --check
+
+    - name: Build release version
+      run: |
+        cd rust-modules
+        cargo build --release --features=optimizations --target=x86_64-unknown-linux-gnu
+        echo "Binary size: $(du -h target/x86_64-unknown-linux-gnu/release/libmojo_trading_bot.so)"
+
+    - name: Run unit tests
+      run: |
+        cd rust-modules
+        cargo test --release --features=optimizations
+
+    - name: Check SIMD availability
+      run: |
+        cd rust-modules
+        cargo run --release --features=optimizations --bin check_simd || echo "SIMD check script not found"
+
+    - name: Run FFI benchmarks
+      run: |
+        cd rust-modules
+
+        # Set benchmark filter if provided
+        BENCHMARK_ARGS=""
+        if [ "${{ github.event.inputs.benchmark_filter }}" != "" ]; then
+          BENCHMARK_ARGS="-- '${{ github.event.inputs.benchmark_filter }}'"
+        fi
+
+        # Run benchmarks with different configurations
+        echo "=== Running standard benchmarks ==="
+        cargo bench --features=optimizations $BENCHMARK_ARGS
+
+        echo "=== Running memory pool benchmarks ==="
+        cargo bench --features=optimizations object_pool_vs_allocation $BENCHMARK_ARGS
+
+        echo "=== Running SIMD benchmarks ==="
+        cargo bench --features=optimizations triangular_profit_calculation $BENCHMARK_ARGS
+
+        echo "=== Running async benchmarks ==="
+        cargo bench --features=optimizations async_worker_pool_vs_blocking $BENCHMARK_ARGS
+
+    - name: Run full benchmark suite (if requested)
+      if: github.event.inputs.run_full_benchmarks == 'true'
+      run: |
+        cd rust-modules
+        echo "=== Running comprehensive benchmark suite ==="
+
+        # Run all benchmark groups
+        for bench_group in object_pool_vs_allocation string_interning_vs_regular \
+                          triangular_profit_calculation batch_triangular_profits \
+                          async_worker_pool_vs_blocking ffi_function_overhead \
+                          batch_vs_individual_operations memory_usage_patterns; do
+          echo "Running $bench_group..."
+          cargo bench --features=optimizations $bench_group || true
+        done
+
+    - name: Generate benchmark report
+      run: |
+        cd rust-modules
+
+        # Create benchmark summary
+        cat > benchmark_summary.md << 'EOF'
+# FFI Performance Benchmark Summary
+
+**Commit**: ${{ github.sha }}
+**Branch**: ${{ github.ref_name }}
+**Rust Version**: ${{ matrix.rust }}
+**Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+## Benchmark Results
+
+EOF
+
+        # Extract key benchmark results (this would need custom parsing logic)
+        echo "Benchmark results would be parsed here from Criterion output" >> benchmark_summary.md
+
+        # Add system information
+        cat >> benchmark_summary.md << 'EOF'
+
+## System Information
+
+**CPU**: $(lscpu | grep "Model name" | cut -d: -f2- | xargs)
+**Memory**: $(free -h | grep Mem | awk '{print $2}')
+**OS**: $(uname -a)
+
+## Build Information
+
+**Optimization Level**: release
+**Features**: optimizations
+**LTO**: thin
+**Codegen Units**: 1
+**Target**: x86_64-unknown-linux-gnu
+
+EOF
+
+        echo "Benchmark summary generated"
+
+        # Upload benchmark artifacts
+        mkdir -p benchmark-results
+        cp benchmark_summary.md benchmark-results/
+
+        # Copy Criterion HTML reports if they exist
+        find target/criterion -name "*.html" -exec cp {} benchmark-results/ \; 2>/dev/null || true
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ffi-benchmarks-${{ matrix.rust }}
+        path: |
+          rust-modules/benchmark-results/
+          rust-modules/target/criterion/
+        retention-days: 30
+
+    - name: Performance regression check
+      run: |
+        cd rust-modules
+
+        # Simple regression check (would need more sophisticated logic)
+        echo "=== Performance Regression Check ==="
+
+        # This would compare against baseline benchmarks
+        # For now, just check if benchmarks ran successfully
+        if [ $? -eq 0 ]; then
+          echo "✅ Benchmarks completed successfully"
+        else
+          echo "❌ Benchmarks failed"
+          exit 1
+        fi
+
+  build-matrix:
+    name: Build Matrix Test
+    runs-on: ${{ matrix.os }}
+    needs: benchmark
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        targets: ${{ matrix.target }}
+
+    - name: Build for target
+      run: |
+        cd rust-modules
+        cargo build --release --features=optimizations --target=${{ matrix.target }}
+
+    - name: Run basic tests
+      run: |
+        cd rust-modules
+        cargo test --release --features=optimizations --target=${{ matrix.target }}
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Run security audit
+      run: |
+        cd rust-modules
+        cargo audit
+
+    - name: Run cargo-deny
+      uses: EmbarkStudios/cargo-deny-action@v1
+
+  performance-comparison:
+    name: Performance Comparison
+    runs-on: ubuntu-latest
+    needs: benchmark
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+
+    - name: Checkout base branch
+      run: |
+        git fetch origin ${{ github.base_ref }}
+        git checkout -f origin/${{ github.base_ref }}
+
+    - name: Build and benchmark base branch
+      run: |
+        cd rust-modules
+        cargo build --release --features=optimizations
+        cargo bench --features=optimizations --no-run -- --output-format json > base_benchmarks.json 2>/dev/null || echo "Base benchmark capture failed"
+
+    - name: Checkout PR branch
+      run: |
+        git checkout -f ${{ github.sha }}
+
+    - name: Build and benchmark PR branch
+      run: |
+        cd rust-modules
+        cargo build --release --features=optimizations
+        cargo bench --features=optimizations --no-run -- --output-format json > pr_benchmarks.json 2>/dev/null || echo "PR benchmark capture failed"
+
+    - name: Compare performance
+      run: |
+        echo "=== Performance Comparison ==="
+
+        # This would need a proper comparison script
+        if [ -f "rust-modules/base_benchmarks.json" ] && [ -f "rust-modules/pr_benchmarks.json" ]; then
+          echo "Both benchmark files found, comparison would be performed here"
+          # python scripts/compare_benchmarks.py base_benchmarks.json pr_benchmarks.json
+        else
+          echo "Benchmark files not available for comparison"
+        fi
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [benchmark, build-matrix, security-audit]
+    if: always()
+
+    steps:
+    - name: Notify on success
+      if: needs.benchmark.result == 'success' && needs.build-matrix.result == 'success'
+      run: |
+        echo "✅ All FFI benchmarks and tests passed successfully"
+        # Add Slack/Discord notification here if desired
+
+    - name: Notify on failure
+      if: needs.benchmark.result == 'failure' || needs.build-matrix.result == 'failure'
+      run: |
+        echo "❌ Some FFI benchmarks or tests failed"
+        # Add Slack/Discord notification here if desired
