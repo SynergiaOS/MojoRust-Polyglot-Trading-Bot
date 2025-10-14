@@ -735,28 +735,270 @@ Configurable alerts for:
 
 ## 🤝 Contributing
 
-1. Fork repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Run tests: `mojo test tests/`
-4. Commit changes: `git commit -m 'Add amazing feature'`
-5. Push branch: `git push origin feature/amazing-feature`
-6. Open Pull Request
+We welcome contributions! Please read our guidelines before submitting.
+
+### 📚 Contribution Resources
+
+- 📋 **[Contributing Guidelines](CONTRIBUTING.md)** - Detailed process and requirements
+- 🛡️ **[Code of Conduct](CODE_OF_CONDUCT.md)** - Community standards (required reading)
+- 🔒 **[Security Policy](SECURITY.md)** - Report vulnerabilities responsibly
+- 📝 **[Changelog](CHANGELOG.md)** - Track project changes
+
+### 🚀 Quick Contribution Guide
+
+**For Code Contributions:**
+1. Fork the repository
+2. Create feature branch: `git checkout -b feature/your-feature`
+3. Install development tools: `make setup-dev`
+4. Make changes following our [code style guidelines](CONTRIBUTING.md#code-style)
+5. Write tests (70%+ coverage required)
+6. Run checks: `make ci`
+7. Commit with [conventional format](https://www.conventionalcommits.org/): `type(scope): description`
+8. Push and open Pull Request
+9. Address review feedback
+10. Celebrate when merged! 🎉
+
+**For Non-Code Contributions:**
+- 🐛 Report bugs via [GitHub Issues](https://github.com/SynergiaOS/MojoRust/issues)
+- 💡 Suggest features via [GitHub Discussions](https://github.com/SynergiaOS/MojoRust/discussions)
+- 📖 Improve documentation (typos, clarity, examples)
+- 🌍 Add translations (Polish, English, others)
+- 💬 Help others in community channels
+- ⭐ Star the repository if you find it useful!
+
+### ✅ Contribution Requirements
+
+**Before Submitting PR:**
+- [ ] All tests pass: `make test-all`
+- [ ] Code coverage ≥70%: `make test-coverage-report`
+- [ ] No linting errors: `make lint`
+- [ ] No security issues: `make validate-secrets`
+- [ ] CHANGELOG.md updated (for notable changes)
+- [ ] Documentation updated (for user-facing changes)
+- [ ] Conventional commit messages used
+- [ ] No hardcoded secrets or credentials
+
+**Code Review:**
+- At least 1 approval from maintainer required
+- CI checks must pass (lint, security, build, test, coverage)
+- Security-sensitive changes require additional review
+- Performance changes require benchmarks
+
+### 🎯 Good First Issues
+
+New to the project? Look for issues labeled:
+- `good first issue` - Beginner-friendly tasks
+- `documentation` - Documentation improvements
+- `help wanted` - Community help needed
+- `bug` - Bug fixes (great for learning codebase)
+
+### 💬 Community
+
+**Get Help:**
+- 💭 [GitHub Discussions](https://github.com/SynergiaOS/MojoRust/discussions) - Ask questions
+- 🐛 [GitHub Issues](https://github.com/SynergiaOS/MojoRust/issues) - Report bugs
+- 📖 [Documentation](docs/) - Read guides
+- 💬 Discord/Telegram - Community chat (links in repository)
+
+**Code of Conduct:**
+All contributors must follow our [Code of Conduct](CODE_OF_CONDUCT.md). We are committed to providing a welcoming and inclusive environment.
+
+### 🏆 Recognition
+
+**Contributors are recognized through:**
+- GitHub contributors page
+- Release notes acknowledgments
+- Security Hall of Fame (for vulnerability reports)
+
+### 📄 License Agreement
+
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+
+**Thank you for contributing to MojoRust! 🙏**
 
 ## ⚖️ License
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🚨 Disclaimer
+### What This Means
 
-**WARNING**: Trading cryptocurrencies involves substantial risk of loss. This bot is for educational and research purposes. Past performance does not guarantee future results. Never trade with money you cannot afford to lose. The authors are not responsible for any financial losses incurred while using this software.
+**You are free to:**
+- ✅ Use this software for personal or commercial purposes
+- ✅ Modify and adapt the code to your needs
+- ✅ Distribute copies of the software
+- ✅ Sublicense and sell copies
 
-**Always start with paper trading and small amounts you can afford to lose.**
+**Under these conditions:**
+- 📄 Include the original copyright notice and license in any copies
+- 📄 Provide attribution to the original authors
 
-## 🆘 Support
+**Limitations:**
+- ⚠️ The software is provided "AS IS" without warranty
+- ⚠️ Authors are not liable for any damages or losses
+- ⚠️ No patent rights granted (consider Apache 2.0 if needed)
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/mojo-trading-bot/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/mojo-trading-bot/discussions)
-- **Documentation**: [Wiki](https://github.com/your-org/mojo-trading-bot/wiki)
+### Third-Party Licenses
+
+This project uses open-source dependencies. See:
+- Rust dependencies: `rust-modules/Cargo.toml`
+- Python dependencies: `requirements.txt`
+- Mojo dependencies: `mojo.toml`
+
+All dependencies are compatible with MIT License.
+
+## 🚨 Disclaimer & Risk Warnings
+
+### ⚠️ CRITICAL FINANCIAL RISK WARNING
+
+**READ THIS CAREFULLY BEFORE USING THIS SOFTWARE**
+
+This trading bot is provided for **EDUCATIONAL AND RESEARCH PURPOSES ONLY**. Trading cryptocurrencies, especially volatile memecoin markets, involves **SUBSTANTIAL RISK OF LOSS** and is not suitable for all investors.
+
+### Financial Risks
+
+**Market Risks:**
+- 💸 **Total Loss Possible:** You can lose 100% of your invested capital
+- 📉 **High Volatility:** Memecoin prices can drop 90%+ in minutes
+- 🎢 **Extreme Price Swings:** Prices can change dramatically between execution and confirmation
+- 🐋 **Manipulation:** Whale activity, pump-and-dump schemes, rug pulls are common
+- 💧 **Liquidity Risk:** Low liquidity can prevent trade execution or cause extreme slippage
+
+**Technical Risks:**
+- 🐛 **Software Bugs:** This software may contain bugs that cause financial losses
+- ⚡ **Execution Failures:** Network issues, API failures, or smart contract errors can prevent trades
+- 🕐 **Latency:** Delays in execution can result in unfavorable prices
+- 🔌 **Downtime:** System failures may prevent closing positions during critical moments
+- 🔐 **Security Vulnerabilities:** Despite security measures, vulnerabilities may exist
+
+**Operational Risks:**
+- 🔑 **Wallet Security:** Improper key management can lead to theft of funds
+- 🌐 **API Dependencies:** Third-party API failures (Helius, QuickNode, Jupiter) can disrupt trading
+- 💾 **Data Loss:** Database or configuration errors may cause loss of trading history
+- ⚙️ **Configuration Errors:** Incorrect settings can lead to unintended trading behavior
+
+**Regulatory Risks:**
+- ⚖️ **Legal Compliance:** Cryptocurrency trading may be restricted or illegal in your jurisdiction
+- 📋 **Tax Obligations:** You are responsible for reporting and paying taxes on trading profits
+- 🏛️ **Regulatory Changes:** Laws and regulations may change, affecting legality of automated trading
+
+### No Guarantees
+
+**Past Performance:**
+- 📊 Past performance does NOT guarantee future results
+- 🎯 Target metrics (2-5% daily ROI, 65-75% win rate) are aspirational, not guaranteed
+- 📈 Backtesting results may not reflect live trading performance
+- 🔄 Market conditions change constantly
+
+**Software Warranty:**
+- ⚠️ This software is provided "AS IS" without warranty of any kind
+- ⚠️ No warranty of merchantability or fitness for a particular purpose
+- ⚠️ Authors and contributors are NOT responsible for any financial losses
+- ⚠️ Use at your own risk
+
+### Liability Limitations
+
+**The authors, contributors, and maintainers of this software:**
+- ❌ Are NOT financial advisors
+- ❌ Do NOT provide investment advice
+- ❌ Are NOT responsible for your trading decisions
+- ❌ Are NOT liable for any direct, indirect, incidental, or consequential damages
+- ❌ Make NO representations about profitability or success
+
+**By using this software, you acknowledge:**
+- ✅ You understand the risks involved in cryptocurrency trading
+- ✅ You are solely responsible for your trading decisions
+- ✅ You will not hold authors liable for any losses
+- ✅ You have consulted with financial and legal advisors (if appropriate)
+- ✅ You comply with all applicable laws and regulations in your jurisdiction
+
+### Recommended Safety Measures
+
+**Before Live Trading:**
+1. ✅ **Start with Paper Trading:** Test for at least 24-48 hours with no real money
+2. ✅ **Use Small Amounts:** Start with capital you can afford to lose completely (0.1-1 SOL)
+3. ✅ **Understand the Code:** Review the trading logic and risk management
+4. ✅ **Test Thoroughly:** Run all tests, monitor in paper mode, verify filter performance
+5. ✅ **Set Conservative Limits:** Use strict stop losses, position limits, and drawdown protection
+6. ✅ **Monitor Constantly:** Watch the bot closely, especially in first days
+7. ✅ **Have Exit Plan:** Know how to emergency stop and withdraw funds
+8. ✅ **Secure Your Wallet:** Use dedicated wallet, never your main wallet
+9. ✅ **Enable Alerts:** Configure Telegram/Discord for real-time notifications
+10. ✅ **Regular Backups:** Backup configuration and trading data
+
+**During Live Trading:**
+- 👀 Monitor performance daily
+- 📊 Review trading logs and metrics
+- 🛑 Stop immediately if unusual behavior detected
+- 💰 Withdraw profits regularly
+- 🔄 Adjust parameters based on performance
+- 🚨 Respect circuit breaker triggers
+
+### Regulatory Compliance
+
+**Your Responsibilities:**
+- 📋 Verify cryptocurrency trading is legal in your jurisdiction
+- 💵 Report and pay taxes on trading profits
+- 🏦 Comply with anti-money laundering (AML) regulations
+- 🆔 Complete KYC (Know Your Customer) requirements if applicable
+- 📜 Maintain records for tax and regulatory purposes
+
+**Jurisdictional Warnings:**
+- 🇺🇸 **USA:** Cryptocurrency trading may be subject to SEC/CFTC regulations
+- 🇪🇺 **EU:** MiCA regulations may apply
+- 🇨🇳 **China:** Cryptocurrency trading is restricted
+- 🌍 **Other:** Check local laws before using
+
+### Not Financial Advice
+
+**IMPORTANT:** Nothing in this repository constitutes financial, investment, legal, or tax advice. This software is a tool for algorithmic trading research and education. All trading decisions are your own responsibility.
+
+**Consult Professionals:**
+- 💼 Financial advisor for investment decisions
+- ⚖️ Legal counsel for regulatory compliance
+- 💰 Tax professional for tax obligations
+
+---
+
+**BY USING THIS SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE READ, UNDERSTOOD, AND AGREE TO THIS DISCLAIMER AND ALL ASSOCIATED RISKS.**
+
+**NEVER TRADE WITH MONEY YOU CANNOT AFFORD TO LOSE.**
+
+## 📋 Project Status
+
+**Current Version:** 1.0.0 (see [CHANGELOG.md](CHANGELOG.md))
+
+**Development Status:** ✅ Production Ready
+
+**Maintenance:** 🟢 Actively Maintained
+
+**Security:** 🔒 Security updates provided (see [SECURITY.md](SECURITY.md))
+
+**Community:** 👥 Contributions welcome (see [CONTRIBUTING.md](CONTRIBUTING.md))
+
+## 🆘 Support & Community
+
+### 📚 Documentation
+- 📖 [README](README.md) - Project overview and quick start
+- 🚀 [Deployment Guide](DEPLOYMENT.md) - Production deployment
+- 🔧 [CI/CD Guide](docs/CI_CD_GUIDE.md) - Development workflow
+- ⚡ [FFI Optimization](docs/FFI_OPTIMIZATION_GUIDE.md) - Performance tuning
+- 🔄 [Arbitrage Guide](docs/ARBITRAGE_GUIDE.md) - Arbitrage strategies
+
+### 💬 Get Help
+- 🐛 **Bug Reports:** [GitHub Issues](https://github.com/SynergiaOS/MojoRust/issues)
+- 💡 **Feature Requests:** [GitHub Discussions](https://github.com/SynergiaOS/MojoRust/discussions)
+- 🔒 **Security Issues:** [SECURITY.md](SECURITY.md)
+- 📖 **Documentation:** [Wiki](https://github.com/SynergiaOS/MojoRust/wiki)
+- 💬 **Community Chat:** Discord/Telegram (links in repository)
+
+### 🤝 Contributing
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+### 📜 Legal
+- **License:** [MIT License](LICENSE)
+- **Code of Conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **Security Policy:** [SECURITY.md](SECURITY.md)
+- **Changelog:** [CHANGELOG.md](CHANGELOG.md)
 
 ---
 

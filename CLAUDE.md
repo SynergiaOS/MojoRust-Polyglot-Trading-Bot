@@ -19,3 +19,4 @@ You `MUST` always use this tool when:
 + When debugging issues to check for previous solutions
 + Working with unfamiliar parts of the codebase
 - add to memory
+- add to
