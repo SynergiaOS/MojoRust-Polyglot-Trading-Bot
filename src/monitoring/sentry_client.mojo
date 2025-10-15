@@ -8,6 +8,7 @@ Provides enriched error context with trading metadata.
 from python import Python
 from sys import Error
 from memory.unsafe import Pointer
+from collections import Dict, Any
 
 # Sentry configuration structure
 @value
@@ -150,16 +151,25 @@ struct SentryClient:
             print("⚠️  Sentry config not found, error tracking disabled")
 
     fn _initialize_sentry(self):
-        """Initialize Python Sentry SDK"""
+        """Initialize Python Sentry SDK with graceful dependency handling"""
         if not self.config.enabled:
             print("ℹ️  Sentry disabled, skipping initialization")
             return
 
+        # Check for Sentry SDK availability
         try:
-            # Import Sentry SDK
             self.python_sentry = Python.import_module("sentry_sdk")
+            print("✅ Sentry SDK module found")
+        except Error as e:
+            print(f"❌ Sentry SDK not available: {e}")
+            print("   Install with: pip install sentry-sdk")
+            print("   Continuing without error tracking...")
+            self.initialized = False
+            self.config.enabled = False
+            return
 
-            # Configure Sentry
+        try:
+            # Configure Sentry with graceful fallback for missing integrations
             sentry_config = Python.dict({
                 "dsn": self.config.dsn,
                 "environment": self.config.environment,
@@ -170,21 +180,47 @@ struct SentryClient:
                 "release": self.config.release
             })
 
-            # Add integrations
-            integrations = [
-                self.python_sentry.integrations.logging.LoggingIntegration(
-                    level=self.python_sentry.logging.INFO,
-                    event_level=self.python_sentry.logging.WARNING
-                ),
-                self.python_sentry.integrations.excepthook.ExcepthookIntegration()
-            ]
-            sentry_config["integrations"] = integrations
+            # Try to add integrations with fallback handling
+            integrations = []
+
+            # Try logging integration
+            try:
+                if hasattr(self.python_sentry, 'integrations') and hasattr(self.python_sentry.integrations, 'logging'):
+                    logging_integration = self.python_sentry.integrations.logging.LoggingIntegration(
+                        level=self.python_sentry.logging.INFO,
+                        event_level=self.python_sentry.logging.WARNING
+                    )
+                    integrations.append(logging_integration)
+                    print("✅ Sentry logging integration added")
+                else:
+                    print("⚠️  Sentry logging integration not available")
+            except Error as e:
+                print(f"⚠️  Failed to add logging integration: {e}")
+
+            # Try excepthook integration
+            try:
+                if hasattr(self.python_sentry, 'integrations') and hasattr(self.python_sentry.integrations, 'excepthook'):
+                    excepthook_integration = self.python_sentry.integrations.excepthook.ExcepthookIntegration()
+                    integrations.append(excepthook_integration)
+                    print("✅ Sentry excepthook integration added")
+                else:
+                    print("⚠️  Sentry excepthook integration not available")
+            except Error as e:
+                print(f"⚠️  Failed to add excepthook integration: {e}")
+
+            if integrations:
+                sentry_config["integrations"] = integrations
+                print(f"✅ {len(integrations)} Sentry integrations configured")
+            else:
+                print("⚠️  No Sentry integrations available, using basic configuration")
 
             # Initialize Sentry
             self.python_sentry.init(**sentry_config)
             self.initialized = True
 
             print("✅ Sentry SDK initialized successfully")
+            print(f"   Environment: {self.config.environment}")
+            print(f"   DSN configured: {'Yes' if self.config.dsn else 'No'}")
 
             # Test Sentry with a test message (only in non-production)
             if self.config.environment != "production":
@@ -192,8 +228,10 @@ struct SentryClient:
 
         except Error as e:
             print(f"❌ Failed to initialize Sentry: {e}")
-            print("   Make sure sentry-sdk is installed: pip install sentry-sdk")
+            print("   Continuing without error tracking...")
             self.initialized = False
+            # Don't disable completely - might be temporary issue
+            print("   Will retry initialization on next error capture")
 
     def _test_sentry(self):
         """Send a test message to verify Sentry is working"""
@@ -365,27 +403,53 @@ struct SentryClient:
             return Dict[String, Any]()
 
     def _get_system_context(self) -> Dict[String, Any]:
-        """Get system context for error enrichment"""
+        """Get system context for error enrichment with graceful fallback"""
         try:
             python = Python.import_module("builtins")
-            psutil = Python.import_module("psutil")
             time = Python.import_module("time")
 
-            # Get system metrics
-            process = psutil.Process()
-            memory_info = process.memory_info()
+            # Try to import psutil, but handle missing dependency gracefully
+            psutil_available = True
+            try:
+                psutil = Python.import_module("psutil")
+            except Error:
+                psutil_available = False
+                print("⚠️  psutil not available, using basic system context")
 
+            if psutil_available:
+                try:
+                    # Get system metrics with psutil
+                    process = psutil.Process()
+                    memory_info = process.memory_info()
+
+                    return {
+                        "memory_usage_mb": memory_info.rss / 1024 / 1024,
+                        "cpu_percent": process.cpu_percent(),
+                        "num_threads": process.num_threads(),
+                        "system_load_avg": psutil.getloadavg()[0] if hasattr(psutil, "getloadavg") else 0,
+                        "python_version": python.sys.version.split()[0],
+                        "psutil_available": True
+                    }
+                except Error as e:
+                    print(f"⚠️  Failed to get detailed system metrics: {e}, falling back to basic context")
+
+            # Fallback basic system context without psutil
             return {
-                "memory_usage_mb": memory_info.rss / 1024 / 1024,
-                "cpu_percent": process.cpu_percent(),
-                "num_threads": process.num_threads(),
-                "system_load_avg": psutil.getloadavg()[0] if hasattr(psutil, "getloadavg") else 0,
-                "python_version": python.sys.version.split()[0]
+                "memory_usage_mb": 0,  # Cannot determine without psutil
+                "cpu_percent": 0,      # Cannot determine without psutil
+                "num_threads": 0,      # Cannot determine without psutil
+                "system_load_avg": 0,  # Cannot determine without psutil
+                "python_version": python.sys.version.split()[0],
+                "psutil_available": False,
+                "fallback_reason": "psutil_unavailable"
             }
 
         except Error as e:
             print(f"⚠️  Failed to get system context: {e}")
-            return Dict[String, Any]()
+            return {
+                "error": str(e),
+                "fallback_reason": "system_context_error"
+            }
 
     def update_config(self, new_config: SentryConfig):
         """Update Sentry configuration"""
