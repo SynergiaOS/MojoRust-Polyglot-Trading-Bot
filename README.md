@@ -86,7 +86,13 @@ chmod +x scripts/*.sh
 
 # Configure API keys (minimum required)
 cp .env.example .env
-nano .env  # Add your HELIUS_API_KEY and QUICKNODE_RPC_URL
+nano .env
+# Add your required API keys. At a minimum, you will need:
+# - HELIUS_API_KEY
+# - QUICKNODE_PRIMARY_RPC
+# For advanced features, you will also need:
+# - GEYSER_ENDPOINT and GEYSER_TOKEN
+# - TWITTER_API_KEY, TWITTER_API_SECRET, etc.
 
 # Start trading in safe paper mode
 ./scripts/start_bot.sh --mode=paper --verbose
@@ -131,6 +137,34 @@ tail -f logs/trading-bot-*.log
 ```
 Data Layer (APIs) → Processing Layer (Algorithmic Engines) → Execution Layer (Trading)
 ```
+
+### 🏛️ Advanced Architecture Guides
+
+For a deeper dive into the bot's architecture, refer to our detailed guides:
+
+- **[RPC Provider Strategy](docs/RPC_PROVIDER_STRATEGY.md)**: How the bot selects and fails over between Helius and QuickNode.
+- **[Data Ingestion Architecture](docs/DATA_INGESTION_ARCHITECTURE.md)**: Real-time data pipelines with Geyser and Yellowstone.
+- **[Parallel Processing Architecture](docs/PARALLEL_PROCESSING_ARCHITECTURE.md)**: High-throughput token analysis using an asyncio-based task pool.
+- **[Portfolio Manager Design](docs/PORTFOLIO_MANAGER_DESIGN.md)**: Capital allocation and risk management with the Rust-based portfolio manager.
+- **[Advanced Filters Guide](docs/ADVANCED_FILTERS_GUIDE.md)**: A detailed look at the multi-stage filtering engine.
+- **[MEV Strategy Guide](docs/MEV_STRATEGY_GUIDE.md)**: Techniques for MEV extraction with Jito.
+- **[Flash Loan Integration](docs/FLASH_LOAN_INTEGRATION.md)**: Arbitrage strategies using flash loans from Solend and Kamino.
+
+### 🛠️ Technology Layer Responsibilities
+
+This project uses a polyglot architecture to leverage the strengths of each language:
+
+- **Mojo (🔥)**: Used for performance-critical components where speed is paramount.
+  - **Responsibilities**: Data analysis, signal generation, filter engines, and strategy execution.
+  - **Why?**: Mojo's Python-like syntax combined with C-level performance is ideal for computationally intensive tasks.
+
+- **Rust (🦀)**: Used for security-critical components and memory-safe concurrency.
+  - **Responsibilities**: Portfolio management, capital allocation, and cryptographic operations.
+  - **Why?**: Rust's ownership model and compile-time guarantees prevent common bugs and ensure the safety of funds.
+
+- **Python (🐍)**: Used for orchestration, I/O-bound tasks, and integrations.
+  - **Responsibilities**: API clients, task scheduling, database interactions, and the main application loop.
+  - **Why?**: Python's rich ecosystem of libraries and mature `asyncio` framework make it perfect for managing complex workflows.
 
 ### Core Components
 

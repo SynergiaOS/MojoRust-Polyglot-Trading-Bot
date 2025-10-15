@@ -581,7 +581,7 @@ fn calculate_position_size(
 ### Performance-Critical Code
 
 - **Benchmarks:** Add benchmarks for hot paths and critical functions
-- **Profiling:** Profile before optimizing (`make profile-ffi`)
+- **Profiling:** Profile before optimizing (`make profile`)
 - **Documentation:** Document performance impact in PR
 - **Regression Testing:** Avoid performance regressions >10%
 
@@ -597,13 +597,13 @@ fn calculate_position_size(
 
 ```bash
 # Run FFI benchmarks
-make bench-ffi
+make benchmark
 
 # Run Rust benchmarks
 cd rust-modules && cargo bench
 
 # Profile application performance
-make profile-ffi
+make profile
 ```
 
 ## Financial Software Guidelines

@@ -186,6 +186,12 @@ INFISICAL_CLIENT_ID=your_infisical_client_id
 INFISICAL_CLIENT_SECRET=your_infisical_client_secret
 ```
 
+#### Modular (Mojo) Authentication
+```
+MODULAR_AUTH_TOKEN=your_modular_auth_token_here
+```
+*Note: This token is required for non-interactive installation of the Mojo SDK on GitHub Actions runners. You can create a token at [https://www.modular.com](https://www.modular.com).*
+
 #### Deployment Credentials
 ```
 PRODUCTION_SERVER_IP=38.242.239.150
@@ -290,7 +296,7 @@ pre-commit run --all-files
 - **mojo-lint**: Lint Mojo code (when available)
 
 #### Security Hooks
-- **detect-secrets**: Detect hardcoded credentials
+- **detect-secrets**: Detect hardcoded credentials. Uses a baseline file (`.secrets.baseline`) to track and ignore false positives.
 - **gitleaks**: Scan for leaked credentials
 - **validate-config**: Run configuration validation
 
@@ -343,7 +349,7 @@ The pre-commit configuration is in `.pre-commit-config.yaml`. Key settings:
 
 **False positives:**
 1. Add to exclusion list in configuration
-2. Create baseline file for known issues
+2. For `detect-secrets`, you can update the baseline to ignore a finding. First, audit the baseline file: `detect-secrets audit .secrets.baseline`. Then, follow the interactive prompts to mark items as false positives. Commit the updated `.secrets.baseline` file.
 3. Report the false positive to tool maintainers
 
 ## Makefile Commands
