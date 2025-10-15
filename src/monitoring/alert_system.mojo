@@ -448,6 +448,224 @@ struct AlertSystem:
 
         return "\n".join(lines)
 
+    fn send_system_alert(self, message: String, context: Dict[String, Any]):
+        """
+        📊 Send system-level operational alert for monitoring and health checks
+        """
+        alert_type = "system"
+        if not self.should_send_alert(alert_type):
+            return
+
+        # Determine alert level based on context
+        level = AlertLevel.INFO
+        if "level" in context:
+            level_str = context["level"].upper()
+            if level_str == "CRITICAL":
+                level = AlertLevel.CRITICAL
+            elif level_str == "ERROR":
+                level = AlertLevel.ERROR
+            elif level_str == "WARNING":
+                level = AlertLevel.WARNING
+
+        title = f"🔧 System Alert: {context.get('component', 'Unknown')}"
+
+        # Format context as fields
+        fields = [
+            {"name": "Component", "value": context.get('component', 'Unknown')},
+            {"name": "Message", "value": message},
+            {"name": "Timestamp", "value": f"{time():.0f}"}
+        ]
+
+        # Add specific context fields
+        for key, value in context.items():
+            if key not in ['component', 'level', 'timestamp']:
+                fields.append({"name": key.replace("_", " ").title(), "value": str(value)})
+
+        self._send_alert(level, title, message, fields)
+        self.update_cooldown(alert_type)
+
+    fn send_operational_metrics_alert(self, metrics: Dict[String, Any]):
+        """
+        📊 Send operational metrics alert for monitoring system health
+        """
+        alert_type = "operational_metrics"
+        if not self.should_send_alert(alert_type):
+            return
+
+        # Check for critical operational issues
+        level = AlertLevel.INFO
+        issues = []
+
+        # Check connection pool health
+        if metrics.get("connection_pool_healthy", True) == False:
+            level = AlertLevel.ERROR
+            issues.append("Connection Pool Unhealthy")
+
+        # Check database connection
+        if metrics.get("database_connected", True) == False:
+            level = AlertLevel.ERROR
+            issues.append("Database Disconnected")
+
+        # Check API response times
+        api_response_time = metrics.get("api_response_time", 0.0)
+        if api_response_time > 5.0:  # 5 seconds threshold
+            if level != AlertLevel.ERROR:
+                level = AlertLevel.WARNING
+            issues.append(f"Slow API Response ({api_response_time:.1f}s)")
+
+        # Check memory usage
+        memory_usage = metrics.get("memory_usage_percent", 0.0)
+        if memory_usage > 90.0:  # 90% memory usage
+            level = AlertLevel.CRITICAL
+            issues.append(f"High Memory Usage ({memory_usage:.1f}%)")
+        elif memory_usage > 75.0:
+            if level == AlertLevel.INFO:
+                level = AlertLevel.WARNING
+            issues.append(f"Moderate Memory Usage ({memory_usage:.1f}%)")
+
+        # Check CPU usage
+        cpu_usage = metrics.get("cpu_usage_percent", 0.0)
+        if cpu_usage > 85.0:  # 85% CPU usage
+            if level != AlertLevel.CRITICAL:
+                level = AlertLevel.WARNING
+            issues.append(f"High CPU Usage ({cpu_usage:.1f}%)")
+
+        title = f"📊 Operational Metrics: {', '.join(issues) if issues else 'Healthy'}"
+
+        # Format metrics message
+        message_parts = []
+        if issues:
+            message_parts.append("🚨 Issues Detected:")
+            for issue in issues:
+                message_parts.append(f"  • {issue}")
+        else:
+            message_parts.append("✅ All operational metrics within normal ranges")
+
+        message = "\n".join(message_parts)
+
+        # Create fields with detailed metrics
+        fields = [
+            {"name": "Uptime", "value": f"{metrics.get('uptime_seconds', 0) / 3600:.1f} hours"},
+            {"name": "Cycles Completed", "value": f"{metrics.get('cycles_completed', 0):,}"},
+            {"name": "API Response Time", "value": f"{api_response_time:.2f}s"},
+            {"name": "Memory Usage", "value": f"{memory_usage:.1f}%"},
+            {"name": "CPU Usage", "value": f"{cpu_usage:.1f}%"},
+            {"name": "Database Health", "value": "✅ Connected" if metrics.get("database_connected", True) else "❌ Disconnected"},
+            {"name": "Connection Pool", "value": "✅ Healthy" if metrics.get("connection_pool_healthy", True) else "❌ Unhealthy"}
+        ]
+
+        # Add performance metrics
+        if "portfolio_value" in metrics:
+            fields.append({"name": "Portfolio Value", "value": f"{metrics['portfolio_value']:.4f} SOL"})
+        if "trades_executed" in metrics:
+            fields.append({"name": "Trades Executed", "value": str(metrics["trades_executed"])})
+        if "signals_generated" in metrics:
+            fields.append({"name": "Signals Generated", "value": str(metrics["signals_generated"])})
+
+        self._send_alert(level, title, message, fields)
+        self.update_cooldown(alert_type)
+
+    fn send_connection_pool_alert(self, component: String, pool_stats: Dict[String, Any], issue: String):
+        """
+        🔗 Send connection pool specific alert
+        """
+        alert_type = "connection_pool"
+        if not self.should_send_alert(alert_type):
+            return
+
+        # Determine severity based on issue type
+        level = AlertLevel.WARNING
+        if "critical" in issue.lower() or "failed" in issue.lower():
+            level = AlertLevel.ERROR
+        elif "unhealthy" in issue.lower():
+            level = AlertLevel.WARNING
+
+        title = f"🔗 Connection Pool Alert: {component}"
+        message = f"Connection pool issue detected: {issue}"
+
+        fields = [
+            {"name": "Component", "value": component},
+            {"name": "Issue", "value": issue},
+            {"name": "Pool Size", "value": str(pool_stats.get("pool_size", "Unknown"))},
+            {"name": "Active Connections", "value": str(pool_stats.get("active_connections", "Unknown"))},
+            {"name": "Idle Connections", "value": str(pool_stats.get("idle_connections", "Unknown"))},
+            {"name": "Connection Timeout", "value": f"{pool_stats.get('timeout_seconds', 0):.1f}s"}
+        ]
+
+        # Add additional pool stats
+        if "error_rate" in pool_stats:
+            fields.append({"name": "Error Rate", "value": f"{pool_stats['error_rate']:.1%}"})
+        if "avg_response_time" in pool_stats:
+            fields.append({"name": "Avg Response Time", "value": f"{pool_stats['avg_response_time']:.3f}s"})
+
+        self._send_alert(level, title, message, fields)
+        self.update_cooldown(alert_type)
+
+    fn send_api_reliability_alert(self, api_name: String, reliability_metrics: Dict[String, Any]):
+        """
+        🌐 Send API reliability alert for monitoring external service health
+        """
+        alert_type = "api_reliability"
+        if not self.should_send_alert(alert_type):
+            return
+
+        # Determine alert level based on reliability metrics
+        level = AlertLevel.INFO
+        issues = []
+
+        success_rate = reliability_metrics.get("success_rate", 1.0)
+        if success_rate < 0.95:  # 95% success rate threshold
+            if success_rate < 0.90:
+                level = AlertLevel.ERROR
+                issues.append(f"Low Success Rate ({success_rate:.1%})")
+            else:
+                level = AlertLevel.WARNING
+                issues.append(f"Reduced Success Rate ({success_rate:.1%})")
+
+        avg_response_time = reliability_metrics.get("avg_response_time", 0.0)
+        if avg_response_time > 2.0:  # 2 second threshold
+            if avg_response_time > 5.0:
+                level = AlertLevel.ERROR
+                issues.append(f"Very Slow Response ({avg_response_time:.1f}s)")
+            else:
+                if level == AlertLevel.INFO:
+                    level = AlertLevel.WARNING
+                issues.append(f"Slow Response ({avg_response_time:.1f}s)")
+
+        error_count = reliability_metrics.get("error_count", 0)
+        if error_count > 10:  # 10 errors threshold
+            if error_count > 50:
+                level = AlertLevel.CRITICAL
+                issues.append(f"High Error Count ({error_count})")
+            else:
+                if level != AlertLevel.ERROR:
+                    level = AlertLevel.WARNING
+                issues.append(f"Elevated Error Count ({error_count})")
+
+        title = f"🌐 API Reliability: {api_name}"
+        if issues:
+            message = f"API reliability issues detected:\n" + "\n".join([f"  • {issue}" for issue in issues])
+        else:
+            message = "API reliability metrics within acceptable ranges"
+
+        fields = [
+            {"name": "API", "value": api_name},
+            {"name": "Success Rate", "value": f"{success_rate:.1%}"},
+            {"name": "Avg Response Time", "value": f"{avg_response_time:.2f}s"},
+            {"name": "Error Count", "value": str(error_count)},
+            {"name": "Total Requests", "value": str(reliability_metrics.get("total_requests", 0))},
+            {"name": "Last Error", "value": reliability_metrics.get("last_error", "None")}
+        ]
+
+        # Add additional reliability metrics
+        if "timeout_rate" in reliability_metrics:
+            fields.append({"name": "Timeout Rate", "value": f"{reliability_metrics['timeout_rate']:.1%}"})
+        if "retry_rate" in reliability_metrics:
+            fields.append({"name": "Retry Rate", "value": f"{reliability_metrics['retry_rate']:.1%}"})
+
+        self._send_alert(level, title, message, fields)
+        self.update_cooldown(alert_type)
+
     fn test_alert_system(self) -> Bool:
         """
         Send test alert to verify all channels are working
@@ -471,3 +689,26 @@ struct AlertSystem:
         except e as e:
             self.logger.error("Alert system test failed", error=str(e))
             return False
+
+    fn shutdown(inout self):
+        """
+        Gracefully shutdown the alert system
+        """
+        try:
+            # Send shutdown alert if configured
+            if self.config.alerts.enabled and len(self.enabled_channels) > 0:
+                self.send_system_alert(
+                    "Alert system shutting down",
+                    {
+                        "component": "AlertSystem",
+                        "level": "INFO",
+                        "shutdown_time": time()
+                    }
+                )
+
+            # Clear cooldowns
+            self.alert_cooldowns.clear()
+
+            self.logger.info("Alert system shutdown completed")
+        except e as e:
+            self.logger.error("Error during alert system shutdown", error=str(e))
