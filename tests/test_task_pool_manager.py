@@ -186,8 +186,11 @@ class TestTaskPoolManager:
         # Start processing
         manager.start_processing()
 
-        # Wait for task completion
-        await asyncio.sleep(0.2)
+        # Wait for task completion more dynamically
+        for _ in range(10): # Timeout after ~1s
+            if manager.get_task_result(task_id):
+                break
+            await asyncio.sleep(0.1)
 
         result = manager.get_task_result(task_id)
         assert result is not None
