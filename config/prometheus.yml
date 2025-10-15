@@ -83,37 +83,67 @@ scrape_configs:
         target_label: instance
         replacement: 'timescaledb'
 
-  # DragonflyDB Cloud Metrics
-  # Scrapes metrics directly from the managed DragonflyDB Cloud instance.
+  # DragonflyDB Cloud Metrics (VPC Peering)
+  # Scrapes metrics directly from the managed DragonflyDB Cloud instance via VPC peering.
   # This replaces the local redis-exporter configuration.
   - job_name: 'dragonflydb-cloud'
     scheme: https
     metrics_path: /metrics
     static_configs:
       - targets: ['612ehcb9i.dragonflydb.cloud']
-    # The provided key is used as a Bearer token for authentication.
+    # The provided token is used as a Bearer token for authentication.
     # This is a common pattern for cloud services.
     authorization:
       type: Bearer
-      credentials: 'gv7g6u9svsf1'
+      credentials: '8551e334580b024d94d6cbdf41f2dd31'
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
         replacement: 'dragonflydb-cloud'
+      - source_labels: [__address__]
+        target_label: vpc_peering_enabled
+        replacement: 'true'
+      - source_labels: [__address__]
+        target_label: vpc_id
+        replacement: 'vpc-00e79f7555aa68c0e'
+      - source_labels: [__address__]
+        target_label: connection_type
+        replacement: 'vpc_peering'
 
-  # Grafana metrics (optional)
-  - job_name: 'grafana'
-    static_configs:
-      - targets: ['grafana:3000']
+  # VPC Peering Monitor (Placeholder)
+  # Monitor VPC peering connectivity and performance metrics.
+  # This job will be enabled when a VPC peering exporter is deployed.
+  - job_name: 'vpc-peering-monitor'
+    scheme: http
     metrics_path: /metrics
-    basic_auth:
-      username: admin
-      password: trading_admin
+    static_configs:
+      - targets: ['localhost:9200']
+    scrape_interval: 30s
+    scrape_timeout: 10s
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        replacement: 'grafana'
+        replacement: 'vpc-peering-exporter'
 
+  # CloudWatch Exporter for VPC Metrics
+  # Import VPC peering and flow logs metrics from AWS CloudWatch.
+  # Configure AWS credentials and region in environment variables.
+  - job_name: 'cloudwatch-vpc-metrics'
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['localhost:9106']  # CloudWatch exporter endpoint
+    scrape_interval: 60s
+    scrape_timeout: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'cloudwatch-exporter'
+      - source_labels: [__address__]
+        target_label: aws_region
+        replacement: 'us-east-1'
+
+  
   # AlertManager metrics
   - job_name: 'alertmanager'
     static_configs:

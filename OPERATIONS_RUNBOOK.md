@@ -17,10 +17,12 @@ This operations runbook provides comprehensive procedures for managing, monitori
 - **Trading Bot Health**: http://38.242.239.150:8082/health
 - **Trading Bot Metrics**: http://38.242.239.150:8082/metrics
 - **Prometheus**: http://38.242.239.150:9090
-- **Grafana**: http://38.242.239.150:3000 (admin/[GRAFANA_ADMIN_PASSWORD])
+- **Grafana**: http://38.242.239.150:3001 (admin/trading_admin)
 - **AlertManager**: http://38.242.239.150:9093
 - **Data Consumer Health**: http://38.242.239.150:9191/health
 - **Data Consumer Metrics**: http://38.242.239.150:9191/metrics
+- **Prometheus API**: http://38.242.239.150:9090/api/v1/query
+- **AlertManager API**: http://38.242.239.150:9093/api/v1/alerts
 
 ---
 
@@ -96,6 +98,14 @@ graph TB
 | API Response Time | <200ms | 200-500ms | >500ms |
 | DragonflyDB Memory | <80% | 80-90% | >90% |
 | Active Trades | <20 | 20-30 | >30 |
+| VS Code CPU Usage | <25% | 25-50% | >50% |
+| System Load per CPU | <1.0 | 1.0-2.0 | >2.0 |
+| Context Switch Rate | <10K/s | 10-50K/s | >50K/s |
+| Monitoring: Prometheus Scrape Success | >95% | 90-95% | <90% |
+| Monitoring: Grafana Dashboard Load | <2s | 2-5s | >5s |
+| Monitoring: Alert Delivery Rate | >98% | 95-98% | <95% |
+| Monitoring: Node Exporter Metrics | >500 | 300-500 | <300 |
+| Monitoring: Storage Retention | >85% available | 70-85% | <70% |
 
 ---
 
@@ -118,27 +128,46 @@ docker-compose ps
 echo -e "\n💻 System Resources:"
 ./scripts/server_health.sh --alerts-only
 
-# 3. Check trading bot health
+# 3. CPU usage diagnostic
+echo -e "\n🔍 CPU Usage Diagnostic:"
+./scripts/diagnose_cpu_usage.sh --json | jq -r '.summary.system_cpu, .summary.vscode_cpu, .summary.recommendations'
+
+# 4. Check trading bot health
 echo -e "\n🤖 Trading Bot Health:"
 curl -s http://localhost:8082/health | jq .
 
-# 4. Check filter performance
+# 5. Check filter performance
 echo -e "\n🛡️  Filter Performance:"
 ./scripts/verify_filter_performance.sh --hours 24
 
-# 5. Check DragonflyDB connection
+# 6. Check DragonflyDB connection
 echo -e "\n🐉 DragonflyDB Status:"
 ./scripts/verify_dragonflydb_connection.sh
 
-# 6. Check API endpoints
+# 7. Check API endpoints
 echo -e "\n🌐 API Endpoints:"
 ./scripts/verify_api_health.sh
 
-# 7. Check recent alerts
+# 8. Check recent alerts
 echo -e "\n🚨 Recent Alerts:"
 curl -s http://localhost:9093/api/v1/alerts | jq '.data.alerts[] | select(.state == "firing") | {alertname: .labels.alertname, severity: .labels.severity}'
 
-# 8. Check disk space
+# 9. Check port availability for conflicts
+echo -e "\n🔍 Port Availability Check:"
+port_check_json=$(./scripts/verify_port_availability.sh --json)
+if [ $? -ne 0 ]; then
+    echo "❌ Port conflicts detected - see details:"
+    echo "$port_check_json" | jq -r '.summary.conflicts | length'
+    echo "Run: ./scripts/resolve_port_conflict.sh"
+else
+    echo "✅ All ports available"
+fi
+
+# 10. Check monitoring stack health
+echo -e "\n📊 Monitoring Stack Health Check:"
+./scripts/verify_monitoring_stack.sh
+
+# 11. Check disk space
 echo -e "\n💾 Disk Space:"
 df -h /
 
@@ -282,20 +311,36 @@ curl -XPOST http://localhost:9093/api/v1/alerts -H 'Content-Type: application/js
 
 **Essential Grafana Dashboards:**
 
-1. **Trading Performance Dashboard** (`http://38.242.239.150:3000/d/trading-performance`)
+1. **Trading Performance Dashboard** (`http://38.242.239.150:3001/d/trading-performance`)
    - Monitor portfolio value and P&L
    - Track win rate and trade frequency
    - Watch filter rejection rate
 
-2. **System Health Dashboard** (`http://38.242.239.150:3000/d/system-health`)
+2. **System Health Dashboard** (`http://38.242.239.150:3001/d/system-health`)
    - CPU, memory, and disk usage
    - Load average and network traffic
    - Uptime and service status
 
-3. **Docker Services Dashboard** (`http://38.242.239.150:3000/d/docker-services`)
+3. **Docker Services Dashboard** (`http://38.242.239.150:3001/d/docker-services`)
    - Container status and resource usage
    - Service health checks
    - Network I/O metrics
+
+4. **DragonflyDB Dashboard** (`http://38.242.239.150:3001/d/dragonflydb`)
+   - Memory usage and connection metrics
+   - Cache hit rates and performance
+   - DragonflyDB Cloud connectivity
+
+5. **API Performance Dashboard** (`http://38.242.239.150:3001/d/api-performance`)
+   - API response times and error rates
+   - External service connectivity
+   - Rate limiting and throttling metrics
+
+6. **Port Availability Dashboard** (`http://38.242.239.150:3001/d/port-availability`)
+   - Real-time port status monitoring
+   - Historical port conflict incidents
+   - Service port binding metrics
+   - Port utilization trends
 
 ---
 
@@ -385,6 +430,21 @@ docker stats --no-stream
 top
 htop
 
+# Run CPU diagnostic
+./scripts/diagnose_cpu_usage.sh --json
+
+# Optimize VS Code if high CPU usage detected
+if ./scripts/diagnose_cpu_usage.sh --json | jq -r '.summary.vscode_cpu' | grep -q '[5-9][0-9]\|100'; then
+    echo "VS Code consuming high CPU - running optimization..."
+    ./scripts/optimize_vscode_cpu.sh --auto
+fi
+
+# Apply system optimizations if needed
+if ./scripts/diagnose_cpu_usage.sh --json | jq -r '.summary.system_cpu' | grep -q '[2-9]\.[0-9]'; then
+    echo "System load high - applying optimizations..."
+    sudo ./scripts/apply_system_optimizations.sh
+fi
+
 # Check for memory leaks
 docker-compose logs trading-bot | grep -i "memory\|oom"
 
@@ -419,6 +479,78 @@ docker-compose exec trading-bot cat config/filters.json
 2. Update market data sources
 3. Review and optimize filter algorithms
 4. Monitor improvements
+
+#### 5. Port Conflict Incident
+
+**Symptoms:**
+- Services fail to start with "port already in use" errors
+- Docker container startup failures
+- `PortConflict` alerts firing
+- Services unavailable on expected ports
+
+**Immediate Actions:**
+```bash
+# Diagnose port conflicts
+./scripts/diagnose_port_conflict.sh --verbose
+
+# Check which services are affected
+docker-compose ps
+
+# Attempt automatic resolution
+./scripts/resolve_port_conflict.sh --automatic
+
+# Verify resolution
+./scripts/verify_port_availability.sh --validate-for-deployment
+```
+
+**Escalation:**
+- If automatic resolution fails, manually diagnose with `./scripts/diagnose_port_conflict.sh --json`
+- If critical services affected, consider temporary port reconfiguration
+- Document all port changes for future reference
+
+**Recovery Steps:**
+1. Identify conflicting processes/containers
+2. Stop or reconfigure conflicting services
+3. Restart affected Docker services
+4. Verify all services are accessible on correct ports
+5. Update monitoring configurations if ports changed
+
+#### 6. Monitoring Stack Failures
+
+**Symptoms:**
+- Prometheus alerts firing for monitoring services
+- Grafana dashboards showing "No Data"
+- AlertManager notifications not working
+- Node Exporter metrics unavailable
+
+**Immediate Actions:**
+```bash
+# Check monitoring service status
+docker-compose ps prometheus grafana alertmanager node-exporter
+
+# Check Prometheus health
+curl -s http://localhost:9090/-/healthy || echo "Prometheus unhealthy"
+
+# Check Grafana health
+curl -s http://localhost:3001/api/health || echo "Grafana unhealthy"
+
+# Check AlertManager health
+curl -s http://localhost:9093/-/healthy || echo "AlertManager unhealthy"
+
+# Restart monitoring services if needed
+./scripts/start_monitoring_stack.sh --service=prometheus
+./scripts/start_monitoring_stack.sh --service=grafana
+./scripts/start_monitoring_stack.sh --service=alertmanager
+./scripts/start_monitoring_stack.sh --service=node-exporter
+```
+
+**Recovery Steps:**
+1. Verify monitoring stack health with `./scripts/verify_monitoring_stack.sh`
+2. Restart failed services using `./scripts/start_monitoring_stack.sh`
+3. Check monitoring configuration files
+4. Verify data sources and dashboards are working
+5. Test alert notification routes
+6. Restore from backup if configuration corruption detected
 
 ### Incident Communication
 
@@ -513,6 +645,41 @@ r = redis.Redis()
 r.info('memory')
 print('DragonflyDB memory usage checked')
 "
+
+# 6. Port availability audit
+echo "🔍 Port Availability Audit:"
+./scripts/verify_port_availability.sh --json > /tmp/port_audit.json
+if [ $? -ne 0 ]; then
+    echo "⚠️  Port issues detected in weekly audit"
+    echo "Review: /tmp/port_audit.json"
+    echo "Run: ./scripts/resolve_port_conflict.sh if needed"
+else
+    echo "✅ All ports available"
+fi
+
+# 7. Monitoring stack audit
+echo "📊 Monitoring Stack Audit:"
+./scripts/verify_monitoring_stack.sh --json > /tmp/monitoring_audit.json
+if [ $? -ne 0 ]; then
+    echo "⚠️  Monitoring issues detected in weekly audit"
+    echo "Review: /tmp/monitoring_audit.json"
+    echo "Run: ./scripts/start_monitoring_stack.sh to restart services"
+else
+    echo "✅ Monitoring stack healthy"
+fi
+
+# Check dashboard data availability
+echo "📈 Dashboard Data Check:"
+curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=up' | jq -r '.data.result[] | select(.value[1] == "1") | .metric.job' | \
+  while read job; do
+    echo "✅ $job is up"
+  done
+
+# Verify alert rules are active
+echo "🚨 Alert Rules Check:"
+active_alerts=$(curl -s http://localhost:9090/api/v1/rules | jq -r '.data.groups[].rules[] | select(.state == "firing") | .name' | wc -l)
+echo "Active firing alerts: $active_alerts"
 
 echo "✅ Weekly maintenance completed at $(date)"
 ```
@@ -711,6 +878,85 @@ r = redis.Redis()
 r.flushdb()
 print('Cache cleared, awaiting rebuild')
 "
+```
+
+#### 5. Port Binding Errors
+
+**Issue**: Services fail to start with "port already in use" or "address already in use" errors
+
+**Diagnosis**:
+```bash
+# Check for port conflicts
+./scripts/diagnose_port_conflict.sh --verbose
+
+# Identify specific conflicts
+./scripts/diagnose_port_conflict.sh --port 5432
+
+# Check Docker containers using ports
+docker ps --filter "publish=5432"
+
+# Check system processes
+sudo lsof -i :5432
+sudo netstat -tlnp | grep 5432
+```
+
+**Solutions**:
+```bash
+# Automatic resolution
+./scripts/resolve_port_conflict.sh
+
+# Manual resolution - stop conflicting service
+sudo systemctl stop postgresql
+
+# Manual resolution - kill process
+sudo kill -TERM <PID>
+
+# Reconfigure port (if needed)
+./scripts/resolve_port_conflict.sh --reconfigure-port
+
+# Verify resolution
+./scripts/verify_port_availability.sh --validate-for-deployment
+```
+
+#### 6. Monitoring Stack Issues
+
+**Issue**: Monitoring services down, dashboards not loading, alerts not firing
+
+**Diagnosis**:
+```bash
+# Check monitoring service status
+docker-compose ps prometheus grafana alertmanager node-exporter
+
+# Check service logs
+docker-compose logs prometheus
+docker-compose logs grafana
+docker-compose logs alertmanager
+
+# Verify monitoring stack health
+./scripts/verify_monitoring_stack.sh --detailed
+
+# Check service endpoints
+curl -s http://localhost:9090/-/healthy
+curl -s http://localhost:3001/api/health
+curl -s http://localhost:9093/-/healthy
+curl -s http://localhost:9100/metrics
+```
+
+**Solutions**:
+```bash
+# Restart monitoring stack
+./scripts/start_monitoring_stack.sh
+
+# Restart specific service
+./scripts/start_monitoring_stack.sh --service=prometheus
+./scripts/start_monitoring_stack.sh --service=grafana
+
+# Import missing dashboards
+./scripts/import_grafana_dashboards.sh --force
+
+# Check configuration files
+docker-compose exec prometheus cat /etc/prometheus/prometheus.yml
+docker-compose exec grafana cat /etc/grafana/provisioning/datasources/prometheus.yml
 ```
 
 ### Debug Mode Operations
@@ -1011,9 +1257,501 @@ echo "✅ Security incident response completed - $(date)"
 
 ---
 
+## VPC Peering Management
+
+### VPC Peering Setup and Configuration
+
+The MojoRust Trading Bot uses VPC peering for secure, high-performance connectivity to DragonflyDB Cloud. For detailed setup instructions, see [VPC_NETWORKING_SETUP.md](./VPC_NETWORKING_SETUP.md).
+
+**VPC Peering Architecture:**
+- **Source VPC**: AWS VPC where trading bot is deployed
+- **Target VPC**: DragonflyDB Cloud VPC
+- **Connection**: Private VPC peering over AWS backbone
+- **Security**: Encrypted Redis connection (TLS) with authentication
+
+### VPC Peering Monitoring
+
+**Real-time VPC Monitoring Commands:**
+
+```bash
+# Monitor VPC peering connection status
+./scripts/verify_dragonflydb_connection.sh --vpc-only --watch
+
+# Check VPC peering latency
+watch -n 30 './scripts/verify_dragonflydb_connection.sh --vpc-only --json | jq .vpc_peering.latency_ms'
+
+# Monitor bandwidth utilization
+curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=rate(aws_vpc_flow_logs_bytes_total[5m])' | jq '.data.result[0].value[1]'
+
+# Check packet loss on VPC connection
+curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=rate(aws_vpc_flow_logs_packets_dropped_total[5m])' | jq '.data.result[0].value[1]'
+```
+
+**VPC Peering Health Dashboard (Grafana):**
+- URL: `http://38.242.239.150:3001/d/vpc-peering`
+- Monitors: Connection status, latency, bandwidth, packet loss
+- Alerts: Connection down, high latency, packet loss
+
+### VPC Peering Maintenance
+
+**Daily VPC Peering Checks:**
+
+```bash
+#!/bin/bash
+# scripts/daily_vpc_check.sh
+
+echo "🌐 Daily VPC Peering Check - $(date)"
+echo "===================================="
+
+# 1. Verify VPC peering connection
+echo "🔗 VPC Connection Status:"
+./scripts/verify_dragonflydb_connection.sh --vpc-only
+
+# 2. Check latency metrics
+echo -e "\n⚡ Latency Metrics:"
+./scripts/verify_dragonflydb_connection.sh --vpc-only --json | jq '.vpc_peering.latency_ms'
+
+# 3. Monitor bandwidth usage
+echo -e "\n📊 Bandwidth Usage:"
+curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=rate(aws_vpc_flow_logs_bytes_total[1h])' | \
+  jq -r '"Current bandwidth: " + (.data.result[0].value[1] | tonumber / 1024 / 1024 | floor | tostring) + " MB/s"'
+
+# 4. Check for packet loss
+echo -e "\n📦 Packet Loss Check:"
+curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=rate(aws_vpc_flow_logs_packets_dropped_total[5m])' | \
+  jq -r '"Packet loss rate: " + (.data.result[0].value[1] | tonumber | tostring) + " packets/min"'
+
+echo "✅ Daily VPC check completed"
+```
+
+**Weekly VPC Peering Review:**
+
+```bash
+#!/bin/bash
+# scripts/weekly_vpc_review.sh
+
+echo "📅 Weekly VPC Peering Review - $(date)"
+echo "======================================"
+
+# 1. Performance analysis
+echo "📈 VPC Performance Analysis:"
+curl -s -G 'http://localhost:9090/api/v1/query_range' \
+  --data-urlencode 'query=histogram_quantile(0.95, rate(redis_slowlog_length_seconds_bucket[5m]))' \
+  --data-urlencode 'start='$(( $(date +%s) - 604800 )) \
+  --data-urlencode 'end='$(date +%s) \
+  --data-urlencode 'step=1h' | jq '.data.result[0].values[-1][1]'
+
+# 2. Bandwidth utilization summary
+echo -e "\n📊 Weekly Bandwidth Summary:"
+total_bytes=$(curl -s -G 'http://localhost:9090/api/v1/query_range' \
+  --data-urlencode 'query=rate(aws_vpc_flow_logs_bytes_total[5m])' \
+  --data-urlencode 'start='$(( $(date +%s) - 604800 )) \
+  --data-urlencode 'end='$(date +%s) \
+  --data-urlencode 'step=1h' | jq -r '.data.result[0].values | map(.value[1] | tonumber) | add | floor')
+
+echo "Total weekly bandwidth: $(( total_bytes / 1024 / 1024 / 1024 )) GB"
+
+# 3. Connection stability
+echo -e "\n🔗 Connection Stability:"
+flap_count=$(curl -s -G 'http://localhost:9090/api/v1/query_range' \
+  --data-urlencode 'query=rate(aws_vpc_peering_connection_state_changes[10m])' \
+  --data-urlencode 'start='$(( $(date +%s) - 604800 )) \
+  --data-urlencode 'end='$(date +%s) \
+  --data-urlencode 'step=1h' | jq -r '.data.result[0].values | map(.value[1] | tonumber) | add | floor')
+
+echo "Connection state changes this week: $flap_count"
+
+# 4. Security audit
+echo -e "\n🛡️  Security Audit:"
+echo "Checking security group rules..."
+aws ec2 describe-security-groups --group-ids $(cat /etc/vpc_config.json | jq -r '.security_group_id') \
+  --query 'SecurityGroups[0].IpPermissions[?FromPort==`6385`]' | jq '.'
+
+echo "✅ Weekly VPC review completed"
+```
+
+### VPC Peering Troubleshooting
+
+**Common VPC Peering Issues:**
+
+#### 1. VPC Peering Connection Down
+
+**Symptoms:**
+- `VPCPeeringConnectionDown` alert firing
+- DragonflyDB connection timeouts
+- High latency or packet loss
+
+**Troubleshooting:**
+```bash
+# Check VPC peering status
+aws ec2 describe-vpc-peering-connections --vpc-peering-connection-ids $(cat /etc/vpc_config.json | jq -r '.peering_connection_id')
+
+# Verify route tables
+aws ec2 describe-route-tables --filters Name=vpc-id,Values=$(cat /etc/vpc_config.json | jq -r '.vpc_id')
+
+# Check security group rules
+aws ec2 describe-security-groups --group-ids $(cat /etc/vpc_config.json | jq -r '.security_group_id')
+
+# Test connectivity
+./scripts/verify_dragonflydb_connection.sh --vpc-only --verbose
+```
+
+**Resolution Steps:**
+1. Check VPC peering connection status
+2. Verify route table entries
+3. Validate security group rules
+4. Test DragonflyDB connectivity
+5. Restart services if needed
+
+#### 2. High Latency Issues
+
+**Symptoms:**
+- `DragonflyDBHighLatency` alerts
+- Slow trading bot performance
+- Increased response times
+
+**Troubleshooting:**
+```bash
+# Check current latency
+./scripts/verify_dragonflydb_connection.sh --vpc-only --json | jq '.vpc_peering.latency_ms'
+
+# Monitor latency over time
+curl -s -G 'http://localhost:9090/api/v1/query_range' \
+  --data-urlencode 'query=histogram_quantile(0.95, rate(redis_slowlog_length_seconds_bucket[5m]))' \
+  --data-urlencode 'start='$(( $(date +%s) - 3600 )) \
+  --data-urlencode 'end='$(date +%s) \
+  --data-urlencode 'step=1m' | jq '.data.result[0].values[-10:]'
+
+# Check for bandwidth saturation
+curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=rate(aws_vpc_flow_logs_bytes_total[5m])' | jq '.data.result[0].value[1]'
+```
+
+**Resolution Steps:**
+1. Monitor bandwidth utilization
+2. Check for network congestion
+3. Consider VPC peering bandwidth upgrade
+4. Optimize DragonflyDB query patterns
+
+#### 3. DNS Resolution Issues
+
+**Symptoms:**
+- `DragonflyDBDNSFailure` alerts
+- Unable to resolve DragonflyDB endpoint
+- Connection timeouts
+
+**Troubleshooting:**
+```bash
+# Test DNS resolution
+nslookup 612ehcb9i.dragonflydb.cloud
+
+# Check from within container
+docker-compose exec trading-bot nslookup 612ehcb9i.dragonflydb.cloud
+
+# Test connectivity
+docker-compose exec trading-bot curl -I https://612ehcb9i.dragonflydb.cloud
+
+# Check DNS configuration
+cat /etc/resolv.conf
+```
+
+**Resolution Steps:**
+1. Verify DNS configuration
+2. Test DNS resolution from containers
+3. Check firewall rules for DNS traffic
+4. Contact DragonflyDB support if needed
+
+### VPC Peering Emergency Procedures
+
+**VPC Peering Emergency Recovery:**
+
+```bash
+#!/bin/bash
+# scripts/vpc_emergency_recovery.sh
+
+echo "🚨 VPC Peering Emergency Recovery - $(date)"
+echo "========================================"
+
+# 1. Diagnose the issue
+echo "🔍 Diagnosing VPC peering issue..."
+./scripts/verify_dragonflydb_connection.sh --vpc-only --verbose
+
+# 2. Check if it's a DNS issue
+echo -e "\n🌐 Checking DNS resolution..."
+if ! nslookup 612ehcb9i.dragonflydb.cloud >/dev/null 2>&1; then
+    echo "❌ DNS resolution failed"
+    echo "🔄 Attempting DNS restart..."
+    systemctl restart systemd-resolved
+    sleep 10
+fi
+
+# 3. Test direct IP connection (fallback)
+echo -e "\n🔗 Testing direct IP connection..."
+DRAGONFLY_IP=$(cat /etc/vpc_config.json | jq -r '.dragonflydb_private_ip')
+if [ -n "$DRAGONFLY_IP" ]; then
+    echo "Testing connection to $DRAGONFLY_IP:6385"
+    if timeout 5 bash -c "</dev/tcp/$DRAGONFLY_IP/6385"; then
+        echo "✅ Direct IP connection successful"
+        echo "🔄 Updating Redis URL to use IP..."
+        sed -i "s/612ehcb9i.dragonflydb.cloud/$DRAGONFLY_IP/g" .env
+        docker-compose restart trading-bot
+    else
+        echo "❌ Direct IP connection failed"
+    fi
+fi
+
+# 4. Verify recovery
+echo -e "\n✅ Verifying recovery..."
+sleep 30
+./scripts/verify_dragonflydb_connection.sh --vpc-only
+
+# 5. Notify team
+echo -e "\n📢 Sending recovery notification..."
+echo "VPC peering emergency recovery completed at $(date)" | \
+    mail -s "VPC Peering Recovery Complete" admin@trading-bot.local
+
+echo "🎉 VPC peering emergency recovery completed"
+```
+
+**VPC Peering Failover:**
+
+```bash
+#!/bin/bash
+# scripts/vpc_failover.sh
+
+echo "🔄 VPC Peering Failover - $(date)"
+echo "==============================="
+
+# 1. Switch to backup connection
+echo "🔄 Switching to backup DragonflyDB connection..."
+sed -i 's/rediss:\/\/612ehcb9i.dragonflydb.cloud:6385/redis:\/\/localhost:6379/g' .env
+
+# 2. Start local Redis fallback
+echo "🐉 Starting local Redis fallback..."
+docker-compose up -d redis-fallback
+
+# 3. Restart services with new configuration
+echo "🤖 Restarting services..."
+docker-compose restart trading-bot
+
+# 4. Verify failover
+echo -e "\n✅ Verifying failover..."
+sleep 30
+./scripts/verify_dragonflydb_connection.sh
+
+echo "🎉 VPC peering failover completed"
+echo "📋 Next steps:"
+echo "1. Monitor performance with local Redis"
+echo "2. Investigate VPC peering issues"
+echo "3. Restore VPC peering when available"
+echo "4. Switch back to VPC peering"
+```
+
+### VPC Peering Optimization
+
+**Performance Tuning:**
+
+```bash
+#!/bin/bash
+# scripts/vpc_optimization.sh
+
+echo "⚡ VPC Peering Optimization - $(date)"
+echo "==================================="
+
+# 1. Monitor and optimize connection pooling
+echo "🔗 Optimizing DragonflyDB connection pool..."
+docker-compose exec trading-bot python -c "
+import redis
+import json
+r = redis.Redis()
+pool_info = {
+    'max_connections': 50,
+    'timeout': 5,
+    'retry_on_timeout': True,
+    'health_check_interval': 30
+}
+print('Connection pool optimized:', json.dumps(pool_info, indent=2))
+"
+
+# 2. Optimize Redis configuration for VPC
+echo -e "\n🛠️  Optimizing Redis configuration for VPC..."
+cat > config/redis_vpc.yaml << EOF
+redis:
+  tcp_keepalive: 300
+  socket_keepalive: true
+  socket_timeout: 5
+  connection_pool_max_connections: 50
+  connection_pool_timeout: 5
+  health_check_interval: 30
+EOF
+
+# 3. Monitor VPC bandwidth utilization
+echo -e "\n📊 Current bandwidth utilization:"
+current_bandwidth=$(curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=rate(aws_vpc_flow_logs_bytes_total[5m])' | \
+  jq -r '.data.result[0].value[1] | tonumber / 1024 / 1024 | floor')
+
+echo "Current bandwidth: ${current_bandwidth} MB/s"
+
+if [ "$current_bandwidth" -gt 800 ]; then
+    echo "⚠️  High bandwidth utilization detected"
+    echo "💡 Consider VPC peering bandwidth upgrade"
+fi
+
+# 4. Set up enhanced monitoring
+echo -e "\n📈 Setting up enhanced VPC monitoring..."
+cat > config/prometheus/vpc_enhanced_rules.yml << EOF
+groups:
+  - name: vpc.peering.enhanced.rules
+    interval: 30s
+    rules:
+      - record: vpc:bandwidth_utilization_percent
+        expr: (rate(aws_vpc_flow_logs_bytes_total[5m]) * 8) / 1000000000 * 100
+
+      - record: vpc:latency_p95_ms
+        expr: histogram_quantile(0.95, rate(redis_slowlog_length_seconds_bucket[5m])) * 1000
+
+      - record: vpc:packet_loss_rate
+        expr: rate(aws_vpc_flow_logs_packets_dropped_total[5m])
+EOF
+
+echo "✅ VPC peering optimization completed"
+```
+
+**Capacity Planning for VPC Peering:**
+
+```bash
+#!/bin/bash
+# scripts/vpc_capacity_planning.sh
+
+echo "📈 VPC Peering Capacity Planning - $(date)"
+echo "========================================="
+
+# 1. Current utilization analysis
+echo "📊 Current VPC Utilization:"
+current_bandwidth=$(curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=rate(aws_vpc_flow_logs_bytes_total[5m])' | \
+  jq -r '.data.result[0].value[1] | tonumber / 1024 / 1024 | floor')
+
+current_connections=$(curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=redis_connected_clients' | \
+  jq -r '.data.result[0].value[1] | tonumber')
+
+echo "Current bandwidth: ${current_bandwidth} MB/s"
+echo "Current connections: $current_connections"
+
+# 2. Growth projections
+echo -e "\n📅 Growth Projections (90 days):"
+projected_bandwidth=$(echo "$current_bandwidth * 1.5" | bc)
+projected_connections=$(echo "$current_connections * 1.3" | bc)
+
+echo "Projected bandwidth: ${projected_bandwidth} MB/s"
+echo "Projected connections: $projected_connections"
+
+# 3. Bottleneck analysis
+echo -e "\n⚠️  Potential Bottlenecks:"
+
+if [ "$current_bandwidth" -gt 800 ]; then
+    echo "- Current bandwidth utilization is high (${current_bandwidth} MB/s)"
+    echo "- Consider upgrading to Enhanced VPC peering"
+fi
+
+if [ "$current_connections" -gt 1000 ]; then
+    echo "- Connection count is high ($current_connections)"
+    echo "- Consider connection pooling optimization"
+fi
+
+# 4. Recommendations
+echo -e "\n💡 Recommendations:"
+echo "- Monitor bandwidth utilization weekly"
+echo "- Set up alerts for bandwidth > 80%"
+echo "- Plan VPC peering upgrade for growth"
+echo "- Optimize Redis query patterns"
+echo "- Consider connection pooling improvements"
+
+echo "✅ VPC peering capacity planning completed"
+```
+
+### VPC Peering Integration with Other Procedures
+
+**Daily Operations Integration:**
+- Add VPC peering checks to morning health check
+- Monitor VPC alerts in daily review
+- Include VPC metrics in weekly performance analysis
+
+**Incident Response Integration:**
+- VPC peering issues trigger High severity incidents
+- Use emergency recovery procedures for VPC outages
+- Document VPC incidents in incident reports
+
+**Maintenance Integration:**
+- Include VPC peering configuration in backups
+- Test VPC failover procedures monthly
+- Review VPC performance metrics quarterly
+
+---
+
 ## Performance Optimization
 
-### System Performance Tuning
+### CPU Usage Optimization
+
+#### Automated CPU Optimization Procedures
+
+```bash
+#!/bin/bash
+# scripts/cpu_optimization_procedure.sh
+
+echo "🔧 CPU Optimization Procedure - $(date)"
+echo "======================================"
+
+# 1. Run comprehensive CPU diagnostic
+echo "🔍 Running CPU diagnostic..."
+./scripts/diagnose_cpu_usage.sh --json > /tmp/cpu_diagnostic.json
+
+# 2. Extract key metrics
+VS_CODE_CPU=$(jq -r '.summary.vscode_cpu' /tmp/cpu_diagnostic.json)
+SYSTEM_LOAD=$(jq -r '.summary.system_cpu' /tmp/cpu_diagnostic.json)
+RECOMMENDATIONS=$(jq -r '.summary.recommendations[]' /tmp/cpu_diagnostic.json)
+
+echo "VS Code CPU: $VS_CODE_CPU%"
+echo "System Load: $SYSTEM_LOAD"
+
+# 3. VS Code optimization
+if (( $(echo "$VS_CODE_CPU > 50" | bc -l) )); then
+    echo "🚀 Optimizing VS Code..."
+    ./scripts/optimize_vscode_cpu.sh --auto
+
+    # Verify optimization
+    sleep 5
+    NEW_VS_CODE_CPU=$(./scripts/diagnose_cpu_usage.sh --json | jq -r '.summary.vscode_cpu')
+    echo "VS Code CPU after optimization: $NEW_VS_CODE_CPU%"
+fi
+
+# 4. System optimization
+if (( $(echo "$SYSTEM_LOAD > 2.0" | bc -l) )); then
+    echo "⚙️  Applying system optimizations..."
+    sudo ./scripts/apply_system_optimizations.sh
+
+    # Verify system load after optimization
+    sleep 10
+    NEW_SYSTEM_LOAD=$(uptime | awk '{print $(NF-2)}' | tr -d ',')
+    echo "System load after optimization: $NEW_SYSTEM_LOAD"
+fi
+
+# 5. Start continuous monitoring if high usage persists
+if (( $(echo "$VS_CODE_CPU > 25" | bc -l) )) || (( $(echo "$SYSTEM_LOAD > 1.5" | bc -l) )); then
+    echo "📊 Starting continuous CPU monitoring..."
+    ./scripts/monitor_cpu_continuous.sh --daemon --interval 60
+fi
+
+echo "✅ CPU optimization procedure completed"
+```
+
+#### System Performance Tuning
 
 ```bash
 #!/bin/bash
@@ -1048,6 +1786,9 @@ systemctl restart docker
 
 # 2. System optimization
 echo "💻 System Optimization:"
+
+# Apply comprehensive system optimizations
+sudo ./scripts/apply_system_optimizations.sh --verbose
 
 # Optimize network settings
 echo 'net.core.rmem_max = 16777216' >> /etc/sysctl.conf
@@ -1086,7 +1827,20 @@ EOF
 # Restart with new configuration
 docker-compose restart trading-bot
 
-# 5. Monitoring setup
+# 5. CPU-specific optimizations
+echo "🔧 CPU-specific optimizations:"
+
+# Set CPU governor to performance
+for cpu_dir in /sys/devices/system/cpu/cpu*/cpufreq; do
+    if [ -w "$cpu_dir/scaling_governor" ]; then
+        echo performance | sudo tee "$cpu_dir/scaling_governor"
+    fi
+done
+
+# Optimize VS Code settings
+./scripts/optimize_vscode_cpu.sh --auto --no-backup
+
+# 6. Monitoring setup
 echo "📊 Setting up performance monitoring:"
 
 # Create performance recording rules
@@ -1103,6 +1857,14 @@ groups:
 
       - record: system:cpu_usage_percent
         expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+      - record: vscode:cpu_usage_percent
+        expr: 100 * (process_cpu_seconds_total{process_name="code"} /
+              (process_cpu_seconds_total{process_name="code"} +
+               process_cpu_seconds_total{process_name="code",mode="idle"}))
+
+      - record: system:load_per_cpu
+        expr: node_load1 / count by (instance) (node_cpu_seconds_total{mode="idle"})
 EOF
 
 echo "✅ Performance optimization completed - $(date)"
@@ -1416,6 +2178,215 @@ case "$ACTION" in
         exit 1
         ;;
 esac
+```
+
+#### Port Conflict Emergency Procedures
+
+```bash
+#!/bin/bash
+# scripts/emergency_port_procedures.sh
+
+echo "🚨 PORT CONFLICT EMERGENCY PROCEDURES - $(date)"
+echo "=========================================="
+
+ACTION="$1"
+PORT="$2"
+
+if [ -z "$ACTION" ]; then
+    echo "Usage: $0 <diagnose|force-kill|reconfigure|emergency-recovery> [port]"
+    exit 1
+fi
+
+case "$ACTION" in
+    "diagnose")
+        echo "🔍 Emergency Port Diagnosis:"
+        if [ -n "$PORT" ]; then
+            ./scripts/diagnose_port_conflict.sh --port "$PORT" --verbose
+        else
+            ./scripts/diagnose_port_conflict.sh --verbose
+        fi
+        ;;
+
+    "force-kill")
+        if [ -z "$PORT" ]; then
+            echo "❌ Port number required for force-kill"
+            exit 1
+        fi
+        echo "🔫 Force-killing processes on port $PORT:"
+
+        # Find and kill processes
+        PIDS=$(lsof -ti :$PORT)
+        if [ -n "$PIDS" ]; then
+            echo "Found processes: $PIDS"
+            for PID in $PIDS; do
+                echo "Killing process $PID..."
+                sudo kill -TERM "$PID" 2>/dev/null || true
+                sleep 2
+                # Force kill if still running
+                if kill -0 "$PID" 2>/dev/null; then
+                    echo "Force-killing process $PID..."
+                    sudo kill -KILL "$PID" 2>/dev/null || true
+                fi
+            done
+            echo "✅ Processes on port $PORT terminated"
+        else
+            echo "No processes found on port $PORT"
+        fi
+        ;;
+
+    "reconfigure")
+        if [ -z "$PORT" ]; then
+            echo "❌ Port number required for reconfiguration"
+            exit 1
+        fi
+        echo "⚙️  Emergency port reconfiguration for port $PORT:"
+
+        # Backup current config
+        cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+
+        # Update port configuration
+        case "$PORT" in
+            5432)
+                NEW_PORT=5433
+                sed -i "s/TIMESCALEDB_PORT=.*/TIMESCALEDB_PORT=$NEW_PORT/" .env
+                echo "TimescaleDB port changed to $NEW_PORT"
+                ;;
+            3000)
+                NEW_PORT=3001
+                echo "Grafana port needs manual update in docker-compose.yml"
+                ;;
+            9090)
+                NEW_PORT=9091
+                echo "Prometheus port needs manual update in docker-compose.yml"
+                ;;
+            *)
+                echo "Port $PORT reconfiguration not automated"
+                echo "Please update configuration manually"
+                ;;
+        esac
+
+        # Restart services
+        echo "🔄 Restarting services..."
+        docker-compose down
+        docker-compose up -d
+
+        echo "✅ Port reconfiguration completed"
+        ;;
+
+    "emergency-recovery")
+        echo "🚨 Emergency Port Recovery:"
+
+        # Check all critical ports
+        echo "Checking critical ports..."
+        for port in 5432 3000 9090 8082; do
+            if ! ./scripts/verify_port_availability.sh --port "$port" >/dev/null 2>&1; then
+                echo "❌ Port $port conflict detected"
+                echo "Attempting resolution..."
+
+                # Try graceful resolution first
+                ./scripts/resolve_port_conflict.sh --port "$port" --automatic
+
+                # If still failed, force kill
+                if ! ./scripts/verify_port_availability.sh --port "$port" >/dev/null 2>&1; then
+                    echo "Force-killing processes on port $port..."
+                    $0 force-kill "$port"
+                fi
+
+                # Reconfigure if still failed
+                if ! ./scripts/verify_port_availability.sh --port "$port" >/dev/null 2>&1; then
+                    echo "Reconfiguring port $port..."
+                    $0 reconfigure "$port"
+                fi
+            else
+                echo "✅ Port $port available"
+            fi
+        done
+
+        # Restart all services
+        echo "🔄 Restarting all services..."
+        docker-compose restart
+
+        # Verify all services
+        echo "✅ Verifying service health..."
+        sleep 30
+        ./scripts/verify_api_health.sh
+
+        echo "🎉 Emergency port recovery completed"
+        ;;
+
+    *)
+        echo "Usage: $0 <diagnose|force-kill|reconfigure|emergency-recovery> [port]"
+        exit 1
+        ;;
+esac
+```
+
+#### Monitoring Stack Emergency Recovery
+
+```bash
+#!/bin/bash
+# scripts/emergency_monitoring_recovery.sh
+
+echo "📊 MONITORING STACK EMERGENCY RECOVERY - $(date)"
+echo "=============================================="
+
+# 1. Diagnose monitoring stack issues
+echo "🔍 Diagnosing monitoring stack..."
+./scripts/verify_monitoring_stack.sh --detailed
+
+# 2. Stop all monitoring services
+echo "⏹️  Stopping monitoring services..."
+docker-compose stop prometheus grafana alertmanager node-exporter
+
+# 3. Check for configuration corruption
+echo "🔍 Checking monitoring configurations..."
+docker-compose config --services | grep -E "(prometheus|grafana|alertmanager|node-exporter)"
+
+# 4. Clear corrupted data if needed
+echo "🧹 Clearing potentially corrupted data..."
+docker volume ls | grep -E "(prometheus|grafana)" | awk '{print $2}' | while read volume; do
+    echo "Checking volume: $volume"
+    docker volume inspect "$volume" >/dev/null 2>&1 && echo "Volume $volume OK"
+done
+
+# 5. Restart monitoring stack in correct order
+echo "🔄 Restarting monitoring stack..."
+./scripts/start_monitoring_stack.sh
+
+# 6. Verify recovery
+echo "✅ Verifying monitoring stack recovery..."
+sleep 30
+./scripts/verify_monitoring_stack.sh
+
+# 7. Import dashboards if missing
+echo "📊 Checking dashboard availability..."
+dashboard_count=$(curl -s -u admin:trading_admin http://localhost:3001/api/search?type=dash-db | jq 'length')
+if [ "$dashboard_count" -lt 5 ]; then
+    echo "Re-importing dashboards..."
+    ./scripts/import_grafana_dashboards.sh --force
+fi
+
+# 8. Test alert delivery
+echo "🚨 Testing alert delivery..."
+curl -XPOST http://localhost:9093/api/v1/alerts -H 'Content-Type: application/json' -d '[{
+  "labels": {
+    "alertname": "EmergencyRecoveryTest",
+    "severity": "info",
+    "instance": "test"
+  },
+  "annotations": {
+    "summary": "Emergency recovery test alert",
+    "description": "Testing alert delivery after emergency recovery"
+  }
+}]'
+
+echo "🎉 Monitoring stack emergency recovery completed"
+echo "📋 Post-recovery checklist:"
+echo "1. Verify all monitoring services are running"
+echo "2. Check dashboards are loading data"
+echo "3. Confirm alerts are being delivered"
+echo "4. Test metric collection from all targets"
+echo "5. Document recovery incident"
 ```
 
 ---

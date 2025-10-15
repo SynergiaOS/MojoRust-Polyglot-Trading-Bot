@@ -21,26 +21,71 @@ curl -sSL https://raw.githubusercontent.com/SynergiaOS/MojoRust/main/scripts/qui
 ```
 
 ### 📖 Quick Links
+- 📖 [Build and Deployment Guide](docs/BUILD_AND_DEPLOYMENT_GUIDE.md) - Comprehensive build & deploy instructions
 - 📖 [Immediate Deployment Guide](DEPLOY_NOW.md) - English
 - 📖 [Przewodnik Wdrożenia](DEPLOY_NOW_PL.md) - Polski
 - 📖 [Full Deployment Documentation](DEPLOYMENT.md)
 - 🔧 [Infisical Setup](https://app.infisical.com)
 
 ### 🛠️ Deployment Options
+- **Full build & deploy**: `./scripts/build_and_deploy.sh` - Complete automated build and deployment
 - **Automated deployment**: `./scripts/deploy_to_server.sh`
 - **Manual VPS setup**: `./scripts/vps_setup.sh`
 - **Quick deploy**: `./scripts/quick_deploy.sh`
 - **Filtered deployment**: `./scripts/deploy_with_filters.sh`
 - **Docker deployment**: `docker-compose up -d`
 
+### 🔧 Build Scripts
+- **Rust modules**: `./scripts/build_rust_modules.sh` - Build high-performance Rust components
+- **Mojo binary**: `./scripts/build_mojo_binary.sh` - Build Mojo trading bot binary
+- **Complete build**: `./scripts/build_and_deploy.sh` - Orchestrate full build pipeline
+
 ### 🔍 Health Monitoring
 ```bash
 # Check server health
 ./scripts/server_health.sh --remote
 
+# CPU usage diagnostic
+./scripts/diagnose_cpu_usage.sh
+
 # View logs
 ssh root@38.242.239.150 'tail -f ~/mojo-trading-bot/logs/trading-bot-*.log'
 ```
+
+### 🔧 Port Conflict Resolution
+
+The MojoRust Trading Bot uses multiple services that require specific ports. Port conflicts can prevent deployment or cause service failures.
+
+**Common Port Conflicts:**
+- **TimescaleDB**: Port 5432 (most common conflict with system PostgreSQL)
+- **Grafana**: Port 3000/3001
+- **Prometheus**: Port 9090
+- **Trading Bot**: Port 8082
+- **Data Consumer**: Port 9191
+
+**Quick Resolution Commands:**
+```bash
+# Diagnose port conflicts
+./scripts/diagnose_port_conflict.sh --verbose
+
+# Resolve conflicts interactively
+./scripts/resolve_port_conflict.sh
+
+# Verify port availability
+./scripts/verify_port_availability.sh --pre-deploy
+```
+
+**Manual Resolution:**
+```bash
+# Stop conflicting PostgreSQL service
+sudo systemctl stop postgresql
+
+# Or reconfigure TimescaleDB port
+echo "TIMESCALEDB_PORT=5433" >> .env
+docker-compose down && docker-compose up -d
+```
+
+**For complete troubleshooting:** See [Port Conflict Resolution Guide](docs/port_conflict_resolution_guide.md)
 
 ### ⚠️ Pre-Deployment Requirements
 - ✅ Infisical account at https://app.infisical.com
@@ -48,6 +93,7 @@ ssh root@38.242.239.150 'tail -f ~/mojo-trading-bot/logs/trading-bot-*.log'
 - ✅ QuickNode RPC endpoint
 - ✅ Solana wallet configured
 - ✅ SSH access to 38.242.239.150
+- ✅ **Port availability verified** (see above)
 
 > **🚨 WARNING**: Always start with **PAPER TRADING MODE**. Monitor for at least 24 hours before switching to LIVE trading with real funds.
 
@@ -604,6 +650,66 @@ enabled = false
 - **Monitoring**: Prometheus/Grafana (metrics, dashboards)
 - **Infrastructure**: Docker, Kubernetes
 
+### ⚡ CPU Performance Optimization
+
+The MojoRust Trading Bot includes comprehensive CPU optimization tools to ensure maximum performance:
+
+#### 📊 CPU Diagnostic Tools
+```bash
+# Comprehensive CPU usage analysis
+./scripts/diagnose_cpu_usage.sh
+
+# Real-time monitoring
+./scripts/diagnose_cpu_usage.sh --watch
+
+# JSON output for automation
+./scripts/diagnose_cpu_usage.sh --json
+```
+
+#### 🚀 VS Code Optimization
+```bash
+# Interactive VS Code optimization
+./scripts/optimize_vscode_cpu.sh
+
+# Automatic optimization
+./scripts/optimize_vscode_cpu.sh --auto
+
+# Optimize without backup
+./scripts/optimize_vscode_cpu.sh --auto --no-backup
+```
+
+#### ⚙️ System Optimization
+```bash
+# Preview system optimizations
+sudo ./scripts/apply_system_optimizations.sh --dry-run
+
+# Apply comprehensive system optimizations
+sudo ./scripts/apply_system_optimizations.sh
+
+# Verbose output
+sudo ./scripts/apply_system_optimizations.sh --verbose
+```
+
+#### 📈 Continuous Monitoring
+```bash
+# Interactive monitoring dashboard
+./scripts/monitor_cpu_continuous.sh
+
+# Run as daemon with logging
+./scripts/monitor_cpu_continuous.sh --daemon
+
+# Configure alerts
+./scripts/monitor_cpu_continuous.sh --slack-webhook $SLACK_WEBHOOK
+```
+
+#### 📋 Quick CPU Optimization Checklist
+1. **Run diagnostic**: `./scripts/diagnose_cpu_usage.sh`
+2. **Optimize VS Code**: `./scripts/optimize_vscode_cpu.sh --auto`
+3. **Apply system tuning**: `sudo ./scripts/apply_system_optimizations.sh`
+4. **Start monitoring**: `./scripts/monitor_cpu_continuous.sh --daemon`
+
+**For comprehensive guide**: See [CPU Optimization Guide](docs/cpu_optimization_guide.md)
+
 ## 💻 Hardware Requirements
 
 - **CPU**: 8+ cores (Intel i7/AMD Ryzen 7 or better)
@@ -635,13 +741,16 @@ cd mojo-trading-bot
 cp .env.example .env
 # Edit .env with your API keys and configuration
 
-# Deploy and run (automated build and deployment)
-./scripts/deploy.sh --mode=paper --capital=1.0
+# Option 1: Complete automated build and deployment
+./scripts/build_and_deploy.sh --mode=paper --capital=1.0
 
-# Or manual deployment:
-# - Build: mojo build src/main.mojo -o target/trading-bot
-# - Test: mojo run tests/test_suite.mojo
-# - Run: ./target/trading-bot --mode=paper --capital=1.0
+# Option 2: Step-by-step manual build
+./scripts/build_rust_modules.sh     # Build Rust modules
+./scripts/build_mojo_binary.sh      # Build Mojo binary
+docker-compose up -d                # Deploy services
+
+# Option 3: Quick start (no build)
+./scripts/deploy.sh --mode=paper --capital=1.0
 ```
 
 ### Environment Configuration
@@ -762,15 +871,234 @@ mojo run tests/performance/latency_test.mojo
 - [x] Machine learning integration
 - [x] Institutional features
 
-## 🔍 Monitoring
+## 🔍 Monitoring & Observability
 
-Access Grafana dashboards at `http://localhost:3000`:
-- Portfolio performance and P&L
-- Trade execution metrics
-- API latency and error rates
-- System health indicators
+The MojoRust Trading Bot includes a comprehensive monitoring stack built with industry-standard tools to provide complete visibility into system performance, trading activity, and health metrics.
 
-Prometheus metrics at `http://localhost:9090/metrics`
+### 📊 Monitoring Stack Overview
+
+**Core Components:**
+- **Prometheus** (port 9090): Metrics collection and storage with 30-day retention
+- **Grafana** (port 3001): Visualization dashboards with auto-provisioning
+- **AlertManager** (port 9093): Alert routing and notification management
+- **Node Exporter** (port 9100): System metrics collection from host
+- **Docker Exporter** (port 9323): Container metrics collection
+- **Trading Bot Metrics** (port 8082): Application metrics from the trading bot
+- **Data Consumer Metrics** (port 9191): Rust data pipeline metrics
+
+### 🚀 Quick Monitoring Start
+
+```bash
+# Start the complete monitoring stack
+./scripts/start_monitoring_stack.sh
+
+# Verify monitoring stack health
+./scripts/verify_monitoring_stack.sh
+
+# Access dashboards
+echo "📊 Grafana: http://localhost:3001 (admin/trading_admin)"
+echo "📈 Prometheus: http://localhost:9090"
+echo "🚨 AlertManager: http://localhost:9093"
+```
+
+### 📈 Essential Grafana Dashboards
+
+**Primary Dashboards:**
+1. **Trading Performance** (`http://localhost:3001/d/trading-performance`)
+   - Portfolio value and P&L tracking
+   - Win rate and trade frequency analysis
+   - Filter rejection rate monitoring
+   - Daily/weekly performance metrics
+
+2. **System Health** (`http://localhost:3001/d/system-health`)
+   - CPU, memory, and disk usage
+   - Load average and network traffic
+   - Uptime and service status
+   - Resource utilization trends
+
+3. **Docker Services** (`http://localhost:3001/d/docker-services`)
+   - Container status and resource usage
+   - Service health checks
+   - Network I/O metrics
+   - Container restart tracking
+
+4. **Data Ingestion Pipeline** (`http://localhost:3001/d/data-ingestion`)
+   - Rust consumer performance metrics
+   - Redis Pub/Sub lag monitoring
+   - Event processing throughput
+   - Filter efficiency tracking
+
+5. **API Performance** (`http://localhost:3001/d/api-performance`)
+   - API response times and error rates
+   - External service connectivity
+   - Rate limiting and throttling metrics
+   - Integration health status
+
+6. **Alert Management** (`http://localhost:3001/d/alerts`)
+   - Active alerts and firing rules
+   - Alert delivery success rates
+   - Notification channel status
+   - Alert history and trends
+
+### 🔧 Monitoring Management
+
+**Service Management:**
+```bash
+# Start all monitoring services
+./scripts/start_monitoring_stack.sh
+
+# Start specific service
+./scripts/start_monitoring_stack.sh --service=prometheus
+./scripts/start_monitoring_stack.sh --service=grafana
+./scripts/start_monitoring_stack.sh --service=alertmanager
+
+# Verify monitoring health
+./scripts/verify_monitoring_stack.sh --detailed
+
+# Import dashboards manually if needed
+./scripts/import_grafana_dashboards.sh --force
+```
+
+**Health Verification:**
+```bash
+# Quick health checks
+curl -s http://localhost:9090/-/healthy && echo "✅ Prometheus OK"
+curl -s http://localhost:3001/api/health && echo "✅ Grafana OK"
+curl -s http://localhost:9093/-/healthy && echo "✅ AlertManager OK"
+
+# Comprehensive verification
+./scripts/verify_monitoring_stack.sh --json
+```
+
+### 🚨 Alert Configuration
+
+**Default Alert Rules:**
+- **System Alerts**: CPU > 80%, Memory > 85%, Disk > 90%
+- **Trading Alerts**: High error rates, API failures, filter performance issues
+- **Data Pipeline**: Redis lag, event drops, consumer failures
+- **Monitoring Stack**: Service down, data gaps, notification failures
+
+**Alert Channels:**
+- Console output (always active)
+- Email notifications (configurable)
+- Webhook integrations (Slack, Discord, etc.)
+- Telegram bot integration
+
+**Testing Alerts:**
+```bash
+# Test alert delivery
+curl -XPOST http://localhost:9093/api/v1/alerts -H 'Content-Type: application/json' -d '[{
+  "labels": {"alertname":"TestAlert","severity":"warning"},
+  "annotations": {"summary":"Test alert notification"}
+}]'
+```
+
+### 📊 Key Metrics
+
+**Trading Metrics:**
+- `trading_bot_trades_total` - Total number of trades executed
+- `trading_bot_portfolio_value_sol` - Current portfolio value in SOL
+- `trading_bot_win_rate` - Trading success percentage
+- `trading_bot_filter_rejection_rate` - Signal filter efficiency
+
+**System Metrics:**
+- `node_cpu_seconds_total` - CPU usage by mode
+- `node_memory_MemAvailable_bytes` - Available memory
+- `node_filesystem_avail_bytes` - Available disk space
+- `container_cpu_usage_seconds_total` - Per-container CPU usage
+
+**Application Metrics:**
+- `http_requests_total` - API request count by endpoint
+- `http_request_duration_seconds` - API response times
+- `redis_connected_clients` - Redis connection count
+- `prometheus_tsdb_head_samples_appended_total` - Prometheus ingestion rate
+
+### 🛠️ Monitoring Maintenance
+
+**Daily Checks:**
+```bash
+# Morning monitoring health check
+echo "📊 Monitoring Stack Health Check:"
+./scripts/verify_monitoring_stack.sh
+
+# Check active alerts
+curl -s http://localhost:9093/api/v1/alerts | jq '.data.alerts[] | select(.state == "firing")'
+```
+
+**Weekly Maintenance:**
+```bash
+# Monitoring stack audit
+./scripts/verify_monitoring_stack.sh --json > /tmp/monitoring_audit.json
+
+# Dashboard data availability check
+curl -s -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=up' | jq -r '.data.result[] | select(.value[1] == "1") | .metric.job'
+
+# Verify alert rules are active
+curl -s http://localhost:9090/api/v1/rules | jq -r '.data.groups[].rules[] | select(.state == "firing") | .name' | wc -l
+```
+
+### 🔍 Troubleshooting Monitoring Issues
+
+**Common Problems:**
+1. **Services Not Starting**: Check port conflicts with `./scripts/diagnose_port_conflict.sh`
+2. **Dashboards Show No Data**: Verify Prometheus targets and data source configuration
+3. **Alerts Not Firing**: Check AlertManager configuration and notification routes
+4. **High Resource Usage**: Monitor retention policies and consider data pruning
+
+**Quick Diagnostics:**
+```bash
+# Comprehensive monitoring troubleshooting
+./scripts/verify_monitoring_stack.sh --detailed
+
+# Service-specific issues
+docker-compose logs prometheus
+docker-compose logs grafana
+docker-compose logs alertmanager
+```
+
+**Emergency Recovery:**
+```bash
+# Complete monitoring stack recovery
+./scripts/emergency_monitoring_recovery.sh
+
+# Service-specific recovery
+docker-compose restart prometheus grafana alertmanager node-exporter
+./scripts/import_grafana_dashboards.sh --force
+```
+
+### 📚 Monitoring Documentation
+
+- **[Monitoring Deployment Guide](docs/monitoring_deployment_guide.md)** - Complete setup and configuration
+- **[Monitoring Troubleshooting Guide](docs/monitoring_troubleshooting_guide.md)** - Issue resolution procedures
+- **[Operations Runbook](OPERATIONS_RUNBOOK.md)** - Daily operations and incident response
+
+### 🔗 Integration with Operations
+
+The monitoring stack is fully integrated into the daily operations workflow:
+
+**Morning Routine:**
+- Automatic monitoring stack health verification
+- Dashboard data availability checks
+- Active alert review
+
+**Incident Response:**
+- Monitoring-specific incident procedures
+- Emergency recovery workflows
+- Alert notification testing
+
+**Weekly Maintenance:**
+- Monitoring stack audit and verification
+- Performance optimization checks
+- Configuration backup and review
+
+---
+
+**Access Points:**
+- 📊 **Grafana Dashboards**: http://localhost:3001 (admin/trading_admin)
+- 📈 **Prometheus**: http://localhost:9090
+- 🚨 **AlertManager**: http://localhost:9093
+- 🔍 **Node Exporter**: http://localhost:9100/metrics
 
 ## ⚠️ Risk Management
 

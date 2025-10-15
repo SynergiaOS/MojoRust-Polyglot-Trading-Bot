@@ -7,6 +7,26 @@ x-common-variables: &common-variables
 x-restart-policy: &restart-policy
   restart: unless-stopped
 
+x-cpu-limits: &cpu-limits
+  cpus: '2.0'
+  cpu_shares: 1024
+
+x-memory-limits: &memory-limits
+  mem_limit: 2g
+  memswap_limit: 2g
+
+x-resource-limits: &resource-limits
+  <<: *cpu-limits
+  <<: *memory-limits
+  deploy:
+    resources:
+      limits:
+        cpus: '2.0'
+        memory: 2G
+      reservations:
+        cpus: '0.5'
+        memory: 512M
+
 networks:
   trading-network:
     driver: bridge
@@ -33,6 +53,15 @@ services:
     image: timescale/timescaledb:latest-pg15
     container_name: trading-bot-timescaledb
     <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 3G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
     environment:
       <<: *common-variables
       POSTGRES_DB: ${TIMESCALEDB_DBNAME:-trading_db}
@@ -41,7 +70,10 @@ services:
       # For production, avoid trusting host auth; use POSTGRES_HOST_AUTH_METHOD only for dev/testing
       POSTGRES_HOST_AUTH_METHOD: ${TIMESCALEDB_HOST_AUTH_METHOD:-}
     ports:
-      - "5432:5432"
+      # External port can be configured via TIMESCALEDB_PORT environment variable
+      # Internal container port remains 5432 for container-to-container communication
+      # Example: Set TIMESCALEDB_PORT=5433 in .env to avoid port conflicts
+      - "${TIMESCALEDB_PORT:-5432}:5432"
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
       # TimescaleDB initialization handled by extension installation on first run
@@ -65,6 +97,15 @@ services:
     image: prom/prometheus:latest
     container_name: trading-bot-prometheus
     <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -99,6 +140,15 @@ services:
     image: grafana/grafana:latest
     container_name: trading-bot-grafana
     <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
     environment:
       <<: *common-variables
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
@@ -111,7 +161,7 @@ services:
       GF_AUTH_ORG_ROLE: Editor
       GF_FEATURE_TOGGLES_ENABLE: publicDashboards
     ports:
-      - "3000:3000"
+      - "3001:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       # Provisioning & dashboards are bind-mounted from repo for easier editing
@@ -140,6 +190,15 @@ services:
     image: prom/alertmanager:latest
     container_name: trading-bot-alertmanager
     <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
@@ -169,6 +228,15 @@ services:
       dockerfile: rust-modules/Dockerfile.data-consumer
     container_name: trading-bot-data-consumer
     <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
     environment:
       <<: *common-variables
       RUST_LOG: info
@@ -186,6 +254,15 @@ services:
     image: dpage/pgadmin4:latest
     container_name: trading-bot-pgadmin
     <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
     environment:
       <<: *common-variables
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@trading-bot.local}
@@ -211,6 +288,15 @@ services:
       target: ${BUILD_TARGET:-development}
     container_name: trading-bot-app
     <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
     env_file:
       - .env
       - .env.docker
@@ -226,8 +312,7 @@ services:
 
       # API Keys (loaded from .env file)
       HELIUS_API_KEY: ${HELIUS_API_KEY}
-      QUICKNODE_PRIMARY_RPC: ${QUICKNODE_PRIMARY_RPC}
-      QUICKNODE_SECONDARY_RPC: ${QUICKNODE_SECONDARY_RPC}
+      QUICKNODE_RPC_URL: ${QUICKNODE_RPC_URL}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY}
 
       # Wallet configuration
@@ -281,6 +366,15 @@ services:
     image: prom/node-exporter:latest
     container_name: trading-bot-node-exporter
     <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
     command:
       - '--path.procfs=/host/proc'
       - '--path.rootfs=/rootfs'
@@ -301,6 +395,15 @@ services:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: trading-bot-cadvisor
     <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
     command:
       - '--housekeeping_interval=30s'
       - '--docker_only=true'
