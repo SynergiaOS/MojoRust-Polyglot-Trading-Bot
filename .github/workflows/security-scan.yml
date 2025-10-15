@@ -88,8 +88,7 @@ except:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
         with:
-          report-path: gitleaks-report.json
-          report-format: json
+          args: --report-format json --report-path gitleaks-report.json
 
       - name: Run Custom Secret Detection
         run: |
