@@ -105,7 +105,7 @@ make test-all
 **Benchmarks Run:**
 ```bash
 # Benchmark commands
-make bench-ffi
+make benchmark
 cd rust-modules && cargo bench
 ```
 
