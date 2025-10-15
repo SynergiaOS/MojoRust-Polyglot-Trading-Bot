@@ -22,6 +22,13 @@ DEFAULT_SSH_USER="root"
 DEFAULT_MODE="paper"
 DEFAULT_REPO="https://github.com/SynergiaOS/MojoRust.git"
 
+# Detect docker compose binary (local CLI). Prefer 'docker compose' (v2) when available.
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_LOCAL='docker compose'
+else
+    COMPOSE_LOCAL='docker-compose'
+fi
+
 # Configuration variables
 SERVER_IP="${SERVER_IP:-$DEFAULT_SERVER_IP}"
 SSH_USER="${SSH_USER:-$DEFAULT_SSH_USER}"
@@ -36,6 +43,7 @@ DRY_RUN=false
 SKIP_SETUP=false
 CONFIG_ONLY=false
 RESTART_MODE=false
+USE_DOCKER_COMPOSE=false
 
 # Function to print colored output
 print_status() {
@@ -81,6 +89,7 @@ OPTIONS:
     --skip-setup           Skip VPS setup if already configured
     --config-only          Only update configuration files
     --restart              Restart existing deployment
+    --docker-compose       Deploy using Docker Compose (recommended for production)
     --help                 Show this help message
 
 EXAMPLES:
@@ -89,6 +98,8 @@ EXAMPLES:
     $0 --dry-run                          # Preview deployment steps
     $0 --skip-setup --restart             # Restart existing deployment
     $0 --server-ip 192.168.1.100          # Deploy to different server
+    $0 --docker-compose                   # Deploy with Docker Compose
+    $0 --docker-compose --mode live       # Deploy with Docker Compose in live mode
 
 ENVIRONMENT VARIABLES:
     SERVER_IP       - Override server IP
@@ -132,6 +143,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --restart)
             RESTART_MODE=true
+            shift
+            ;;
+        --docker-compose)
+            USE_DOCKER_COMPOSE=true
             shift
             ;;
         --help)
@@ -240,6 +255,11 @@ create_deployment_package() {
         cp Dockerfile* "$package_dir/" 2>/dev/null || true
         cp docker-compose*.yml "$package_dir/" 2>/dev/null || true
 
+        # Include pre-built trading-bot binary if present locally
+        if [ -f trading-bot ]; then
+            cp trading-bot "$package_dir/" || true
+        fi
+
         # Create deployment info
         cat > "$package_dir/DEPLOYMENT_INFO.txt" << EOF
 Deployment Information
@@ -334,6 +354,9 @@ configure_environment() {
     # Copy environment template if .env doesn't exist
     execute "cd $DEPLOYMENT_DIR && [ ! -f .env ] && cp .env.production.example .env || true" true
 
+    # Copy docker env template if .env.docker doesn't exist
+    execute "cd $DEPLOYMENT_DIR && [ ! -f .env.docker ] && [ -f .env.docker.example ] && cp .env.docker.example .env.docker || true" true
+
     # Set deployment mode in .env
     execute "cd $DEPLOYMENT_DIR && sed -i 's/EXECUTION_MODE=.*/EXECUTION_MODE=$DEPLOY_MODE/' .env" true
 
@@ -352,11 +375,29 @@ deploy_bot() {
     if [ "$CONFIG_ONLY" = false ]; then
         print_status "STEP" "Deploying trading bot"
 
-        if [ "$RESTART_MODE" = true ]; then
+        if [ "$USE_DOCKER_COMPOSE" = true ]; then
+            # Docker Compose deployment
+            print_status "INFO" "Using Docker Compose for deployment"
+
+            # Transfer docker-compose files if not already done
+            execute "cd $DEPLOYMENT_DIR && [ -f docker-compose.yml ] || echo 'docker-compose.yml missing'" true
+
+            # Pull/build images
+            # Use remote detection to pick docker compose variant (docker compose vs docker-compose)
+            execute "cd $DEPLOYMENT_DIR && if docker compose version >/dev/null 2>&1; then COMPOSE='docker compose'; else COMPOSE='docker-compose'; fi; \n$COMPOSE pull || true; \nif [ -f ./trading-bot ]; then echo 'trading-bot binary present'; else echo 'ERROR: trading-bot binary missing in deployment directory' && exit 2; fi; \n$COMPOSE build; \n$COMPOSE up -d" true
+
+            # Wait for services to be healthy
+            print_status "INFO" "Waiting for services to start..."
+            sleep 10
+
+            # Check service status
+            execute "cd $DEPLOYMENT_DIR && if docker compose version >/dev/null 2>&1; then docker compose ps; else docker-compose ps; fi" true
+
+        elif [ "$RESTART_MODE" = true ]; then
             # Restart existing deployment
             execute "cd $DEPLOYMENT_DIR && ./scripts/restart_bot.sh" true
         else
-            # Fresh deployment
+            # Fresh deployment with filters
             execute "cd $DEPLOYMENT_DIR && ./scripts/deploy_with_filters.sh" true
         fi
 
@@ -366,9 +407,36 @@ deploy_bot() {
     fi
 }
 
+# Function to verify Docker Compose deployment
+verify_docker_compose_deployment() {
+    if [ "$USE_DOCKER_COMPOSE" = true ]; then
+        print_status "STEP" "Verifying Docker Compose deployment"
+
+        # Check if all services are running (detect compose v2 vs v1 on remote)
+        execute "cd $DEPLOYMENT_DIR && if docker compose version >/dev/null 2>&1; then \n  COMPOSE='docker compose'; \nelse \n  COMPOSE='docker-compose'; \nfi; \nTOTAL=$($COMPOSE ps --services | wc -l); \nRUNNING=$($COMPOSE ps --services | xargs -r $COMPOSE ps --format '{{.Name}} {{.Status}}' | grep -c ' Up' || true); \necho \"$RUNNING $TOTAL\"" true
+
+        # Check critical services status individually using portable command
+        local critical_services=("timescaledb" "prometheus" "trading-bot")
+        for service in "${critical_services[@]}"; do
+            execute "cd $DEPLOYMENT_DIR && if docker compose version >/dev/null 2>&1; then \n  COMPOSE='docker compose'; \nelse \n  COMPOSE='docker-compose'; \nfi; \nSTATUS=$($COMPOSE ps $service --format '{{.Status}}' 2>/dev/null || $COMPOSE ps | grep -E '^ *$service' | awk '{print $4" "$5" "$6" "$7" "$8}'); \necho \"$STATUS\"" true
+        done
+
+        # Check logs for errors (fallback to simple grep)
+        print_status "INFO" "Checking logs for errors..."
+        execute "cd $DEPLOYMENT_DIR && if docker compose version >/dev/null 2>&1; then COMPOSE='docker compose'; else COMPOSE='docker-compose'; fi; $COMPOSE logs --tail=50 | grep -i error || echo 'No errors found'" true
+
+        return
+    fi
+}
+
 # Function to verify deployment
 verify_deployment() {
     print_status "STEP" "Verifying deployment"
+
+    if [ "$USE_DOCKER_COMPOSE" = true ]; then
+        verify_docker_compose_deployment
+        return
+    fi
 
     # Check if bot process is running
     local bot_running=$(execute "pgrep -f 'mojo run' | wc -l" true)
@@ -403,21 +471,42 @@ show_deployment_summary() {
     echo "  Mode: $DEPLOY_MODE"
     echo "  Directory: $DEPLOYMENT_DIR"
     echo "  Timestamp: $TIMESTAMP"
+    if [ "$USE_DOCKER_COMPOSE" = true ]; then
+        echo "  Deployment Type: Docker Compose"
+    else
+        echo "  Deployment Type: Direct Binary"
+    fi
 
     echo ""
     print_status "INFO" "🔗 Useful URLs:"
-    echo "  Bot Dashboard: http://$SERVER_IP:8080"
-    echo "  API Health: http://$SERVER_IP:8080/api/health"
-    echo "  API Status: http://$SERVER_IP:8080/api/status"
-    echo "  Grafana: http://$SERVER_IP:3000 (admin/admin)"
+    if [ "$USE_DOCKER_COMPOSE" = true ]; then
+        echo "  Prometheus: http://$SERVER_IP:9090"
+        echo "  Grafana: http://$SERVER_IP:3000 (admin/admin)"
+        echo "  Trading Bot Metrics: http://$SERVER_IP:9091/metrics"
+        echo "  Trading Bot Health: http://$SERVER_IP:8082/health"
+        echo "  Data Consumer Metrics: http://$SERVER_IP:9191/metrics"
+        echo "  pgAdmin: http://$SERVER_IP:8081"
+    else
+        echo "  Bot Dashboard: http://$SERVER_IP:8080"
+        echo "  API Health: http://$SERVER_IP:8080/api/health"
+        echo "  API Status: http://$SERVER_IP:8080/api/status"
+        echo "  Grafana: http://$SERVER_IP:3000 (admin/admin)"
+    fi
 
     echo ""
     print_status "INFO" "📋 Management Commands:"
     echo "  SSH: ssh $SSH_USER@$SERVER_IP"
-    echo "  Status: ssh $SSH_USER@$SERVER_IP 'cd $DEPLOYMENT_DIR && ./scripts/server_health.sh'"
-    echo "  Logs: ssh $SSH_USER@$SERVER_IP 'tail -f $DEPLOYMENT_DIR/logs/trading-bot-*.log'"
-    echo "  Stop: ssh $SSH_USER@$SERVER_IP 'pkill -f mojo'"
-    echo "  Restart: ssh $SSH_USER@$SERVER_IP 'cd $DEPLOYMENT_DIR && ./scripts/restart_bot.sh'"
+    if [ "$USE_DOCKER_COMPOSE" = true ]; then
+        echo "  Status: ssh $SSH_USER@$SERVER_IP 'cd $DEPLOYMENT_DIR && docker-compose ps'"
+        echo "  Logs: ssh $SSH_USER@$SERVER_IP 'cd $DEPLOYMENT_DIR && docker-compose logs -f'"
+        echo "  Stop: ssh $SSH_USER@$SERVER_IP 'cd $DEPLOYMENT_DIR && docker-compose down'"
+        echo "  Restart: ssh $SSH_USER@$SERVER_IP 'cd $DEPLOYMENT_DIR && docker-compose restart'"
+    else
+        echo "  Status: ssh $SSH_USER@$SERVER_IP 'cd $DEPLOYMENT_DIR && ./scripts/server_health.sh'"
+        echo "  Logs: ssh $SSH_USER@$SERVER_IP 'tail -f $DEPLOYMENT_DIR/logs/trading-bot-*.log'"
+        echo "  Stop: ssh $SSH_USER@$SERVER_IP 'pkill -f mojo'"
+        echo "  Restart: ssh $SSH_USER@$SERVER_IP 'cd $DEPLOYMENT_DIR && ./scripts/restart_bot.sh'"
+    fi
 
     echo ""
     if [ "$DEPLOY_MODE" = "paper" ]; then

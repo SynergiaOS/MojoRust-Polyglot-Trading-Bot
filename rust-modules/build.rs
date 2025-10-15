@@ -3,7 +3,6 @@
 //! This script handles compilation settings, version information,
 //! and build-time configuration for the Rust security modules.
 
-use vergen::{vergen, Config, ShaKind};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -12,15 +11,14 @@ fn main() {
     println!("cargo:rerun-if-changed=src/");
     println!("cargo:rerun-if-changed=Cargo.toml");
 
-    // Generate version information
-    let mut config = Config::default();
-    *config.git_mut().sha_kind_mut() = ShaKind::Short;
-    *config.git_mut().branch_mut() = true;
-    *config.build_mut().timestamp_mut() = true;
+    // Generate simple version info
+    let build_time = std::process::Command::new("date")
+        .arg("+%Y-%m-%d %H:%M:%S")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
 
-    if let Err(e) = vergen(config) {
-        eprintln!("Error generating version info: {}", e);
-    }
+    println!("cargo:rustc-env=BUILD_TIMESTAMP={}", build_time);
 
     // Set optimization flags
     if env::var("CARGO_CFG_TARGET_OS").unwrap_or_default() == "linux" {
@@ -61,7 +59,7 @@ pub const RUSTC_VERSION: &str = "{}";
 /// Cargo version
 pub const CARGO_VERSION: &str = "{}";
 "#,
-        env::var("VERGEN_BUILD_TIMESTAMP").unwrap_or_else(|_| "unknown".to_string()),
+        build_time,
         env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".to_string()),
         env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".to_string()),
         env::var("CARGO_CFG_TARGET_ENV").unwrap_or_else(|_| "unknown".to_string()),

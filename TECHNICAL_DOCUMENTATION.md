@@ -577,7 +577,7 @@ WALLET_PRIVATE_KEY_PATH=/path/to/your/private_key.json
 
 # Database Configuration
 DATABASE_URL=postgresql://username:password@localhost:5432/mojorust_db
-REDIS_URL=redis://localhost:6379
+REDIS_URL=rediss://user:password@dragonflydb-cloud-host:port
 
 # Security (set these in production)
 INFISICAL_CLIENT_ID=your_infisical_client_id

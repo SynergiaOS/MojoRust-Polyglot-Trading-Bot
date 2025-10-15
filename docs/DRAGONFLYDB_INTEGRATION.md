@@ -28,9 +28,16 @@ Update your `.env` file:
 
 ```bash
 # DragonflyDB Cloud - Ultra-fast Redis-compatible cache and database
-REDIS_URL=rediss://default:gv7g6u9svsf1@612ehcb9i.dragonflydb.cloud:6385
+# VPC Configuration
+VPC_ID=vpc-00e79f7555aa68c0e
+VPC_CIDR=192.168.0.0/16
+AWS_ACCOUNT_ID=962364259018
+
+# DragonflyDB Cloud Connection
+REDIS_URL=rediss://user:password@your-dragonflydb-host.dragonflydb.cloud:6385
 
 # SSL connection is automatic with rediss:// protocol
+# Ensure VPC peering is configured between your trading bot VPC and DragonflyDB Cloud
 ```
 
 ### 2. Connection Testing
@@ -480,16 +487,18 @@ services:
       context: .
       dockerfile: rust-modules/Dockerfile.data-consumer
     environment:
-      - REDIS_URL=rediss://default:gv7g6u9svsf1@612ehcb9i.dragonflydb.cloud:6385
+      - REDIS_URL=rediss://user:password@your-dragonflydb-host.dragonflydb.cloud:6385
       - RUST_LOG=info
+      - VPC_ID=vpc-00e79f7555aa68c0e
     depends_on: []
     restart: unless-stopped
 
   python-engine:
     build: .
     environment:
-      - REDIS_URL=rediss://default:gv7g6u9svsf1@612ehcb9i.dragonflydb.cloud:6385
+      - REDIS_URL=rediss://user:password@your-dragonflydb-host.dragonflydb.cloud:6385
       - ENABLE_RUST_CONSUMER=true
+      - VPC_ID=vpc-00e79f7555aa68c0e
     depends_on: []
     restart: unless-stopped
 
@@ -526,7 +535,8 @@ Type=simple
 User=tradingbot
 Group=tradingbot
 WorkingDirectory=/opt/mojorust
-Environment=REDIS_URL=rediss://default:gv7g6u9svsf1@612ehcb9i.dragonflydb.cloud:6385
+Environment=REDIS_URL=rediss://user:password@your-dragonflydb-host.dragonflydb.cloud:6385
+Environment=VPC_ID=vpc-00e79f7555aa68c0e
 Environment=ENABLE_RUST_CONSUMER=true
 Environment=RUST_LOG=info
 

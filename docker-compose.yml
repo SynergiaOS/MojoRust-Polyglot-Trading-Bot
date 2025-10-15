@@ -21,12 +21,11 @@ volumes:
     driver: local
   grafana_data:
     driver: local
-  grafana_provisioning:
+  alertmanager_data:
     driver: local
-  grafana_dashboards:
+  pgadmin_data:
     driver: local
-  redis_data:
-    driver: local
+  # Redis data volume removed - using DragonflyDB Cloud instead
 
 services:
   # TimescaleDB for time-series market data and trade history
@@ -36,20 +35,21 @@ services:
     <<: *restart-policy
     environment:
       <<: *common-variables
-      POSTGRES_DB: trading_db
-      POSTGRES_USER: trading_user
-      POSTGRES_PASSWORD: trading_password
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: ${TIMESCALEDB_DBNAME:-trading_db}
+      POSTGRES_USER: ${TIMESCALEDB_USER:-trading_user}
+      POSTGRES_PASSWORD: ${TIMESCALEDB_PASSWORD:-trading_password}
+      # For production, avoid trusting host auth; use POSTGRES_HOST_AUTH_METHOD only for dev/testing
+      POSTGRES_HOST_AUTH_METHOD: ${TIMESCALEDB_HOST_AUTH_METHOD:-}
     ports:
       - "5432:5432"
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
-      - ./scripts/init-timescaledb.sh:/docker-entrypoint-initdb.d/init-timescaledb.sh
+      # TimescaleDB initialization handled by extension installation on first run
     networks:
       trading-network:
         ipv4_address: 172.20.0.10
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trading_user -d trading_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALEDB_USER:-trading_user} -d ${TIMESCALEDB_DBNAME:-trading_db}"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -101,8 +101,8 @@ services:
     <<: *restart-policy
     environment:
       <<: *common-variables
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: trading_admin
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-trading_admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_SECURITY_COOKIE_SECURE: "false"
@@ -114,8 +114,7 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - grafana_provisioning:/etc/grafana/provisioning
-      - grafana_dashboards:/var/lib/grafana/dashboards
+      # Provisioning & dashboards are bind-mounted from repo for easier editing
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
@@ -159,24 +158,9 @@ services:
       timeout: 10s
       retries: 3
 
-  # Redis for caching and Pub/Sub message bus
-  redis:
-    image: redis:7-alpine
-    container_name: trading-bot-redis
-    <<: *restart-policy
-    command: redis-server --save 60 1 --loglevel warning --requirepass trading_password
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      trading-network:
-        ipv4_address: 172.20.0.15
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "trading_password", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # DragonflyDB for high-performance caching and Pub/Sub message bus
+  # Production DragonflyDB Cloud connection via REDIS_URL environment variable
+  # No local Redis service needed - DragonflyDB provides Redis-compatible API
 
   # Rust Data Consumer for Geyser
   data-consumer:
@@ -189,15 +173,13 @@ services:
       <<: *common-variables
       RUST_LOG: info
       GEYSER_ENDPOINT: ${GEYSER_ENDPOINT}
-      REDIS_URL: redis://:trading_password@redis:6379
+      REDIS_URL: ${REDIS_URL}
     ports:
       - "9191:9191" # Metrics port
     networks:
       trading-network:
         ipv4_address: 172.20.0.18
-    depends_on:
-      redis:
-        condition: service_healthy
+    # DragonflyDB Cloud connection - no local dependency needed
 
   # pgAdmin for TimescaleDB management (optional)
   pgadmin:
@@ -206,14 +188,14 @@ services:
     <<: *restart-policy
     environment:
       <<: *common-variables
-      PGADMIN_DEFAULT_EMAIL: admin@trading-bot.local
-      PGADMIN_DEFAULT_PASSWORD: pgadmin_password
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@trading-bot.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-pgadmin_password}
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
-      - "8080:80"
+      - "8081:80"  # pgAdmin web interface
     volumes:
       - pgadmin_data:/var/lib/pgadmin
-      - ./config/pgadmin/servers.json:/pgadmin4/servers.json:ro
+      # pgAdmin server configuration can be added manually via UI
     networks:
       trading-network:
         ipv4_address: 172.20.0.16
@@ -229,14 +211,17 @@ services:
       target: ${BUILD_TARGET:-development}
     container_name: trading-bot-app
     <<: *restart-policy
+    env_file:
+      - .env
+      - .env.docker
     environment:
       <<: *common-variables
       # Environment
       TRADING_ENV: ${TRADING_ENV:-development}
 
       # Database connections
-      TIMESCALEDB_URL: postgresql://trading_user:trading_password@timescaledb:5432/trading_db
-      REDIS_URL: redis://:trading_password@redis:6379
+      TIMESCALEDB_URL: postgresql://${TIMESCALEDB_USER:-trading_user}:${TIMESCALEDB_PASSWORD:-trading_password}@timescaledb:5432/${TIMESCALEDB_DBNAME:-trading_db}
+      REDIS_URL: ${REDIS_URL}
       ENABLE_RUST_CONSUMER: "true"
 
       # API Keys (loaded from .env file)
@@ -251,11 +236,11 @@ services:
 
       # Trading parameters
       INITIAL_CAPITAL: ${INITIAL_CAPITAL:-1.0}
+      EXECUTION_MODE: ${EXECUTION_MODE:-paper}
       MAX_POSITION_SIZE: ${MAX_POSITION_SIZE:-0.10}
       MAX_DRAWDOWN: ${MAX_DRAWDOWN:-0.15}
 
       # Monitoring
-      PROMETHEUS_PORT: 9090
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: json
 
@@ -263,8 +248,7 @@ services:
       MOCK_APIS: ${MOCK_APIS:-false}
       VERBOSE_LOGGING: ${VERBOSE_LOGGING:-false}
     ports:
-      - "9090:9090"  # Metrics port
-      - "8082:8082"  # Health check port
+      - "8082:8082"  # Health check port (includes /metrics endpoint)
     volumes:
       - ./src:/app/src:ro
       - ./config:/app/config:ro
@@ -277,10 +261,9 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
-      redis:
-        condition: service_healthy
       prometheus:
         condition: service_healthy
+    # DragonflyDB Cloud connection - no local dependency needed
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
       interval: 30s
@@ -336,8 +319,3 @@ services:
       trading-network:
         ipv4_address: 172.20.0.31
 
-volumes:
-  alertmanager_data:
-    driver: local
-  pgadmin_data:
-    driver: local

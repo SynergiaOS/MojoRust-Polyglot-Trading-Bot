@@ -11,21 +11,41 @@ COPY ./rust-modules/Cargo.lock ./Cargo.lock
 COPY ./rust-modules/Cargo.toml ./Cargo.toml
 
 # Copy over your source code
+# Copy source code
 COPY ./rust-modules/src ./src
 
-# Build for release
-RUN cargo build --release --bin data_consumer
+# Build for release using feature flag 'mock-geyser' to avoid sed-based source patching
+RUN cargo build --release --bin data_consumer --features mock-geyser
 
 # --- Final Stage ---
 FROM debian:bullseye-slim
 
 WORKDIR /usr/local/bin
 
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl1.1 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy the binary from the builder stage
 COPY --from=builder /usr/src/data-consumer/target/release/data_consumer .
 
+# Add health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:9191/health || exit 1
+
 # Expose the metrics port
 EXPOSE 9191
+
+# Set environment variables
+ENV RUST_LOG=info
+ENV METRICS_ADDR=0.0.0.0:9191
+
+# Use non-root user for security
+RUN useradd -r -s /bin/false dataconsumer
+USER dataconsumer
 
 # Run the binary
 CMD ["./data_consumer"]

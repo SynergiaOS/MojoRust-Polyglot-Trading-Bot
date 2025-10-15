@@ -124,9 +124,4 @@ scrape_configs:
         target_label: instance
         replacement: 'alertmanager'
 
-# Storage configuration
-storage:
-  tsdb:
-    retention.time: 30d
-    retention.size: 10GB
-    wal.compression: true
+# Storage configuration (default settings)

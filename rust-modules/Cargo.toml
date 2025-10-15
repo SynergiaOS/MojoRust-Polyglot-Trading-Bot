@@ -196,3 +196,4 @@ path = "src/data_consumer.rs"
 default = ["std"]
 std = []
 no-std = []
+mock-geyser = []

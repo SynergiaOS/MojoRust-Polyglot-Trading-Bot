@@ -525,6 +525,52 @@ sudo journalctl -u trading-bot -f
 
 ### Real-time Monitoring
 
+#### Service Health Checks
+
+```bash
+# Health check endpoints (external access)
+http://YOUR_SERVER_IP:8082/health          # Trading bot health
+http://YOUR_SERVER_IP:9090/-/healthy       # Prometheus health
+http://YOUR_SERVER_IP:3000/api/health       # Grafana health
+http://YOUR_SERVER_IP:9191/health          # Data consumer health
+
+# Internal container health checks
+docker-compose ps                          # Show all service status
+docker-compose exec trading-bot curl http://localhost:8082/health
+docker-compose exec prometheus curl http://localhost:9090/-/healthy
+docker-compose exec grafana wget --quiet --tries=1 --spider http://localhost:3000/api/health
+```
+
+#### Metrics Endpoints
+
+```bash
+# Trading bot metrics (port 8082 - internal container port)
+curl http://YOUR_SERVER_IP:8082/metrics     # Prometheus format metrics
+docker-compose exec trading-bot curl http://localhost:8082/metrics
+
+# Data consumer metrics (port 9191)
+curl http://YOUR_SERVER_IP:9191/metrics    # Geyser streaming metrics
+docker-compose exec data-consumer curl http://localhost:9191/metrics
+
+# Prometheus metrics (port 9090)
+curl http://YOUR_SERVER_IP:9090/metrics    # Prometheus internal metrics
+```
+
+#### Port Configuration Reference
+
+| Service | External Port | Internal Port | Purpose |
+|---------|---------------|---------------|---------|
+| trading-bot | 8082 | 8082 | Health + Metrics (unified) |
+| prometheus | 9090 | 9090 | Metrics collection |
+| grafana | 3000 | 3000 | Visualization |
+| timescaledb | 5432 | 5432 | Database |
+| data-consumer | 9191 | 9191 | Geyser metrics |
+| alertmanager | 9093 | 9093 | Alert routing |
+| node-exporter | 9100 | 9100 | System metrics |
+| cadvisor | 8083 | 8080 | Container metrics |
+
+**Important**: The trading bot uses a unified port 8082 for both health checks (`/health`) and metrics (`/metrics`) endpoints.
+
 #### Filter Performance Monitoring
 
 ```bash

@@ -21,11 +21,13 @@ NC='\033[0m' # No Color
 DEFAULT_SERVER_IP="38.242.239.150"
 DEFAULT_SSH_USER="root"
 DEFAULT_DEPLOY_DIR="~/mojo-trading-bot"
+DEFAULT_API_BASE=""
 
 # Configuration variables
 SERVER_IP="${SERVER_IP:-$DEFAULT_SERVER_IP}"
 SSH_USER="${SSH_USER:-$DEFAULT_SSH_USER}"
 DEPLOY_DIR="${DEPLOY_DIR:-$DEFAULT_DEPLOY_DIR}"
+API_BASE="${API_BASE:-$DEFAULT_API_BASE}"
 
 # Parse command line arguments
 REMOTE_MODE=false
@@ -74,6 +76,7 @@ OPTIONS:
     --server-ip <IP>       Server IP address (default: $DEFAULT_SERVER_IP)
     --ssh-user <USER>      SSH user (default: $DEFAULT_SSH_USER)
     --deploy-dir <PATH>    Deployment directory (default: $DEFAULT_DEPLOY_DIR)
+    --api-base <URL>       API base URL (default: auto-detected)
     --remote               Run via SSH from local machine
     --json                 Output in JSON format
     --watch                Continuous monitoring mode
@@ -86,11 +89,13 @@ EXAMPLES:
     $0 --json                             # Output in JSON format
     $0 --watch                            # Continuous monitoring
     $0 --alerts-only                      # Show only issues
+    $0 --api-base http://localhost:8082  # Use specific API base URL
 
 ENVIRONMENT VARIABLES:
     SERVER_IP       - Override server IP
     SSH_USER        - Override SSH user
     DEPLOY_DIR      - Override deployment directory
+    API_BASE        - Override API base URL
 
 EOF
 }
@@ -108,6 +113,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --deploy-dir)
             DEPLOY_DIR="$2"
+            shift 2
+            ;;
+        --api-base)
+            API_BASE="$2"
             shift 2
             ;;
         --remote)
@@ -140,6 +149,34 @@ done
 
 # JSON output structure
 declare -A json_output
+
+# Helper function to check if command exists
+has_cmd() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to check dependencies
+check_dependencies() {
+    local missing_tools=()
+
+    if ! has_cmd "ss"; then
+        missing_tools+=("ss")
+    fi
+
+    if ! has_cmd "bc"; then
+        missing_tools+=("bc")
+    fi
+
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        if [ "$JSON_OUTPUT" = false ]; then
+            print_status "WARNING" "Missing tools: ${missing_tools[*]}"
+            print_status "INFO" "Some features may be limited"
+        fi
+        return 1
+    fi
+
+    return 0
+}
 
 # Function to execute command locally or via SSH
 execute() {
@@ -192,7 +229,8 @@ check_system_resources() {
     # CPU usage
     local cpu_usage=$(execute "top -bn1 | grep 'Cpu(s)' | awk '{print \$2}' | cut -d'%' -f1" true)
     if [ "$cpu_usage" != "ERROR" ] && [ -n "$cpu_usage" ]; then
-        if (( $(echo "$cpu_usage > 80" | bc -l) )); then
+        # Use portable awk comparison instead of bc
+        if awk -v v="$cpu_usage" 'BEGIN{exit !(v>80)}'; then
             print_status "WARNING" "High CPU usage: ${cpu_usage}%"
             json_output["cpu_usage"]="${cpu_usage}%"
         else
@@ -207,7 +245,8 @@ check_system_resources() {
     # Memory usage
     local memory_info=$(execute "free -m | awk 'NR==2{printf \"%.1f\", \$3*100/\$2}'" true)
     if [ "$memory_info" != "ERROR" ] && [ -n "$memory_info" ]; then
-        if (( $(echo "$memory_info > 85" | bc -l) )); then
+        # Use portable awk comparison instead of bc
+        if awk -v v="$memory_info" 'BEGIN{exit !(v>85)}'; then
             print_status "WARNING" "High memory usage: ${memory_info}%"
             json_output["memory_usage"]="${memory_info}%"
         else
@@ -286,94 +325,343 @@ check_system_resources() {
     fi
 }
 
-# Function to check bot service status
-check_bot_service() {
-    print_status "HEADER" "Trading Bot Service"
+# Function to check Docker services
+check_docker_services() {
+    print_status "HEADER" "Docker Services"
 
-    # Check if trading-bot process is running (check multiple patterns)
-    local bot_processes=$(execute "pgrep -f 'trading-bot\\|mojo run\\|main.mojo' | wc -l" true)
-    if [ "$bot_processes" != "ERROR" ]; then
-        if [ "$bot_processes" -gt 0 ]; then
-            print_status "SUCCESS" "Trading bot is running ($bot_processes processes)"
-            json_output["bot_processes"]="$bot_processes"
-            json_output["bot_status"]="running"
+    # Check if Docker is running
+    local docker_status=$(execute "docker --version 2>/dev/null && echo 'running' || echo 'not-running'" true)
+    if [ "$docker_status" = "running" ]; then
+        print_status "SUCCESS" "Docker is installed and running"
+        json_output["docker_status"]="running"
 
-            # Get process details with memory usage
-            local bot_details=$(execute "ps aux | grep -E 'trading-bot|mojo run|main.mojo' | grep -v grep | head -5" true)
-            if [ "$bot_details" != "ERROR" ] && [ -n "$bot_details" ]; then
-                print_status "INFO" "Process details:"
-                echo "$bot_details" | while IFS= read -r line; do
-                    echo "  $line"
-                done
-            fi
+        # Check docker-compose
+        local compose_status=$(execute "docker-compose --version 2>/dev/null && echo 'available' || echo 'not-available'" true)
+        if [ "$compose_status" = "available" ]; then
+            print_status "SUCCESS" "Docker Compose is available"
+            json_output["docker_compose"]="available"
+        else
+            print_status "WARNING" "Docker Compose not available"
+            json_output["docker_compose"]="not-available"
+        fi
 
-            # Get PIDs and uptime/memory for each process
-            local bot_pids=$(execute "pgrep -f 'trading-bot\\|mojo run\\|main.mojo'" true)
-            if [ "$bot_pids" != "ERROR" ] && [ -n "$bot_pids" ]; then
-                echo "$bot_pids" | while IFS= read -r pid; do
-                    if [ -n "$pid" ]; then
-                        local bot_uptime=$(execute "ps -o etimes= -p $pid 2>/dev/null | xargs" true)
-                        local bot_memory=$(execute "ps -o rss= -p $pid 2>/dev/null | xargs" true)
-                        local bot_cmd=$(execute "ps -o cmd= -p $pid 2>/dev/null" true)
+        # Check if in correct directory for docker-compose
+        local compose_file_exists=$(execute "test -f $DEPLOY_DIR/docker-compose.yml && echo 'exists' || echo 'not-found'" true)
+        if [ "$compose_file_exists" = "exists" ]; then
+            json_output["docker_compose_file"]="exists"
 
-                        if [ "$bot_uptime" != "ERROR" ] && [ -n "$bot_uptime" ]; then
-                            local uptime_hours=$((bot_uptime / 3600))
-                            local uptime_minutes=$(((bot_uptime % 3600) / 60))
-                            local memory_mb=0
-                            if [ "$bot_memory" != "ERROR" ] && [ -n "$bot_memory" ]; then
-                                memory_mb=$((bot_memory / 1024))
-                            fi
-                            print_status "INFO" "PID $pid: ${uptime_hours}h ${uptime_minutes}m, ${memory_mb}MB RAM"
-                            json_output["pid_${pid}_uptime"]="${uptime_hours}h ${uptime_minutes}m"
-                            json_output["pid_${pid}_memory"]="${memory_mb}MB"
+            # Get Docker Compose status
+            local compose_status=$(execute "cd $DEPLOY_DIR && docker-compose ps 2>/dev/null || echo 'failed'" true)
+            if [ "$compose_status" != "failed" ]; then
+                # Count running containers
+                local running_containers=$(execute "cd $DEPLOY_DIR && docker-compose ps --services --filter 'status=running' | wc -l" true)
+                local total_services=$(execute "cd $DEPLOY_DIR && docker-compose config --services | wc -l" true)
+
+                if [ "$running_containers" != "ERROR" ] && [ "$total_services" != "ERROR" ]; then
+                    print_status "SUCCESS" "Docker Compose: $running_containers/$total_services services running"
+                    json_output["running_containers"]="$running_containers"
+                    json_output["total_services"]="$total_services"
+
+                    # Check critical services
+                    local critical_services=("timescaledb" "trading-bot" "prometheus" "grafana")
+                    for service in "${critical_services[@]}"; do
+                        local service_status=$(execute "cd $DEPLOY_DIR && docker-compose ps $service --format '{{.Status}}' 2>/dev/null || echo 'not-found'" true)
+                        if [[ "$service_status" == *"Up"* ]]; then
+                            print_status "SUCCESS" "Service $service: Running"
+                            json_output["service_${service}"]="running"
+                        else
+                            print_status "WARNING" "Service $service: $service_status"
+                            json_output["service_${service}"]="not-running"
                         fi
+                    done
+
+                    # Check container health
+                    local unhealthy_containers=$(execute "cd $DEPLOY_DIR && docker-compose ps --format '{{.Name}}\t{{.Status}}' | grep -v 'healthy\|Up' | wc -l" true)
+                    if [ "$unhealthy_containers" != "ERROR" ] && [ "$unhealthy_containers" -gt 0 ]; then
+                        print_status "WARNING" "Found $unhealthy_containers unhealthy containers"
+                        json_output["unhealthy_containers"]="$unhealthy_containers"
+                    else
+                        json_output["unhealthy_containers"]="0"
                     fi
-                done
+                else
+                    print_status "ERROR" "Could not get Docker Compose status"
+                    json_output["docker_compose_status"]="error"
+                fi
+            else
+                print_status "ERROR" "Docker Compose status check failed"
+                json_output["docker_compose_status"]="failed"
             fi
         else
-            print_status "ERROR" "Trading bot process not found"
-            json_output["bot_processes"]="0"
-            json_output["bot_status"]="stopped"
+            print_status "WARNING" "docker-compose.yml not found in $DEPLOY_DIR"
+            json_output["docker_compose_file"]="not-found"
         fi
     else
-        print_status "ERROR" "Could not check bot processes"
-        json_output["bot_status"]="unknown"
-    fi
-
-    # Check if systemd service exists and show status
-    local service_status=$(execute "systemctl is-active trading-bot 2>/dev/null || echo 'no-service'" true)
-    local service_enabled=$(execute "systemctl is-enabled trading-bot 2>/dev/null || echo 'not-found'" true)
-
-    if [ "$service_status" != "no-service" ] && [ "$service_status" != "ERROR" ]; then
-        print_status "INFO" "Systemd service 'trading-bot' status: $service_status"
-        json_output["systemd_service"]="$service_status"
-
-        # Show detailed service status if available
-        local detailed_status=$(execute "systemctl status trading-bot --no-pager 2>/dev/null | head -10" true)
-        if [ "$detailed_status" != "ERROR" ] && [ -n "$detailed_status" ]; then
-            print_status "INFO" "Service details:"
-            echo "$detailed_status" | sed 's/^/  /'
-        fi
-
-        if [ "$service_enabled" != "not-found" ]; then
-            print_status "INFO" "Service enabled: $service_enabled"
-            json_output["systemd_enabled"]="$service_enabled"
-        fi
-    else
-        print_status "INFO" "No systemd service 'trading-bot' found"
-        json_output["systemd_service"]="not-found"
+        print_status "ERROR" "Docker is not running or not installed"
+        json_output["docker_status"]="not-running"
     fi
 }
 
-# Function to check API endpoints
+# Function to check bot service status (updated for Docker)
+check_bot_service() {
+    print_status "HEADER" "Trading Bot Service"
+
+    # Check Docker-based bot first
+    local docker_status=$(execute "cd $DEPLOY_DIR && docker-compose ps trading-bot --format '{{.Status}}' 2>/dev/null || echo 'not-found'" true)
+    if [[ "$docker_status" == *"Up"* ]]; then
+        print_status "SUCCESS" "Trading bot container is running"
+        json_output["bot_status"]="running"
+        json_output["bot_deployment"]="docker"
+
+        # Get container details
+        local container_details=$(execute "cd $DEPLOY_DIR && docker-compose ps trading-bot --format 'table {{.Name}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null" true)
+        if [ "$container_details" != "ERROR" ] && [ -n "$container_details" ]; then
+            print_status "INFO" "Container details:"
+            echo "$container_details" | tail -n +2 | while IFS= read -r line; do
+                echo "  $line"
+            done
+        fi
+
+        # Check container resource usage
+        local resource_usage=$(execute "cd $DEPLOY_DIR && docker stats trading-bot --no-stream --format 'table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' 2>/dev/null" true)
+        if [ "$resource_usage" != "ERROR" ] && [ -n "$resource_usage" ]; then
+            print_status "INFO" "Resource usage:"
+            echo "$resource_usage" | tail -n +2 | while IFS= read -r line; do
+                echo "  $line"
+            done
+        fi
+
+        # Get container logs health check
+        local recent_errors=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=50 trading-bot 2>/dev/null | grep -i 'error\\|critical' | wc -l" true)
+        if [ "$recent_errors" != "ERROR" ]; then
+            if [ "$recent_errors" -gt 0 ]; then
+                print_status "WARNING" "Found $recent_errors errors in recent container logs"
+                json_output["container_log_errors"]="$recent_errors"
+            else
+                print_status "SUCCESS" "No errors in recent container logs"
+                json_output["container_log_errors"]="0"
+            fi
+        fi
+
+    elif [ "$docker_status" != "not-found" ]; then
+        print_status "WARNING" "Trading bot container exists but not running: $docker_status"
+        json_output["bot_status"]="not-running"
+        json_output["bot_deployment"]="docker"
+    else
+        # Fallback to process-based check (for non-Docker deployments)
+        local bot_processes=$(execute "pgrep -f 'trading-bot\\|mojo run\\|main.mojo' | wc -l" true)
+        if [ "$bot_processes" != "ERROR" ]; then
+            if [ "$bot_processes" -gt 0 ]; then
+                print_status "SUCCESS" "Trading bot is running ($bot_processes processes)"
+                json_output["bot_processes"]="$bot_processes"
+                json_output["bot_status"]="running"
+                json_output["bot_deployment"]="process"
+
+                # Get process details with memory usage
+                local bot_details=$(execute "ps aux | grep -E 'trading-bot|mojo run|main.mojo' | grep -v grep | head -5" true)
+                if [ "$bot_details" != "ERROR" ] && [ -n "$bot_details" ]; then
+                    print_status "INFO" "Process details:"
+                    echo "$bot_details" | while IFS= read -r line; do
+                        echo "  $line"
+                    done
+                fi
+
+                # Get PIDs and uptime/memory for each process
+                local bot_pids=$(execute "pgrep -f 'trading-bot\\|mojo run\\|main.mojo'" true)
+                if [ "$bot_pids" != "ERROR" ] && [ -n "$bot_pids" ]; then
+                    echo "$bot_pids" | while IFS= read -r pid; do
+                        if [ -n "$pid" ]; then
+                            local bot_uptime=$(execute "ps -o etimes= -p $pid 2>/dev/null | xargs" true)
+                            local bot_memory=$(execute "ps -o rss= -p $pid 2>/dev/null | xargs" true)
+                            local bot_cmd=$(execute "ps -o cmd= -p $pid 2>/dev/null" true)
+
+                            if [ "$bot_uptime" != "ERROR" ] && [ -n "$bot_uptime" ]; then
+                                local uptime_hours=$((bot_uptime / 3600))
+                                local uptime_minutes=$(((bot_uptime % 3600) / 60))
+                                local memory_mb=0
+                                if [ "$bot_memory" != "ERROR" ] && [ -n "$bot_memory" ]; then
+                                    memory_mb=$((bot_memory / 1024))
+                                fi
+                                print_status "INFO" "PID $pid: ${uptime_hours}h ${uptime_minutes}m, ${memory_mb}MB RAM"
+                                json_output["pid_${pid}_uptime"]="${uptime_hours}h ${uptime_minutes}m"
+                                json_output["pid_${pid}_memory"]="${memory_mb}MB"
+                            fi
+                        fi
+                    done
+                fi
+            else
+                print_status "ERROR" "Trading bot process not found"
+                json_output["bot_processes"]="0"
+                json_output["bot_status"]="stopped"
+            fi
+        else
+            print_status "ERROR" "Could not check bot processes"
+            json_output["bot_status"]="unknown"
+        fi
+
+        # Check if systemd service exists and show status
+        local service_status=$(execute "systemctl is-active trading-bot 2>/dev/null || echo 'no-service'" true)
+        local service_enabled=$(execute "systemctl is-enabled trading-bot 2>/dev/null || echo 'not-found'" true)
+
+        if [ "$service_status" != "no-service" ] && [ "$service_status" != "ERROR" ]; then
+            print_status "INFO" "Systemd service 'trading-bot' status: $service_status"
+            json_output["systemd_service"]="$service_status"
+
+            # Show detailed service status if available
+            local detailed_status=$(execute "systemctl status trading-bot --no-pager 2>/dev/null | head -10" true)
+            if [ "$detailed_status" != "ERROR" ] && [ -n "$detailed_status" ]; then
+                print_status "INFO" "Service details:"
+                echo "$detailed_status" | sed 's/^/  /'
+            fi
+
+            if [ "$service_enabled" != "not-found" ]; then
+                print_status "INFO" "Service enabled: $service_enabled"
+                json_output["systemd_enabled"]="$service_enabled"
+            fi
+        else
+            print_status "INFO" "No systemd service 'trading-bot' found"
+            json_output["systemd_service"]="not-found"
+        fi
+    fi
+}
+
+# Function to check filter performance
+check_filter_performance() {
+    print_status "HEADER" "Filter Performance Health"
+
+    local docker_deployment="${json_output[bot_deployment]}"
+    local filter_log=""
+    local rejection_rate=""
+
+    if [ "$docker_deployment" = "docker" ]; then
+        # Get filter performance from Docker logs
+        filter_log=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=1000 trading-bot 2>/dev/null | grep -i 'Filter Performance' | tail -1" true)
+    else
+        # Get filter performance from file logs
+        local latest_log=$(execute "ls -t $DEPLOY_DIR/logs/trading-bot-*.log 2>/dev/null | head -1" true)
+        if [ "$latest_log" != "ERROR" ] && [ -n "$latest_log" ]; then
+            filter_log=$(execute "tail -n 1000 $latest_log 2>/dev/null | grep -i 'Filter Performance' | tail -1" true)
+        fi
+    fi
+
+    if [ "$filter_log" != "ERROR" ] && [ -n "$filter_log" ]; then
+        # Extract rejection rate from log line
+        rejection_rate=$(echo "$filter_log" | grep -oP '\d+\.?\d+(?=% rejection)' | head -1)
+
+        if [ -n "$rejection_rate" ]; then
+            json_output["filter_rejection_rate"]="$rejection_rate"
+
+            # Classify filter health
+            if awk -v v="$rejection_rate" 'BEGIN{exit !(v>=85 && v<=97)}'; then
+                json_output["filter_health"]="healthy"
+                print_status "SUCCESS" "Filter Performance: ${rejection_rate}% rejection (healthy)"
+            elif awk -v v="$rejection_rate" 'BEGIN{exit !(v<85)}'; then
+                json_output["filter_health"]="too_lenient"
+                print_status "WARNING" "Filter Performance: ${rejection_rate}% rejection (too lenient)"
+            else
+                json_output["filter_health"]="too_aggressive"
+                print_status "WARNING" "Filter Performance: ${rejection_rate}% rejection (too aggressive)"
+            fi
+        else
+            json_output["filter_rejection_rate"]="unknown"
+            json_output["filter_health"]="unknown"
+            print_status "WARNING" "Filter Performance: Could not parse rejection rate"
+        fi
+    else
+        json_output["filter_rejection_rate"]="unknown"
+        json_output["filter_health"]="unknown"
+        print_status "INFO" "Filter Performance: No data available"
+    fi
+}
+
+# Function to check DragonflyDB connectivity
+check_dragonflydb() {
+    print_status "HEADER" "DragonflyDB Connectivity"
+
+    # Check DragonflyDB Cloud connection using REDIS_URL from environment
+    local redis_url=$(execute "echo \$REDIS_URL" true)
+    if [ "$redis_url" != "ERROR" ] && [ -n "$redis_url" ]; then
+        json_output["dragonflydb_configured"]="true"
+
+        # Test DragonflyDB connection using redis-cli
+        local ping_result=$(execute "redis-cli -u '$redis_url' ping 2>/dev/null || echo 'FAILED'" true)
+        if [ "$ping_result" = "PONG" ]; then
+            print_status "SUCCESS" "DragonflyDB Cloud: Connected (PONG)"
+            json_output["dragonflydb_status"]="connected"
+
+            # Get DragonflyDB info
+            local db_info=$(execute "redis-cli -u '$redis_url' info server 2>/dev/null | head -10" true)
+            if [ "$db_info" != "ERROR" ] && [ -n "$db_info" ]; then
+                print_status "INFO" "DragonflyDB server info available"
+                json_output["dragonflydb_info"]="available"
+            fi
+
+            # Test basic operations
+            local test_result=$(execute "redis-cli -u '$redis_url' set health_check 'ok' 2>/dev/null && redis-cli -u '$redis_url' get health_check 2>/dev/null || echo 'FAILED'" true)
+            if [ "$test_result" = "ok" ]; then
+                print_status "SUCCESS" "DragonflyDB operations: Working"
+                json_output["dragonflydb_operations"]="working"
+            else
+                print_status "WARNING" "DragonflyDB operations: Failed"
+                json_output["dragonflydb_operations"]="failed"
+            fi
+
+            # Get memory usage
+            local memory_info=$(execute "redis-cli -u '$redis_url' info memory 2>/dev/null | grep 'used_memory_human:' | cut -d':' -f2 | tr -d '\\r'" true)
+            if [ "$memory_info" != "ERROR" ] && [ -n "$memory_info" ]; then
+                print_status "INFO" "DragonflyDB memory usage: $memory_info"
+                json_output["dragonflydb_memory"]="$memory_info"
+            fi
+
+        else
+            print_status "ERROR" "DragonflyDB Cloud: Connection failed"
+            json_output["dragonflydb_status"]="failed"
+        fi
+    else
+        print_status "WARNING" "DragonflyDB Cloud: REDIS_URL not configured"
+        json_output["dragonflydb_configured"]="false"
+
+        # Fallback: Check local Redis if DragonflyDB not configured
+        local local_redis=$(execute "redis-cli ping 2>/dev/null || echo 'FAILED'" true)
+        if [ "$local_redis" = "PONG" ]; then
+            print_status "INFO" "Local Redis: Available (fallback)"
+            json_output["local_redis_status"]="available"
+        else
+            print_status "WARNING" "No Redis/DragonflyDB connection available"
+            json_output["local_redis_status"]="unavailable"
+        fi
+    fi
+}
+
+# Function to check API endpoints (updated for Docker)
 check_api_endpoints() {
     print_status "HEADER" "API Endpoints"
 
-    local api_base="http://localhost:8080"
+    # Determine API base URL
+    local api_base="$API_BASE"
+    if [ -z "$api_base" ]; then
+        # Auto-detect based on deployment type
+        local docker_deployment="${json_output[bot_deployment]}"
+        if [ "$docker_deployment" = "docker" ]; then
+            api_base="http://localhost:8082"
+            print_status "INFO" "Auto-detected Docker API base: $api_base"
+        else
+            api_base="http://localhost:8080"
+            print_status "INFO" "Auto-detected process API base: $api_base"
+        fi
+    else
+        print_status "INFO" "Using provided API base: $api_base"
+    fi
+
+    # Store API base for JSON output
+    json_output["api_base"]="$api_base"
+
+    # Extract port for display
+    local api_port=$(echo "$api_base" | sed 's/.*:\([0-9]*\).*/\1/')
+    json_output["api_port"]="$api_port"
 
     # Health check
-    local health_status=$(execute "curl -s --max-time 5 $api_base/api/health || echo 'failed'" true)
-    if [[ "$health_status" == *"healthy"* ]] || [[ "$health_status" == *"ok"* ]]; then
+    local health_status=$(execute "curl -s --max-time 5 $api_base/health || echo 'failed'" true)
+    if [[ "$health_status" == *"healthy"* ]] || [[ "$health_status" == *"ok"* ]] || [[ "$health_status" == *"status"* ]]; then
         print_status "SUCCESS" "API health endpoint responding"
         json_output["api_health"]="healthy"
     else
@@ -381,119 +669,229 @@ check_api_endpoints() {
         json_output["api_health"]="failed"
     fi
 
-    # Status endpoint
-    local status_status=$(execute "curl -s --max-time 5 $api_base/api/status || echo 'failed'" true)
-    if [[ "$status_status" == *"status"* ]] || [[ "$status_status" == *"running"* ]]; then
-        print_status "SUCCESS" "API status endpoint responding"
-        json_output["api_status"]="responding"
+    # Ready check
+    local ready_status=$(execute "curl -s --max-time 5 $api_base/ready || echo 'failed'" true)
+    if [[ "$ready_status" == *"ready"* ]] || [[ "$ready_status" == *"true"* ]]; then
+        print_status "SUCCESS" "API ready endpoint responding"
+        json_output["api_ready"]="ready"
     else
-        print_status "WARNING" "API status endpoint not responding"
-        json_output["api_status"]="failed"
+        print_status "INFO" "API ready endpoint: Not responding (optional)"
+        json_output["api_ready"]="not-ready"
     fi
 
-    # Metrics endpoint
-    local metrics_status=$(execute "curl -s --max-time 5 $api_base/api/metrics || echo 'failed'" true)
-    if [[ "$metrics_status" == *"metrics"* ]] || [[ "$metrics_status" == *"performance"* ]]; then
-        print_status "SUCCESS" "API metrics endpoint responding"
+    # Metrics endpoint - use the same port as API base (FastAPI /metrics)
+    local metrics_status=$(execute "curl -s --max-time 5 $api_base/metrics || echo 'failed'" true)
+    if [[ "$metrics_status" == *"trading_bot"* ]] || [[ "$metrics_status" == *"metrics"* ]] || [[ "$metrics_status" == *"# HELP"* ]]; then
+        print_status "SUCCESS" "Metrics endpoint responding (port $api_port)"
         json_output["api_metrics"]="responding"
+        json_output["metrics_port"]="$api_port"
     else
-        print_status "WARNING" "API metrics endpoint not responding"
+        print_status "WARNING" "Metrics endpoint not responding (port $api_port)"
         json_output["api_metrics"]="failed"
     fi
 
-    # Port check
-    local port_check=$(execute "netstat -ln | grep :8080 || echo 'port-not-found'" true)
-    if [[ "$port_check" == *"8080"* ]]; then
-        print_status "SUCCESS" "Port 8080 is listening"
-        json_output["port_8080"]="listening"
+    # Port check using ss instead of netstat
+    local port_check_result="unknown"
+    if has_cmd "ss"; then
+        if execute "ss -lnt | awk '{print \$4}' | grep -q \":$api_port\"" true; then
+            port_check_result="listening"
+        else
+            port_check_result="not-listening"
+        fi
     else
-        print_status "WARNING" "Port 8080 not found listening"
-        json_output["port_8080"]="not-listening"
+        # Fallback to curl health check if ss is not available
+        if [[ "$health_status" != *"failed"* ]]; then
+            port_check_result="listening"
+        else
+            port_check_result="unknown"
+        fi
+    fi
+
+    if [ "$port_check_result" = "listening" ]; then
+        print_status "SUCCESS" "Port $api_port is listening"
+        json_output["port_api"]="listening"
+    else
+        print_status "WARNING" "Port $api_port not found listening"
+        json_output["port_api"]="not-listening"
+    fi
+
+    # Additional endpoint checks
+    local arbitrage_status=$(execute "curl -s --max-time 5 $api_base/arbitrage/status || echo 'failed'" true)
+    if [[ "$arbitrage_status" == *"is_running"* ]] || [[ "$arbitrage_status" == *"running"* ]]; then
+        print_status "SUCCESS" "Arbitrage status endpoint responding"
+        json_output["arbitrage_status"]="responding"
+    else
+        print_status "INFO" "Arbitrage status endpoint: Not configured or not responding"
+        json_output["arbitrage_status"]="not-responding"
     fi
 }
 
-# Function to check recent logs
+# Function to check recent logs (updated for Docker)
 check_recent_logs() {
     print_status "HEADER" "Recent Log Analysis"
 
-    local log_dir="$DEPLOY_DIR/logs"
+    local docker_deployment="${json_output[bot_deployment]}"
 
-    # Check log directory exists
-    local log_exists=$(execute "test -d $log_dir && echo 'exists' || echo 'not-found'" true)
-    if [ "$log_exists" = "exists" ]; then
-        # Find latest log file
-        local latest_log=$(execute "ls -t $log_dir/trading-bot-*.log 2>/dev/null | head -1" true)
+    if [ "$docker_deployment" = "docker" ]; then
+        # Docker-based log checking
+        print_status "INFO" "Checking Docker container logs"
 
-        if [ "$latest_log" != "ERROR" ] && [ -n "$latest_log" ]; then
-            # Count errors and critical issues in last 200 lines
-            local error_count=$(execute "tail -n 200 $latest_log | grep -i 'ERROR\\|CRITICAL' | wc -l" true)
-            local warning_count=$(execute "tail -n 200 $latest_log | grep -i 'warning' | wc -l" true)
+        # Check if container is running
+        local container_running=$(execute "cd $DEPLOY_DIR && docker-compose ps trading-bot --format '{{.Status}}' 2>/dev/null | grep -q 'Up' && echo 'yes' || echo 'no'" true)
 
-            if [ "$error_count" -gt 0 ]; then
-                print_status "ERROR" "Found $error_count errors/critical issues in last 200 lines"
-                json_output["log_errors"]="$error_count"
+        if [ "$container_running" = "yes" ]; then
+            # Count errors and critical issues in last 200 lines of container logs
+            local error_count=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=200 trading-bot 2>/dev/null | grep -i 'error\\|critical' | wc -l" true)
+            local warning_count=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=200 trading-bot 2>/dev/null | grep -i 'warning' | wc -l" true)
 
-                # Show last 3 errors
-                local last_errors=$(execute "tail -n 200 $latest_log | grep -i 'ERROR\\|CRITICAL' | tail -3" true)
-                if [ "$last_errors" != "ERROR" ] && [ -n "$last_errors" ]; then
-                    print_status "INFO" "Last 3 errors:"
-                    echo "$last_errors" | while IFS= read -r line; do
+            if [ "$error_count" != "ERROR" ] && [ "$warning_count" != "ERROR" ]; then
+                if [ "$error_count" -gt 0 ]; then
+                    print_status "ERROR" "Found $error_count errors/critical issues in last 200 lines"
+                    json_output["log_errors"]="$error_count"
+
+                    # Show last 3 errors
+                    local last_errors=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=200 trading-bot 2>/dev/null | grep -i 'error\\|critical' | tail -3" true)
+                    if [ "$last_errors" != "ERROR" ] && [ -n "$last_errors" ]; then
+                        print_status "INFO" "Last 3 errors:"
+                        echo "$last_errors" | while IFS= read -r line; do
+                            echo "  $line"
+                        done
+                    fi
+                else
+                    print_status "SUCCESS" "No errors/critical issues in last 200 lines"
+                    json_output["log_errors"]="0"
+                fi
+
+                if [ "$warning_count" -gt 10 ]; then
+                    print_status "WARNING" "Found $warning_count warnings in last 200 lines"
+                    json_output["log_warnings"]="$warning_count"
+                else
+                    print_status "SUCCESS" "Low warning count: $warning_count"
+                    json_output["log_warnings"]="$warning_count"
+                fi
+
+                # Summarize filter performance
+                local filter_performance=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=200 trading-bot 2>/dev/null | grep -i 'Filter Performance' | tail -5" true)
+                if [ "$filter_performance" != "ERROR" ] && [ -n "$filter_performance" ]; then
+                    print_status "INFO" "Recent filter performance:"
+                    echo "$filter_performance" | while IFS= read -r line; do
                         echo "  $line"
                     done
+                    json_output["filter_performance"]="available"
+                else
+                    print_status "INFO" "No filter performance data in recent logs"
+                    json_output["filter_performance"]="not-found"
+                fi
+
+                # Summarize recent trades (EXECUTED|PROFIT|LOSS)
+                local recent_trades=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=200 trading-bot 2>/dev/null | grep -i 'EXECUTED\\|PROFIT\\|LOSS' | tail -5" true)
+                if [ "$recent_trades" != "ERROR" ] && [ -n "$recent_trades" ]; then
+                    print_status "INFO" "Recent trade results:"
+                    echo "$recent_trades" | while IFS= read -r line; do
+                        echo "  $line"
+                    done
+                    json_output["recent_activity"]="yes"
+
+                    # Count trades
+                    local executed_count=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=200 trading-bot 2>/dev/null | grep -i 'EXECUTED' | wc -l" true)
+                    local profit_count=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=200 trading-bot 2>/dev/null | grep -i 'PROFIT' | wc -l" true)
+                    local loss_count=$(execute "cd $DEPLOY_DIR && docker-compose logs --tail=200 trading-bot 2>/dev/null | grep -i 'LOSS' | wc -l" true)
+                    json_output["trades_executed"]="$executed_count"
+                    json_output["trades_profit"]="$profit_count"
+                    json_output["trades_loss"]="$loss_count"
+                else
+                    print_status "INFO" "No recent trading activity in logs"
+                    json_output["recent_activity"]="no"
                 fi
             else
-                print_status "SUCCESS" "No errors/critical issues in last 200 lines"
-                json_output["log_errors"]="0"
-            fi
-
-            if [ "$warning_count" -gt 10 ]; then
-                print_status "WARNING" "Found $warning_count warnings in last 200 lines"
-                json_output["log_warnings"]="$warning_count"
-            else
-                print_status "SUCCESS" "Low warning count: $warning_count"
-                json_output["log_warnings"]="$warning_count"
-            fi
-
-            # Summarize filter performance
-            local filter_performance=$(execute "tail -n 200 $latest_log | grep -i 'Filter Performance' | tail -5" true)
-            if [ "$filter_performance" != "ERROR" ] && [ -n "$filter_performance" ]; then
-                print_status "INFO" "Recent filter performance:"
-                echo "$filter_performance" | while IFS= read -r line; do
-                    echo "  $line"
-                done
-                json_output["filter_performance"]="available"
-            else
-                print_status "INFO" "No filter performance data in recent logs"
-                json_output["filter_performance"]="not-found"
-            fi
-
-            # Summarize recent trades (EXECUTED|PROFIT|LOSS)
-            local recent_trades=$(execute "tail -n 200 $latest_log | grep -i 'EXECUTED\\|PROFIT\\|LOSS' | tail -5" true)
-            if [ "$recent_trades" != "ERROR" ] && [ -n "$recent_trades" ]; then
-                print_status "INFO" "Recent trade results:"
-                echo "$recent_trades" | while IFS= read -r line; do
-                    echo "  $line"
-                done
-                json_output["recent_activity"]="yes"
-
-                # Count trades
-                local executed_count=$(execute "tail -n 200 $latest_log | grep -i 'EXECUTED' | wc -l" true)
-                local profit_count=$(execute "tail -n 200 $latest_log | grep -i 'PROFIT' | wc -l" true)
-                local loss_count=$(execute "tail -n 200 $latest_log | grep -i 'LOSS' | wc -l" true)
-                json_output["trades_executed"]="$executed_count"
-                json_output["trades_profit"]="$profit_count"
-                json_output["trades_loss"]="$loss_count"
-            else
-                print_status "INFO" "No recent trading activity in logs"
-                json_output["recent_activity"]="no"
+                print_status "ERROR" "Could not analyze container logs"
+                json_output["log_analysis"]="failed"
             fi
         else
-            print_status "WARNING" "No log files found"
-            json_output["log_files"]="not-found"
+            print_status "WARNING" "Trading bot container not running - cannot check logs"
+            json_output["container_status"]="not-running"
         fi
     else
-        print_status "WARNING" "Log directory not found: $log_dir"
-        json_output["log_directory"]="not-found"
+        # Process-based log checking (original logic)
+        local log_dir="$DEPLOY_DIR/logs"
+
+        # Check log directory exists
+        local log_exists=$(execute "test -d $log_dir && echo 'exists' || echo 'not-found'" true)
+        if [ "$log_exists" = "exists" ]; then
+            # Find latest log file
+            local latest_log=$(execute "ls -t $log_dir/trading-bot-*.log 2>/dev/null | head -1" true)
+
+            if [ "$latest_log" != "ERROR" ] && [ -n "$latest_log" ]; then
+                # Count errors and critical issues in last 200 lines
+                local error_count=$(execute "tail -n 200 $latest_log | grep -i 'ERROR\\|CRITICAL' | wc -l" true)
+                local warning_count=$(execute "tail -n 200 $latest_log | grep -i 'warning' | wc -l" true)
+
+                if [ "$error_count" -gt 0 ]; then
+                    print_status "ERROR" "Found $error_count errors/critical issues in last 200 lines"
+                    json_output["log_errors"]="$error_count"
+
+                    # Show last 3 errors
+                    local last_errors=$(execute "tail -n 200 $latest_log | grep -i 'ERROR\\|CRITICAL' | tail -3" true)
+                    if [ "$last_errors" != "ERROR" ] && [ -n "$last_errors" ]; then
+                        print_status "INFO" "Last 3 errors:"
+                        echo "$last_errors" | while IFS= read -r line; do
+                            echo "  $line"
+                        done
+                    fi
+                else
+                    print_status "SUCCESS" "No errors/critical issues in last 200 lines"
+                    json_output["log_errors"]="0"
+                fi
+
+                if [ "$warning_count" -gt 10 ]; then
+                    print_status "WARNING" "Found $warning_count warnings in last 200 lines"
+                    json_output["log_warnings"]="$warning_count"
+                else
+                    print_status "SUCCESS" "Low warning count: $warning_count"
+                    json_output["log_warnings"]="$warning_count"
+                fi
+
+                # Summarize filter performance
+                local filter_performance=$(execute "tail -n 200 $latest_log | grep -i 'Filter Performance' | tail -5" true)
+                if [ "$filter_performance" != "ERROR" ] && [ -n "$filter_performance" ]; then
+                    print_status "INFO" "Recent filter performance:"
+                    echo "$filter_performance" | while IFS= read -r line; do
+                        echo "  $line"
+                    done
+                    json_output["filter_performance"]="available"
+                else
+                    print_status "INFO" "No filter performance data in recent logs"
+                    json_output["filter_performance"]="not-found"
+                fi
+
+                # Summarize recent trades (EXECUTED|PROFIT|LOSS)
+                local recent_trades=$(execute "tail -n 200 $latest_log | grep -i 'EXECUTED\\|PROFIT\\|LOSS' | tail -5" true)
+                if [ "$recent_trades" != "ERROR" ] && [ -n "$recent_trades" ]; then
+                    print_status "INFO" "Recent trade results:"
+                    echo "$recent_trades" | while IFS= read -r line; do
+                        echo "  $line"
+                    done
+                    json_output["recent_activity"]="yes"
+
+                    # Count trades
+                    local executed_count=$(execute "tail -n 200 $latest_log | grep -i 'EXECUTED' | wc -l" true)
+                    local profit_count=$(execute "tail -n 200 $latest_log | grep -i 'PROFIT' | wc -l" true)
+                    local loss_count=$(execute "tail -n 200 $latest_log | grep -i 'LOSS' | wc -l" true)
+                    json_output["trades_executed"]="$executed_count"
+                    json_output["trades_profit"]="$profit_count"
+                    json_output["trades_loss"]="$loss_count"
+                else
+                    print_status "INFO" "No recent trading activity in logs"
+                    json_output["recent_activity"]="no"
+                fi
+            else
+                print_status "WARNING" "No log files found"
+                json_output["log_files"]="not-found"
+            fi
+        else
+            print_status "WARNING" "Log directory not found: $log_dir"
+            json_output["log_directory"]="not-found"
+        fi
     fi
 }
 
@@ -501,14 +899,44 @@ check_recent_logs() {
 check_performance_metrics() {
     print_status "HEADER" "Performance Metrics"
 
-    local api_base="http://localhost:8080"
+    # Use the same API base as determined in check_api_endpoints
+    local api_base="${json_output[api_base]}"
+    if [ -z "$api_base" ]; then
+        print_status "WARNING" "API base not available for performance metrics"
+        json_output["performance_data"]="unavailable"
+        return 1
+    fi
 
-    # Get performance summary
+    # Get performance summary - try the documented endpoint first
     local perf_data=$(execute "curl -s --max-time 5 $api_base/api/performance/summary || echo 'failed'" true)
 
+    if [ "$perf_data" = "failed" ]; then
+        # Fallback to metrics endpoint if performance summary is not available
+        perf_data=$(execute "curl -s --max-time 5 $api_base/metrics || echo 'failed'" true)
+    fi
+
     if [ "$perf_data" != "failed" ] && [ -n "$perf_data" ]; then
-        # Extract key metrics (simplified parsing)
-        if [[ "$perf_data" == *"trades"* ]]; then
+        # Extract key metrics from metrics format if performance summary failed
+        if [[ "$perf_data" == *"trading_bot_trades_total"* ]]; then
+            print_status "SUCCESS" "Performance metrics available from /metrics"
+            json_output["performance_data"]="available"
+
+            # Extract trade count from metrics
+            local trade_count=$(echo "$perf_data" | grep "trading_bot_trades_total" | awk '{print $2}' | head -1)
+            if [ -n "$trade_count" ]; then
+                print_status "INFO" "Total trades: $trade_count"
+                json_output["total_trades"]="$trade_count"
+            fi
+
+            # Extract portfolio value from metrics
+            local portfolio_value=$(echo "$perf_data" | grep "trading_bot_portfolio_value" | awk '{print $2}' | head -1)
+            if [ -n "$portfolio_value" ]; then
+                print_status "INFO" "Portfolio value: $portfolio_value SOL"
+                json_output["portfolio_value"]="$portfolio_value"
+            fi
+
+        elif [[ "$perf_data" == *"trades"* ]]; then
+            # Original performance summary format
             print_status "SUCCESS" "Performance data available"
             json_output["performance_data"]="available"
 
@@ -546,6 +974,17 @@ show_alerts() {
         ((alerts++))
     fi
 
+    # Docker-specific critical issues
+    if [ "${json_output[docker_status]}" = "not-running" ]; then
+        print_status "CRITICAL" "🚨 Docker is not running - required for containerized deployment"
+        ((alerts++))
+    fi
+
+    if [ "${json_output[dragonflydb_status]}" = "failed" ] && [ "${json_output[dragonflydb_configured]}" = "true" ]; then
+        print_status "ERROR" "❌ DragonflyDB Cloud connection failed"
+        ((alerts++))
+    fi
+
     if [ "${json_output[disk_usage]}" != "unknown" ] && [ "${json_output[disk_usage]%?}" -gt 90 ]; then
         print_status "CRITICAL" "🚨 Disk usage critically high (${json_output[disk_usage]})"
         ((alerts++))
@@ -566,8 +1005,14 @@ show_alerts() {
         ((alerts++))
     fi
 
-    if [ "${json_output[log_errors]}" != "0" ]; then
+    if [ "${json_output[log_errors]}" != "0" ] && [ "${json_output[log_errors]}" != "ERROR" ]; then
         print_status "WARNING" "⚠️  Recent errors detected in logs (${json_output[log_errors]})"
+        ((alerts++))
+    fi
+
+    # Docker service alerts
+    if [ "${json_output[unhealthy_containers]}" != "0" ] && [ "${json_output[unhealthy_containers]}" != "ERROR" ]; then
+        print_status "WARNING" "⚠️  Found ${json_output[unhealthy_containers]} unhealthy containers"
         ((alerts++))
     fi
 
@@ -578,10 +1023,25 @@ show_alerts() {
         print_status "WARNING" "⚠️  Found $alerts issue(s) that need attention"
         echo ""
         print_status "INFO" "Recommendations:"
-        echo "  • Check logs: tail -f $DEPLOY_DIR/logs/trading-bot-*.log"
-        echo "  • Restart bot: cd $DEPLOY_DIR && ./scripts/restart_bot.sh"
+
+        # Show Docker-specific recommendations
+        if [ "${json_output[bot_deployment]}" = "docker" ]; then
+            echo "  • Check Docker services: cd $DEPLOY_DIR && docker-compose ps"
+            echo "  • Check container logs: cd $DEPLOY_DIR && docker-compose logs trading-bot"
+            echo "  • Restart services: cd $DEPLOY_DIR && docker-compose restart trading-bot"
+            echo "  • Check API: curl http://localhost:8082/health"
+        else
+            echo "  • Check logs: tail -f $DEPLOY_DIR/logs/trading-bot-*.log"
+            echo "  • Restart bot: cd $DEPLOY_DIR && ./scripts/restart_bot.sh"
+            echo "  • Check API: curl http://localhost:8080/api/health"
+        fi
+
         echo "  • Monitor resources: htop, df -h"
-        echo "  • Check API: curl http://localhost:8080/api/health"
+
+        # DragonflyDB-specific recommendations
+        if [ "${json_output[dragonflydb_status]}" = "failed" ]; then
+            echo "  • Check DragonflyDB: redis-cli -u \$REDIS_URL ping"
+        fi
     fi
 
     json_output["total_alerts"]="$alerts"
@@ -645,6 +1105,16 @@ show_summary() {
     if [ "$activity" = "yes" ]; then activity_color="$GREEN"; fi
     echo -e "${activity_color}📈 Activity: $activity${NC}"
 
+    # Filter health
+    local filter_health="${json_output[filter_health]}"
+    local filter_color="$GREEN"
+    if [ "$filter_health" = "too_lenient" ] || [ "$filter_health" = "too_aggressive" ]; then
+        filter_color="$YELLOW";
+    elif [ "$filter_health" = "unknown" ]; then
+        filter_color="$RED";
+    fi
+    echo -e "${filter_color}🛡️  Filter: $filter_health${NC}"
+
     # Alerts
     local alerts="${json_output[total_alerts]}"
     local alert_color="$GREEN"
@@ -663,12 +1133,18 @@ main_health_check() {
         echo ""
     fi
 
+    # Check dependencies first
+    check_dependencies
+
     # Run all checks
     check_connection
     check_system_resources
+    check_docker_services
+    check_dragonflydb
     check_bot_service
     check_api_endpoints
     check_recent_logs
+    check_filter_performance
     check_performance_metrics
 
     local alerts_result=0

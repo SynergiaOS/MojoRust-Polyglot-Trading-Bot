@@ -19,7 +19,9 @@ NC='\033[0m' # No Color
 # Configuration
 SKIP_FIREWALL=false
 SKIP_MONITORING=false
+FORCE_RESET_UFW=false
 TRADING_USER="tradingbot"
+ALLOW_USERS="$TRADING_USER"
 LOG_FILE="/var/log/vps-setup.log"
 
 # =============================================================================
@@ -183,15 +185,70 @@ configure_firewall() {
 
     log_step "Configuring firewall..."
 
+    # Backup current firewall rules
+    BACKUP_FILE="/var/backups/ufw-before-$(date +%Y-%m-%d).txt"
+    mkdir -p /var/backups
+    if ufw status verbose > "$BACKUP_FILE" 2>/dev/null; then
+        log_info "Firewall rules backed up to: $BACKUP_FILE"
+    else
+        log_info "No existing firewall rules to backup"
+    fi
+
+    # Check if force reset is requested
+    if [[ "$FORCE_RESET_UFW" == true ]]; then
+        log_info "Force reset requested, performing full firewall reset..."
+
+        # Reset firewall rules
+        ufw --force reset
+
+        # Allow SSH (important: don't lock yourself out!)
+        ufw allow 22/tcp
+
+        # Allow trading bot monitoring ports
+        ufw allow 9090/tcp comment "Prometheus metrics"
+        ufw allow 3000/tcp comment "Grafana dashboard"
+        ufw allow 8080/tcp comment "Trading Bot API"
+
+        # Enable firewall
+        ufw --force enable
+
+        # Check status
+        ufw status
+
+        log_success "✅ Firewall force reset and configured"
+        return 0
+    fi
+
+    # Check if UFW is already active
+    if ufw status | grep -q "Status: active"; then
+        log_info "Firewall is already active, adding required rules..."
+
+        # Add required ports if not already present
+        ufw allow 22/tcp comment "SSH"
+        ufw allow 9090/tcp comment "Prometheus metrics"
+        ufw allow 3000/tcp comment "Grafana dashboard"
+        ufw allow 8080/tcp comment "Trading Bot API"
+
+        # Reload firewall to apply changes
+        ufw reload
+
+        log_success "✅ Firewall rules added and reloaded"
+        return 0
+    fi
+
+    # UFW is inactive, perform fresh setup
+    log_info "Firewall is inactive, performing fresh setup..."
+
     # Reset firewall rules
     ufw --force reset
 
     # Allow SSH (important: don't lock yourself out!)
     ufw allow 22/tcp
 
-    # Allow trading bot monitoring ports (optional)
+    # Allow trading bot monitoring ports
     ufw allow 9090/tcp comment "Prometheus metrics"
     ufw allow 3000/tcp comment "Grafana dashboard"
+    ufw allow 8080/tcp comment "Trading Bot API"
 
     # Enable firewall
     ufw --force enable
@@ -286,21 +343,34 @@ install_monitoring_tools() {
 
     log_step "Installing monitoring tools..."
 
-    # Install additional monitoring tools
-    apt install -y \
-        prometheus \
-        grafana \
-        docker.io \
-        docker-compose
+    # Add Grafana GPG key and repository
+    wget -q -O - https://apt.grafana.com/gpg.key | apt-key add -
+    echo "deb https://apt.grafana.com stable main" | tee /etc/apt/sources.list.d/grafana.list
+
+    # Update package list
+    apt-get update
+
+    # Install Docker and Docker Compose
+    apt install -y docker.io docker-compose
+
+    # Install Grafana from official repository
+    apt-get install -y grafana
+
+    # Install Prometheus
+    apt-get install -y prometheus
 
     # Start and enable services
     systemctl enable docker
     systemctl start docker
+    systemctl enable grafana-server
+    systemctl start grafana-server
 
     # Add trading bot user to docker group
     usermod -aG docker "$TRADING_USER"
 
-    log_success "✅ Monitoring tools installed"
+    log_success "✅ Monitoring tools installed from official repositories"
+    log_info "✅ Grafana: http://38.242.239.150:3000 (admin/admin)"
+    log_info "✅ Prometheus: http://38.242.239.150:9090"
 }
 
 setup_log_rotation() {
@@ -352,6 +422,17 @@ setup_ssh_security() {
     # Backup original SSH config
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
 
+    # Check if authorized_keys exists for the trading user
+    AUTHORIZED_KEYS="/home/$TRADING_USER/.ssh/authorized_keys"
+    if [[ ! -f "$AUTHORIZED_KEYS" ]] || [[ ! -s "$AUTHORIZED_KEYS" ]]; then
+        log_warning "⚠️  SSH authorized keys not found for $TRADING_USER user"
+        log_warning "⚠️  Skipping SSH hardening to prevent lockout"
+        log_info "Please set up SSH keys first and then run the script again"
+        return 0
+    fi
+
+    log_info "✅ SSH authorized keys found for $TRADING_USER user"
+
     # Secure SSH configuration
     cat > /etc/ssh/sshd_config.d/trading-bot-security.conf <<EOF
 # SSH Security Configuration for Trading Bot
@@ -378,8 +459,8 @@ Protocol 2
 ClientAliveInterval 300
 ClientAliveCountMax 2
 
-# Allow only trading bot user and sudo
-AllowUsers tradingbot
+# Allow specified users and sudo groups
+AllowUsers $ALLOW_USERS
 AllowGroups sudo
 
 # Use specific port (optional - change from 22 if desired)
@@ -393,7 +474,8 @@ EOF
     systemctl restart ssh
 
     log_success "✅ SSH security configured"
-    log_warning "⚠️  Root login disabled. Make sure you have SSH keys set up for $TRADING_USER user"
+    log_info "✅ Allowed SSH users: $ALLOW_USERS"
+    log_warning "⚠️  Root login disabled. Make sure you have SSH keys configured for allowed users"
 }
 
 setup_system_optimization() {
@@ -453,8 +535,15 @@ create_backup_script() {
 
 BACKUP_DIR="/home/tradingbot/backups"
 DATE=$(date +%Y%m%d-%H%M%S)
-PROJECT_DIR="/home/tradingbot/mojo-trading-bot"
+PROJECT_DIR="${PROJECT_DIR:-/home/tradingbot/mojo-trading-bot}"
 RETENTION_DAYS=7
+
+# Validate project directory exists
+if [[ ! -d "$PROJECT_DIR" ]]; then
+    echo "Warning: Project directory $PROJECT_DIR does not exist"
+    echo "Creating directory structure..."
+    mkdir -p "$PROJECT_DIR"
+fi
 
 # Create backup directory
 mkdir -p "$BACKUP_DIR"
@@ -578,18 +667,29 @@ main() {
                 SKIP_MONITORING=true
                 shift
                 ;;
+            --force-reset-ufw)
+                FORCE_RESET_UFW=true
+                shift
+                ;;
             --user=*)
                 TRADING_USER="${1#*=}"
+                ALLOW_USERS="$TRADING_USER"
+                shift
+                ;;
+            --allow-users=*)
+                ALLOW_USERS="${1#*=}"
                 shift
                 ;;
             --help|-h)
                 echo "Usage: sudo bash $0 [OPTIONS]"
                 echo ""
                 echo "Options:"
-                echo "  --skip-firewall     Skip firewall configuration"
-                echo "  --skip-monitoring   Skip monitoring tools installation"
-                echo "  --user=USERNAME     Use custom username (default: tradingbot)"
-                echo "  --help, -h          Show this help message"
+                echo "  --skip-firewall         Skip firewall configuration"
+                echo "  --skip-monitoring       Skip monitoring tools installation"
+                echo "  --force-reset-ufw       Force firewall reset (bypass safety checks)"
+                echo "  --user=USERNAME         Use custom username (default: tradingbot)"
+                echo "  --allow-users=\"USERS\"  Specify allowed SSH users (default: tradingbot)"
+                echo "  --help, -h              Show this help message"
                 echo ""
                 exit 0
                 ;;

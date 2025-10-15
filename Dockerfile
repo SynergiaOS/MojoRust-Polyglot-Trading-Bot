@@ -1,10 +1,17 @@
 # =============================================================================
 # Multi-stage Dockerfile for AI-Powered Memecoin Trading Bot
 # =============================================================================
+# IMPORTANT: Mojo Binary Build Required
+# =============================================================================
+# Mojo requires Modular authentication and cannot be built in Docker without credentials.
+# Build the Mojo binary locally first:
+#   mojo build src/main.mojo -o trading-bot
+# Then build Docker image:
+#   docker build -t trading-bot:latest .
+# =============================================================================
 # Build stages:
-# 1. rust-builder - Compile Rust security modules
-# 2. mojo-builder - Compile Mojo performance modules
-# 3. runtime - Minimal runtime image with compiled binaries
+# 1. rust-builder - Compile Rust security modules (works without auth)
+# 2. runtime - Minimal runtime image with compiled binaries (uses pre-built Mojo)
 
 # =============================================================================
 # Stage 1: Rust Builder
@@ -36,44 +43,15 @@ COPY rust-modules/src/ ./rust-modules/src/
 RUN cargo build --workspace --release
 
 # =============================================================================
-# Stage 2: Mojo Builder
+# Stage 2: Mojo Builder - DISABLED
 # =============================================================================
-FROM ubuntu:22.04 as mojo-builder
-
-# Set working directory
-WORKDIR /build
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    build-essential \
-    python3 \
-    python3-pip \
-    git \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Mojo (assuming Modular provides a package or binary)
-# Note: This section may need adjustment based on actual Mojo installation method
-RUN curl -L https://github.com/modularml/mojo/releases/latest/download/mojo-linux-x86_64.tar.gz | tar -xz \
-    && mv mojo/bin/mojo /usr/local/bin/ \
-    && mv mojo/lib /usr/local/lib/mojo \
-    && export LD_LIBRARY_PATH=/usr/local/lib/mojo:$LD_LIBRARY_PATH
-
-# Verify Mojo installation
-RUN mojo --version
-
-# Copy Mojo project configuration
-COPY mojo.toml ./
-
-# Copy Mojo source code
-COPY src/ ./src/
-
-# Build Mojo modules with optimizations
-RUN mojo build --release --target=trading-bot
+# Mojo installation requires Modular authentication
+# Build Mojo components locally and copy binaries instead
+# FROM ubuntu:22.04 as mojo-builder
+# ... (entire mojo-builder stage commented out due to auth requirements)
 
 # =============================================================================
-# Stage 3: Runtime
+# Stage 2: Runtime
 # =============================================================================
 FROM ubuntu:22.04 as runtime
 
@@ -87,10 +65,11 @@ WORKDIR /app
 
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y \
-    libssl1.1 \
+    libssl3 \
     ca-certificates \
     curl \
     wget \
+    python3-minimal \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -105,14 +84,17 @@ RUN mkdir -p \
     /app/data \
     && chown -R trading:trading /app
 
-# Copy compiled binaries from builder stages
-COPY --from=mojo-builder /build/trading-bot /app/trading-bot
-COPY --from=rust-builder /build/rust-modules/target/release/libwallet.so /app/lib/
-COPY --from=rust-builder /build/rust-modules/target/release/libcrypto.so /app/lib/
+# Copy pre-built Mojo binary (built locally with Modular auth)
+COPY ./trading-bot /app/trading-bot
+# Ensure correct ownership and execute permissions for non-root runtime user
+RUN chown trading:trading /app/trading-bot && chmod 0755 /app/trading-bot
+
+# Copy compiled Rust libraries from builder
+COPY --from=rust-builder /build/rust-modules/target/release/*.so /app/lib/
 
 # Copy configuration files
 COPY config/ ./config/
-COPY --chown=trading:trading .env.example .env
+# Do NOT embed example env into runtime image; runtime env should be supplied by Compose or env files
 
 # Set library path
 ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
@@ -123,7 +105,7 @@ ENV LOG_LEVEL=info
 ENV TRADING_ENV=production
 
 # Expose monitoring ports
-EXPOSE 9090 8082
+EXPOSE 9091 8082
 
 # Health check endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
@@ -139,8 +121,9 @@ USER trading
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
-# Default command
-CMD ["./trading-bot", "--mode", "live", "--capital", "1.0"]
+# Default command: expand environment variables at container runtime; default to paper
+# Using shell form so ${EXECUTION_MODE} is expanded at container start
+CMD ./trading-bot --mode "${EXECUTION_MODE:-paper}" --capital "${INITIAL_CAPITAL:-1.0}"
 
 # =============================================================================
 # Development Target
@@ -203,6 +186,11 @@ CMD ["./trading-bot", "--mode", "test", "--run-all-tests"]
 # Build Targets Summary
 # =============================================================================
 #
+# Prerequisites for building:
+#   1. Install Mojo locally: https://docs.modular.com/mojo/get-started
+#   2. Build Mojo binary: mojo build src/main.mojo -o trading-bot
+#   3. Build Docker image: docker build -t trading-bot:latest .
+#
 # Development build:
 #   docker build --target development -t trading-bot:dev .
 #
@@ -213,8 +201,8 @@ CMD ["./trading-bot", "--mode", "test", "--run-all-tests"]
 #   docker build --target test -t trading-bot:test .
 #
 # Run commands:
-#   Development: docker run -p 9090:9090 -p 8082:8082 trading-bot:dev
-#   Production:  docker run -p 9090:9090 -p 8082:8082 trading-bot:latest
+#   Development: docker run -p 9091:9090 -p 8082:8082 trading-bot:dev
+#   Production:  docker run -p 9091:9090 -p 8082:8082 trading-bot:latest
 #   Tests:       docker run trading-bot:test
 #
 # Build with BuildKit for parallel builds:
