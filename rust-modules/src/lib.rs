@@ -28,12 +28,14 @@ pub mod security;
 pub mod solana;
 pub mod ffi;
 pub mod infisical_manager;
+pub mod portfolio;
 
 // Re-export main interfaces for convenience
 pub use crypto::CryptoEngine;
 pub use security::SecurityEngine;
 pub use solana::SolanaEngine;
 pub use infisical_manager::{SecretsManager, ApiConfig, TradingConfig, WalletConfig, DatabaseConfig, MonitoringConfig};
+pub use portfolio::{PortfolioManager, CapitalRequest, CapitalReservation, Strategy, Priority};
 
 use anyhow::Result;
 
