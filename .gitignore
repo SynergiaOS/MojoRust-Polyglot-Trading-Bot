@@ -154,3 +154,17 @@ portfolio_sensitive/
 .kiro/steering/byterover-rules.md
 .qoder/rules/byterover-rules.md
 .augment/rules/byterover-rules.md
+# Auto-generated entries
+*.py[cod]
+*$py.class
+.python-version
+pip-log.txt
+pip-delete-this-directory.txt
+env.bak/
+venv.bak/
+*.mojo_cache
+data/cache/
+data/backups/
+coverage.xml
+.env.production
+config/local/

@@ -98,7 +98,7 @@ class TradePosition:
     exit_reason: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
-class PumpPortalTrader:
+class PumpPortalRealtimeTrader:
     """
     Real-time PumpFun token trader with advanced sniper filtering
     """
@@ -143,6 +143,13 @@ class PumpPortalTrader:
         }
 
         self.logger.info("PumpPortal Trader initialized")
+
+        # Ensure a dedicated asyncio lock for wallet balance updates
+        if not hasattr(self, "balance_lock") or getattr(self, "balance_lock") is None:
+            self.balance_lock = asyncio.Lock()
+        # Lock to protect position metadata and other per-position mutations
+        if not hasattr(self, "positions_lock") or getattr(self, "positions_lock") is None:
+            self.positions_lock = asyncio.Lock()
 
     def setup_logging(self):
         """Setup logging configuration"""
@@ -321,8 +328,16 @@ class PumpPortalTrader:
             volume_5m = float(data.get('volume_5m', 0.0))
 
             # Store volume data for sniper analysis
-            position.metadata = getattr(position, 'metadata', {})
-            position.metadata['volume_5m'] = volume_5m
+            # Ensure metadata exists and safely update it under positions_lock
+            async def _update_metadata():
+                position.metadata = getattr(position, 'metadata', {}) or {}
+                position.metadata['volume_5m'] = volume_5m
+                # Save latest live price so monitor_position can use it
+                position.metadata['current_price'] = current_price
+
+            # Protect concurrent access to positions' metadata
+            async with self.positions_lock:
+                await _update_metadata()
 
             self.logger.debug(f"Token update: {position.symbol} @ {current_price:.8f} SOL, Volume: {volume_5m:.2f}")
 
@@ -632,7 +647,11 @@ class PumpPortalTrader:
             )
 
             self.positions[signal.metadata.get('token_address', '')] = position
-            self.wallet_balance -= position_size
+
+            # before: non-atomic read-modify-write of wallet_balance
+            async with self.balance_lock:
+                self.wallet_balance -= position_size  # previously at line ~635
+
             self.last_trade_time = current_time
 
             self.stats['trades_executed'] += 1
@@ -665,18 +684,14 @@ class PumpPortalTrader:
         """Monitor position for exit conditions"""
         while position.status == 'active' and self.is_running:
             try:
-                # Get current price (mock price tracking)
+                # Get current price from live updates stored in position.metadata.
+                # Use entry_price as a safe fallback if no live price exists.
                 current_time = time.time()
                 time_elapsed = current_time - position.entry_time
 
-                # Simulate price movement (in production, get real price)
-                price_change = 0.0
-                if time_elapsed < 300:  # First 5 minutes: potential pump
-                    price_change = (hash(token.symbol + str(int(time_elapsed))) % 200 - 100) / 10000
-                else:  # After 5 minutes: more volatile
-                    price_change = (hash(token.symbol + str(int(time_elapsed))) % 400 - 200) / 10000
-
-                current_price = position.entry_price * (1 + price_change)
+                async with self.positions_lock:
+                    metadata = getattr(position, 'metadata', {}) or {}
+                    current_price = float(metadata.get('current_price', position.entry_price))
 
                 # Check exit conditions
                 should_exit = False
@@ -724,8 +739,11 @@ class PumpPortalTrader:
             position.pnl = pnl
 
             # Update wallet balance
-            returned_amount = position.position_size * (1 + pnl_percentage)
-            self.wallet_balance += returned_amount
+            pnl_amount = position.position_size * (1 + pnl_percentage)
+
+            # before: non-atomic read-modify-write of wallet_balance
+            async with self.balance_lock:
+                self.wallet_balance += pnl_amount  # previously at line ~728
 
             # Update statistics
             if pnl > 0:
@@ -817,7 +835,7 @@ class PumpPortalTrader:
 
 def main():
     """Main entry point"""
-    trader = PumpPortalTrader()
+    trader = PumpPortalRealtimeTrader()
 
     try:
         asyncio.run(trader.start())

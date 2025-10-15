@@ -1,0 +1,31 @@
+# --- Builder Stage ---
+FROM rust:1.70 as builder
+
+# Create a new empty shell project
+WORKDIR /usr/src
+RUN USER=root cargo new --bin data-consumer
+WORKDIR /usr/src/data-consumer
+
+# Copy over your manifests
+COPY ./rust-modules/Cargo.lock ./Cargo.lock
+COPY ./rust-modules/Cargo.toml ./Cargo.toml
+
+# Copy over your source code
+COPY ./rust-modules/src ./src
+
+# Build for release
+RUN cargo build --release --bin data_consumer
+
+# --- Final Stage ---
+FROM debian:bullseye-slim
+
+WORKDIR /usr/local/bin
+
+# Copy the binary from the builder stage
+COPY --from=builder /usr/src/data-consumer/target/release/data_consumer .
+
+# Expose the metrics port
+EXPOSE 9191
+
+# Run the binary
+CMD ["./data_consumer"]

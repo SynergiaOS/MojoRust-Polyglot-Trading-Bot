@@ -247,7 +247,6 @@ struct MasterFilter:
                     "recommendation": sniper_result["recommendation"]
                 })
             else:
-                self.sniper_rejections += 1
                 self.logger.debug("sniper_filter_rejected", {
                     "symbol": signal.symbol,
                     "token_address": signal.metadata.get("token_address", "unknown"),
@@ -258,94 +257,6 @@ struct MasterFilter:
 
         return filtered_signals
 
-    fn _passes_sniper_filters(self, signal: TradingSignal) -> Bool:
-        """
-        Check if a signal passes all sniper filter requirements
-        Returns True if signal is safe for sniper trading
-        """
-        token_address = signal.metadata.get("token_address", "")
-        if not token_address:
-            return False
-
-        try:
-            # 1. LP Burn Rate Check (via Helius)
-            lp_analysis = self.helius_client.check_lp_burn_rate(token_address)
-            lp_burn_rate = lp_analysis.get("lp_burn_rate", 0.0)
-            if lp_burn_rate < self.config.sniper_filters.min_lp_burn_rate:
-                self.logger.debug("sniper_rejected_lp_burn", {
-                    "token_address": token_address,
-                    "lp_burn_rate": lp_burn_rate,
-                    "required": self.config.sniper_filters.min_lp_burn_rate
-                })
-                return False
-
-            # 2. Authority Revocation Check (via Helius)
-            if self.config.sniper_filters.revoke_authority_required:
-                authority_analysis = self.helius_client.check_authority_revocation(token_address)
-                authorities_revoked = authority_analysis.get("authority_revocation_complete", False)
-                if not authorities_revoked:
-                    self.logger.debug("sniper_rejected_authority", {
-                        "token_address": token_address,
-                        "authorities_revoked": authorities_revoked
-                    })
-                    return False
-
-            # 3. Holder Distribution Check (via Helius)
-            distribution_analysis = self.helius_client.get_holder_distribution_analysis(token_address)
-            top_holders_share = distribution_analysis.get("top_holders_share", 100.0)
-            if top_holders_share > self.config.sniper_filters.max_top_holders_share:
-                self.logger.debug("sniper_rejected_distribution", {
-                    "token_address": token_address,
-                    "top_holders_share": top_holders_share,
-                    "max_allowed": self.config.sniper_filters.max_top_holders_share
-                })
-                return False
-
-            # 4. Social Mentions Check (via SocialClient)
-            if self.config.sniper_filters.social_check_enabled and self.social_client.enabled:
-                social_analysis = self.social_client.comprehensive_social_analysis(
-                    signal.symbol,
-                    token_address,
-                    self.config.sniper_filters.min_social_mentions
-                )
-                meets_social_requirement = social_analysis.get("meets_sniper_requirements", False)
-                if not meets_social_requirement:
-                    self.logger.debug("sniper_rejected_social", {
-                        "token_address": token_address,
-                        "symbol": signal.symbol,
-                        "meets_requirement": meets_social_requirement
-                    })
-                    return False
-
-            # 5. Honeypot Detection Check (via HoneypotClient)
-            if self.config.sniper_filters.honeypot_check and self.honeypot_client.enabled:
-                honeypot_analysis = self.honeypot_client.comprehensive_honeypot_analysis(token_address)
-                is_safe_for_sniping = honeypot_analysis.get("is_safe_for_sniping", False)
-                if not is_safe_for_sniping:
-                    self.logger.debug("sniper_rejected_honeypot", {
-                        "token_address": token_address,
-                        "is_safe": is_safe_for_sniping,
-                        "risk_level": honeypot_analysis.get("risk_level", "high")
-                    })
-                    return False
-
-            # All sniper checks passed
-            self.logger.debug("sniper_filter_passed", {
-                "token_address": token_address,
-                "symbol": signal.symbol,
-                "lp_burn_rate": lp_burn_rate,
-                "top_holders_share": top_holders_share
-            })
-
-            return True
-
-        except e:
-            self.logger.error("sniper_filter_error", {
-                "token_address": token_address,
-                "error": str(e)
-            })
-            # Fail safe - reject on error
-            return False
 
     def get_sniper_filter_stats(self) -> Dict[String, Any]:
         """

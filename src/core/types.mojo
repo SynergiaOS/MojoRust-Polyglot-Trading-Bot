@@ -769,3 +769,146 @@ struct TradingException:
 
     def __str__(self) -> String:
         return f"TradingException({self.error_type}: {self.message})"
+
+# =============================================================================
+# Social Analysis DTO
+# =============================================================================
+
+@value
+struct SocialAnalysis:
+    """
+    Typed social analysis result with comprehensive metrics
+    """
+    var overall_social_score: Float
+    var social_assessment: String
+    var meets_sniper_requirements: Bool
+    var total_mentions: Int
+    var sentiment_score: Float
+    var viral_score: Float
+    var safety_score: Float
+    var momentum_score: Float
+    var confidence_score: Float
+
+    fn __init__(
+        overall_social_score: Float = 0.0,
+        social_assessment: String = "NEUTRAL",
+        meets_sniper_requirements: Bool = False,
+        total_mentions: Int = 0,
+        sentiment_score: Float = 0.0,
+        viral_score: Float = 0.0,
+        safety_score: Float = 0.0,
+        momentum_score: Float = 0.0,
+        confidence_score: Float = 0.0
+    ):
+        self.overall_social_score = overall_social_score
+        self.social_assessment = social_assessment
+        self.meets_sniper_requirements = meets_sniper_requirements
+        self.total_mentions = total_mentions
+        self.sentiment_score = sentiment_score
+        self.viral_score = viral_score
+        self.safety_score = safety_score
+        self.momentum_score = momentum_score
+        self.confidence_score = confidence_score
+
+    def to_dict(self) -> Dict[String, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            "overall_social_score": self.overall_social_score,
+            "social_assessment": self.social_assessment,
+            "meets_sniper_requirements": self.meets_sniper_requirements,
+            "total_mentions": self.total_mentions,
+            "sentiment_score": self.sentiment_score,
+            "viral_score": self.viral_score,
+            "safety_score": self.safety_score,
+            "momentum_score": self.momentum_score,
+            "confidence_score": self.confidence_score
+        }
+
+    @staticmethod
+    fn from_dict(data: Dict[String, Any]) -> SocialAnalysis:
+        """Create from dictionary"""
+        return SocialAnalysis(
+            overall_social_score=data.get("overall_social_score", 0.0),
+            social_assessment=data.get("social_assessment", "NEUTRAL"),
+            meets_sniper_requirements=data.get("meets_sniper_requirements", False),
+            total_mentions=data.get("total_mentions", 0),
+            sentiment_score=data.get("sentiment_score", 0.0),
+            viral_score=data.get("viral_score", 0.0),
+            safety_score=data.get("safety_score", 0.0),
+            momentum_score=data.get("momentum_score", 0.0),
+            confidence_score=data.get("confidence_score", 0.0)
+        )
+
+# =============================================================================
+# Honeypot Analysis DTO
+# =============================================================================
+
+@value
+struct HoneypotAnalysis:
+    """
+    Typed honeypot analysis result with security assessment
+    """
+    var is_honeypot: Bool
+    var risk_level: String
+    var is_safe_for_sniping: Bool
+    var buy_tax: Float
+    var sell_tax: Float
+    var confidence_score: Float
+    var liquidity_locked: Bool
+    var can_sell: Bool
+    var critical_flags: List[String]
+    var analysis_timestamp: Float
+
+    fn __init__(
+        is_honeypot: Bool = False,
+        risk_level: String = "MEDIUM",
+        is_safe_for_sniping: Bool = False,
+        buy_tax: Float = 0.0,
+        sell_tax: Float = 0.0,
+        confidence_score: Float = 0.0,
+        liquidity_locked: Bool = False,
+        can_sell: Bool = False,
+        critical_flags: List[String] = [],
+        analysis_timestamp: Float = time()
+    ):
+        self.is_honeypot = is_honeypot
+        self.risk_level = risk_level
+        self.is_safe_for_sniping = is_safe_for_sniping
+        self.buy_tax = buy_tax
+        self.sell_tax = sell_tax
+        self.confidence_score = confidence_score
+        self.liquidity_locked = liquidity_locked
+        self.can_sell = can_sell
+        self.critical_flags = critical_flags
+        self.analysis_timestamp = analysis_timestamp
+
+    def to_dict(self) -> Dict[String, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            "is_honeypot": self.is_honeypot,
+            "risk_level": self.risk_level,
+            "is_safe_for_sniping": self.is_safe_for_sniping,
+            "buy_tax": self.buy_tax,
+            "sell_tax": self.sell_tax,
+            "confidence_score": self.confidence_score,
+            "liquidity_locked": self.liquidity_locked,
+            "can_sell": self.can_sell,
+            "critical_flags": self.critical_flags,
+            "analysis_timestamp": self.analysis_timestamp
+        }
+
+    @staticmethod
+    fn from_dict(data: Dict[String, Any]) -> HoneypotAnalysis:
+        """Create from dictionary"""
+        return HoneypotAnalysis(
+            is_honeypot=data.get("is_honeypot", False),
+            risk_level=data.get("risk_level", "MEDIUM"),
+            is_safe_for_sniping=data.get("is_safe_for_sniping", False),
+            buy_tax=data.get("buy_tax", 0.0),
+            sell_tax=data.get("sell_tax", 0.0),
+            confidence_score=data.get("confidence_score", 0.0),
+            liquidity_locked=data.get("liquidity_locked", False),
+            can_sell=data.get("can_sell", False),
+            critical_flags=data.get("critical_flags", []),
+            analysis_timestamp=data.get("analysis_timestamp", time())
+        )

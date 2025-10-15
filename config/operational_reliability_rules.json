@@ -1,0 +1,373 @@
+{
+  "rules": {
+    "system_health": {
+      "enabled": true,
+      "check_interval_seconds": 60,
+      "rules": [
+        {
+          "name": "memory_usage",
+          "enabled": true,
+          "warning_threshold": 75.0,
+          "critical_threshold": 90.0,
+          "metric_source": "system",
+          "description": "Monitor system memory usage percentage",
+          "action": "alert"
+        },
+        {
+          "name": "cpu_usage",
+          "enabled": true,
+          "warning_threshold": 70.0,
+          "critical_threshold": 85.0,
+          "metric_source": "system",
+          "description": "Monitor system CPU usage percentage",
+          "action": "alert"
+        },
+        {
+          "name": "disk_space",
+          "enabled": true,
+          "warning_threshold": 80.0,
+          "critical_threshold": 90.0,
+          "metric_source": "system",
+          "description": "Monitor disk space usage percentage",
+          "action": "alert"
+        }
+      ]
+    },
+    "trading_performance": {
+      "enabled": true,
+      "check_interval_seconds": 30,
+      "rules": [
+        {
+          "name": "cycle_time",
+          "enabled": true,
+          "warning_threshold": 2.0,
+          "critical_threshold": 5.0,
+          "metric_source": "trading_bot",
+          "description": "Monitor trading cycle execution time",
+          "action": "alert"
+        },
+        {
+          "name": "signal_success_rate",
+          "enabled": true,
+          "warning_threshold": 0.8,
+          "critical_threshold": 0.6,
+          "metric_source": "trading_bot",
+          "description": "Monitor signal generation success rate",
+          "action": "alert"
+        },
+        {
+          "name": "trade_execution_rate",
+          "enabled": true,
+          "warning_threshold": 0.5,
+          "critical_threshold": 0.3,
+          "metric_source": "trading_bot",
+          "description": "Monitor trade execution success rate",
+          "action": "alert"
+        },
+        {
+          "name": "portfolio_drawdown",
+          "enabled": true,
+          "warning_threshold": 0.1,
+          "critical_threshold": 0.2,
+          "metric_source": "trading_bot",
+          "description": "Monitor portfolio drawdown percentage",
+          "action": "alert"
+        }
+      ]
+    },
+    "api_reliability": {
+      "enabled": true,
+      "check_interval_seconds": 45,
+      "rules": [
+        {
+          "name": "helius_api",
+          "enabled": true,
+          "success_rate_warning": 0.95,
+          "success_rate_critical": 0.9,
+          "response_time_warning": 2.0,
+          "response_time_critical": 5.0,
+          "error_count_warning": 10,
+          "error_count_critical": 50,
+          "metric_source": "api_client",
+          "description": "Monitor Helius API reliability",
+          "action": "alert"
+        },
+        {
+          "name": "quicknode_rpc",
+          "enabled": true,
+          "success_rate_warning": 0.95,
+          "success_rate_critical": 0.9,
+          "response_time_warning": 1.5,
+          "response_time_critical": 3.0,
+          "error_count_warning": 8,
+          "error_count_critical": 40,
+          "metric_source": "api_client",
+          "description": "Monitor QuickNode RPC reliability",
+          "action": "alert"
+        },
+        {
+          "name": "jupiter_api",
+          "enabled": true,
+          "success_rate_warning": 0.92,
+          "success_rate_critical": 0.85,
+          "response_time_warning": 1.8,
+          "response_time_critical": 4.0,
+          "error_count_warning": 12,
+          "error_count_critical": 60,
+          "metric_source": "api_client",
+          "description": "Monitor Jupiter API reliability",
+          "action": "alert"
+        },
+        {
+          "name": "dexscreener_api",
+          "enabled": true,
+          "success_rate_warning": 0.9,
+          "success_rate_critical": 0.8,
+          "response_time_warning": 2.5,
+          "response_time_critical": 6.0,
+          "error_count_warning": 15,
+          "error_count_critical": 75,
+          "metric_source": "api_client",
+          "description": "Monitor DexScreener API reliability",
+          "action": "alert"
+        }
+      ]
+    },
+    "database_performance": {
+      "enabled": true,
+      "check_interval_seconds": 120,
+      "rules": [
+        {
+          "name": "connection_pool_health",
+          "enabled": true,
+          "min_connections": 2,
+          "max_connections": 10,
+          "idle_timeout_warning": 300,
+          "idle_timeout_critical": 600,
+          "metric_source": "database",
+          "description": "Monitor database connection pool health",
+          "action": "alert"
+        },
+        {
+          "name": "query_performance",
+          "enabled": true,
+          "slow_query_threshold": 2.0,
+          "very_slow_query_threshold": 5.0,
+          "failed_query_rate_warning": 0.05,
+          "failed_query_rate_critical": 0.1,
+          "metric_source": "database",
+          "description": "Monitor database query performance",
+          "action": "alert"
+        },
+        {
+          "name": "database_size",
+          "enabled": true,
+          "size_warning_gb": 5.0,
+          "size_critical_gb": 10.0,
+          "metric_source": "database",
+          "description": "Monitor database size growth",
+          "action": "alert"
+        }
+      ]
+    },
+    "circuit_breaker_monitoring": {
+      "enabled": true,
+      "check_interval_seconds": 30,
+      "rules": [
+        {
+          "name": "circuit_breaker_triggers",
+          "enabled": true,
+          "trigger_rate_warning": 0.1,
+          "trigger_rate_critical": 0.2,
+          "recovery_time_warning": 300,
+          "recovery_time_critical": 600,
+          "metric_source": "circuit_breaker",
+          "description": "Monitor circuit breaker trigger rate and recovery time",
+          "action": "alert"
+        }
+      ]
+    },
+    "operational_integrity": {
+      "enabled": true,
+      "check_interval_seconds": 300,
+      "rules": [
+        {
+          "name": "data_consistency",
+          "enabled": true,
+          "consistency_check_interval": 300,
+          "inconsistency_tolerance": 0.01,
+          "metric_source": "data_pipeline",
+          "description": "Monitor data consistency across systems",
+          "action": "alert"
+        },
+        {
+          "name": "log_file_health",
+          "enabled": true,
+          "log_rotation_check": true,
+          "log_file_size_warning_mb": 100,
+          "log_file_size_critical_mb": 500,
+          "missing_log_tolerance": 300,
+          "metric_source": "logging",
+          "description": "Monitor log file health and rotation",
+          "action": "alert"
+        },
+        {
+          "name": "backup_health",
+          "enabled": true,
+          "backup_age_warning_hours": 25,
+          "backup_age_critical_hours": 49,
+          "backup_success_rate_warning": 0.95,
+          "backup_success_rate_critical": 0.9,
+          "metric_source": "backup_system",
+          "description": "Monitor backup system health and success rates",
+          "action": "alert"
+        }
+      ]
+    }
+  },
+  "escalation_policies": {
+    "default_escalation": {
+      "warning": {
+        "channels": ["console", "webhook"],
+        "cooldown_minutes": 15,
+        "max_alerts_per_hour": 4
+      },
+      "error": {
+        "channels": ["console", "webhook", "telegram"],
+        "cooldown_minutes": 5,
+        "max_alerts_per_hour": 8
+      },
+      "critical": {
+        "channels": ["console", "webhook", "telegram"],
+        "cooldown_minutes": 1,
+        "max_alerts_per_hour": 20
+      }
+    },
+    "after_hours_escalation": {
+      "warning": {
+        "channels": ["console", "webhook", "telegram"],
+        "cooldown_minutes": 10,
+        "max_alerts_per_hour": 6
+      },
+      "error": {
+        "channels": ["console", "webhook", "telegram"],
+        "cooldown_minutes": 3,
+        "max_alerts_per_hour": 12
+      },
+      "critical": {
+        "channels": ["console", "webhook", "telegram"],
+        "cooldown_minutes": 1,
+        "max_alerts_per_alert": 1
+      }
+    }
+  },
+  "maintenance_windows": {
+    "daily_maintenance": {
+      "start_hour": "02:00",
+      "end_hour": "03:00",
+      "timezone": "UTC",
+      "suppressed_alerts": [
+        "memory_usage",
+        "cpu_usage",
+        "disk_space"
+      ],
+      "allowed_alerts": [
+        "system_health_critical",
+        "circuit_breaker_critical",
+        "api_reliability_critical"
+      ]
+    },
+    "weekly_maintenance": {
+      "day": "sunday",
+      "start_hour": "01:00",
+      "end_hour": "04:00",
+      "timezone": "UTC",
+      "suppressed_alerts": [
+        "all_non_critical"
+      ],
+      "allowed_alerts": [
+        "system_health_critical",
+        "circuit_breaker_critical",
+        "database_performance_critical"
+      ]
+    }
+  },
+  "auto_recovery": {
+    "enabled": true,
+    "actions": [
+      {
+        "name": "restart_slow_components",
+        "trigger_conditions": [
+          "cycle_time > 5.0",
+          "api_response_time > 10.0",
+          "memory_usage > 95.0"
+        ],
+        "action": "graceful_restart",
+        "max_attempts_per_hour": 3
+      },
+      {
+        "name": "clear_stale_data",
+        "trigger_conditions": [
+          "connection_pool_errors > 0.5",
+          "database_connection_failures > 3"
+        ],
+        "action": "clear_caches_and_reconnect",
+        "max_attempts_per_hour": 2
+      },
+      {
+        "name": "switch_to_backup_apis",
+        "trigger_conditions": [
+          "helius_api_success_rate < 0.8",
+          "quicknode_rpc_success_rate < 0.8"
+        ],
+        "action": "enable_fallback_mode",
+        "max_attempts_per_hour": 1
+      }
+    ]
+  },
+  "performance_benchmarks": {
+    "target_metrics": {
+      "cycle_time_p50": 0.5,
+      "cycle_time_p95": 1.0,
+      "api_response_time_p50": 0.5,
+      "api_response_time_p95": 1.5,
+      "database_query_time_p50": 0.1,
+      "database_query_time_p95": 0.5,
+      "signal_generation_rate": 0.9,
+      "trade_execution_rate": 0.85
+    },
+    "acceptable_degradation": {
+      "cycle_time_p95": 2.0,
+      "api_response_time_p95": 3.0,
+      "database_query_time_p95": 1.0,
+      "signal_generation_rate": 0.7,
+      "trade_execution_rate": 0.7
+    },
+    "critical_degradation": {
+      "cycle_time_p95": 5.0,
+      "api_response_time_p95": 6.0,
+      "database_query_time_p95": 2.0,
+      "signal_generation_rate": 0.5,
+      "trade_execution_rate": 0.5
+    }
+  },
+  "sla_monitoring": {
+    "uptime_target": 0.999,
+    "response_time_target": 1.0,
+    "error_rate_target": 0.001,
+    "availability_windows": {
+      "business_hours": {
+        "start": "09:00",
+        "end": "17:00",
+        "timezone": "UTC",
+        "days": ["monday", "tuesday", "wednesday", "thursday", "friday"]
+      },
+      "extended_hours": {
+        "start": "08:00",
+        "end": "20:00",
+        "timezone": "UTC",
+        "days": ["monday", "tuesday", "wednesday", "thursday", "friday"]
+      }
+    }
+  }
+}

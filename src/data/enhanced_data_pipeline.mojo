@@ -594,7 +594,7 @@ struct EnhancedDataPipeline:
         """
         🛑 Shutdown data pipeline gracefully
         """
-        print("🛑 Shutting down Enhanced Data Pipeline...")
+        self.logger.info("Shutting down Enhanced Data Pipeline...")
 
         # Signal shutdown to all threads
         self.shutdown_event.set()
@@ -603,10 +603,22 @@ struct EnhancedDataPipeline:
         for thread in self.collection_threads:
             thread.join(timeout=5.0)
 
-        # Close connection pools
-        self.helius.http_session.close()
-        self.quicknode.http_session.close()
-        self.dexscreener.close()
+        # Close connection pools safely
+        try:
+            self.helius.close()
+        except e:
+            self.logger.warn("Helius close failed", error=str(e))
+        
+        try:
+            self.quicknode.close()
+        except e:
+            self.logger.warn("QuickNode close failed", error=str(e))
+
+        try:
+            self.dexscreener.close()
+        except e:
+            self.logger.warn("DexScreener close failed", error=str(e))
+
         self.logger.info("All connection pools closed.")
 
         self.logger.info("enhanced_data_pipeline_shutdown", {

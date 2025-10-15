@@ -3,6 +3,16 @@
 
 set -e +o pipefail
 
+# Helper: print fatal error to stderr and exit non-zero
+fatal() {
+    local msg="$1"
+    if [ -z "$msg" ]; then
+        msg="Fatal error"
+    fi
+    printf "%s\n" "$msg" >&2
+    exit 1
+}
+
 # Set up paths first
 bin_name="codacy-cli-v2"
 

@@ -7,7 +7,7 @@ from time import time
 from sys import exit
 from collections import Dict, List
 from math import sin
-from core.types import SocialMetrics
+from core.types import SocialMetrics, SocialAnalysis
 from core.constants import DEFAULT_TIMEOUT_SECONDS
 from core.logger import get_api_logger
 from core.api_placeholder_handler import APIFallbackHandler, APIFallbackConfig, APIResponse, generate_consistent_int, generate_consistent_float
@@ -348,14 +348,25 @@ struct SocialClient:
                             error=str(e))
             return self._get_error_response(str(e))
 
-    async def comprehensive_social_analysis(self, token_symbol: String, token_address: String, min_mentions_threshold: Int = 10) -> Dict[String, Any]:
+    async def comprehensive_social_analysis(self, token_symbol: String, token_address: String, min_mentions_threshold: Int = 10) -> SocialAnalysis:
         """
         Perform comprehensive social analysis combining all social metrics
         Enhanced with Python social intelligence engine for multi-platform data
-        Returns unified social assessment for sniper filters
+        Returns typed SocialAnalysis for sniper filters
         """
         if not self.enabled:
-            return self._get_disabled_response()
+            # Return disabled response as SocialAnalysis
+            return SocialAnalysis(
+                overall_social_score=0.0,
+                social_assessment="unknown",
+                meets_sniper_requirements=False,
+                total_mentions=0,
+                sentiment_score=0.0,
+                viral_score=0.0,
+                safety_score=0.0,
+                momentum_score=0.0,
+                confidence_score=0.0
+            )
 
         try:
             # Get all individual analyses
@@ -366,7 +377,17 @@ struct SocialClient:
 
             # Handle cases where called methods return disabled responses
             if not mention_analysis.get("enabled", True) or not sentiment_trend.get("enabled", True) or not viral_potential.get("enabled", True) or not alert_monitoring.get("enabled", True):
-                return self._get_disabled_response()
+                return SocialAnalysis(
+                    overall_social_score=0.0,
+                    social_assessment="unknown",
+                    meets_sniper_requirements=False,
+                    total_mentions=0,
+                    sentiment_score=0.0,
+                    viral_score=0.0,
+                    safety_score=0.0,
+                    momentum_score=0.0,
+                    confidence_score=0.0
+                )
 
             # Check if meets minimum mentions requirement
             total_mentions = mention_analysis.get("total_mentions", 0)
@@ -391,85 +412,76 @@ struct SocialClient:
             elif overall_social_score < 0.7:
                 social_assessment = "good"
 
+            # Determine if meets sniper requirements
+            meets_sniper_requirements = meets_mentions_threshold and overall_social_score >= 0.5
+
+            # Create comprehensive analysis dict for Python enhancement
             comprehensive_analysis = {
                 "overall_social_score": overall_social_score,
                 "social_assessment": social_assessment,
-                "meets_sniper_requirements": meets_mentions_threshold and overall_social_score >= 0.5,
-                "mention_threshold_met": meets_mentions_threshold,
+                "meets_sniper_requirements": meets_sniper_requirements,
                 "total_mentions": total_mentions,
-                "minimum_required": min_mentions_threshold,
-                "key_metrics": {
-                    "mention_score": mention_score,
-                    "sentiment_score": sentiment_score,
-                    "viral_score": viral_score,
-                    "safety_score": safety_score,
-                    "momentum_score": momentum_score
-                },
                 "sentiment_details": {
-                    "current_sentiment": mention_analysis.get("sentiment_analysis", {}).get("overall_sentiment", "neutral"),
-                    "sentiment_trend": sentiment_trend.get("sentiment_trend", 0),
-                    "has_positive_momentum": sentiment_trend.get("is_positive_momentum", False)
+                    "sentiment_score": sentiment_score
                 },
-                "viral_potential": viral_potential.get("viral_level", "low"),
-                "has_viral_potential": viral_potential.get("has_viral_potential", False),
-                "safety_indicators": {
-                    "alert_level": alert_monitoring.get("alert_level", "normal"),
-                    "safety_score": safety_score,
-                    "red_flags_count": len(alert_monitoring.get("red_flags", []))
-                },
-                "analyses": {
-                    "mentions": mention_analysis,
-                    "sentiment_trend": sentiment_trend,
-                    "viral_potential": viral_potential,
-                    "alert_monitoring": alert_monitoring
-                },
-                "recommendation": "proceed" if meets_mentions_threshold and overall_social_score >= 0.6 else "caution" if overall_social_score >= 0.4 else "avoid",
-                "confidence_score": min(0.95, overall_social_score * 1.1),
-                "analysis_timestamp": time()
+                "viral_score": viral_score,
+                "safety_score": safety_score,
+                "momentum_score": momentum_score,
+                "confidence_score": min(0.95, overall_social_score * 1.1)
             }
 
             # Enhance with Python social intelligence engine data
             enhanced_analysis = await self._enhance_with_python_data(comprehensive_analysis, token_symbol)
 
-            # Recalculate overall score if Python data provided significant new insights
-            if "python_sentiment_analysis" in enhanced_analysis:
-                python_sentiment = enhanced_analysis["python_sentiment_analysis"]
-                if "total_posts" in python_sentiment and python_sentiment["total_posts"] > 0:
-                    # Boost score slightly if there's active social discussion
-                    python_boost = min(0.1, python_sentiment["total_posts"] / 1000)
-                    enhanced_overall_score = min(1.0, enhanced_analysis["overall_social_score"] + python_boost)
-                    enhanced_analysis["overall_social_score"] = enhanced_overall_score
+            # Extract final values for SocialAnalysis
+            final_overall_score = enhanced_analysis.get("overall_social_score", overall_social_score)
+            final_assessment = enhanced_analysis.get("social_assessment", social_assessment)
+            final_meets_requirements = enhanced_analysis.get("meets_sniper_requirements", meets_sniper_requirements)
+            final_total_mentions = total_mentions
+            final_sentiment_score = enhanced_analysis.get("sentiment_details", {}).get("sentiment_score", sentiment_score)
+            final_viral_score = enhanced_analysis.get("viral_score", viral_score)
+            final_safety_score = enhanced_analysis.get("safety_score", safety_score)
+            final_momentum_score = enhanced_analysis.get("momentum_score", momentum_score)
+            final_confidence_score = enhanced_analysis.get("confidence_score", min(0.95, overall_social_score * 1.1))
 
-                    # Recalculate assessment if score changed significantly
-                    if enhanced_overall_score > 0.7:
-                        enhanced_analysis["social_assessment"] = "excellent"
-                    elif enhanced_overall_score > 0.5:
-                        enhanced_analysis["social_assessment"] = "good"
-                    elif enhanced_overall_score > 0.3:
-                        enhanced_analysis["social_assessment"] = "moderate"
-                    else:
-                        enhanced_analysis["social_assessment"] = "poor"
-
-                    # Update recommendation
-                    enhanced_analysis["meets_sniper_requirements"] = meets_mentions_threshold and enhanced_overall_score >= 0.5
-                    enhanced_analysis["recommendation"] = "proceed" if meets_mentions_threshold and enhanced_overall_score >= 0.6 else "caution" if enhanced_overall_score >= 0.4 else "avoid"
-                    enhanced_analysis["confidence_score"] = min(0.98, enhanced_overall_score * 1.15)
+            # Create and return SocialAnalysis
+            social_analysis = SocialAnalysis(
+                overall_social_score=final_overall_score,
+                social_assessment=final_assessment,
+                meets_sniper_requirements=final_meets_requirements,
+                total_mentions=final_total_mentions,
+                sentiment_score=final_sentiment_score,
+                viral_score=final_viral_score,
+                safety_score=final_safety_score,
+                momentum_score=final_momentum_score,
+                confidence_score=final_confidence_score
+            )
 
             self.logger.info(f"Enhanced comprehensive social analysis completed",
                            token_symbol=token_symbol,
-                           overall_score=enhanced_analysis["overall_social_score"],
+                           overall_score=final_overall_score,
                            meets_threshold=meets_mentions_threshold,
-                           assessment=enhanced_analysis["social_assessment"],
-                           recommendation=enhanced_analysis["recommendation"],
+                           assessment=final_assessment,
                            python_enhanced=self.use_python_engine and self.python_initialized)
 
-            return enhanced_analysis
+            return social_analysis
 
         except e:
             self.logger.error(f"Error in comprehensive social analysis",
                             token_symbol=token_symbol,
                             error=str(e))
-            return self._get_error_response(str(e))
+            # Return error response as SocialAnalysis
+            return SocialAnalysis(
+                overall_social_score=0.0,
+                social_assessment="poor",
+                meets_sniper_requirements=False,
+                total_mentions=0,
+                sentiment_score=0.0,
+                viral_score=0.0,
+                safety_score=0.0,
+                momentum_score=0.0,
+                confidence_score=0.0
+            )
 
     def _get_disabled_response(self) -> Dict[String, Any]:
         """

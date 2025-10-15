@@ -1,0 +1,32 @@
+# Configuration for the Rust Data Consumer
+
+[service]
+# Log level for the service (e.g., "info", "debug", "warn", "error")
+log_level = "info"
+# Address for the metrics and health server to listen on
+metrics_addr = "0.0.0.0:9191"
+
+[geyser]
+# The gRPC endpoint for the Solana Geyser plugin
+endpoint = "grpc.solana.mainnet.rpc.helius.xyz:443"
+# Optional authentication token for the Geyser endpoint
+# token = "your_geyser_auth_token"
+
+[redis]
+# URL for the Redis server for publishing events
+url = "redis://redis:6379"
+
+[filters]
+# Minimum transaction amount in lamports to be considered "large"
+min_transaction_amount = 1_000_000_000 # 1 SOL
+
+# List of program IDs to monitor for account updates
+program_ids = [
+    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", # Raydium Liquidity Pool V4
+    "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP", # Orca Whirlpool
+    "pumpaFf22bg1d1V1S63s3vr41yB2tL3vA3b2c",       # Pump.fun (example)
+]
+
+# Whitelists (currently unused, for future extension)
+token_whitelist = []
+wallet_watchlist = []

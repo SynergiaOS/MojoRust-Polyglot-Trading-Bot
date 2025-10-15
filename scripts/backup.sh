@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # scripts/backup.sh
+# Harden backup script to include recent logs and support non-interactive GPG encryption.
 
 # Configuration Variables
 BACKUP_DIR="${BACKUP_DIR:-/home/tradingbot/backups}"
@@ -16,6 +17,10 @@ DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-trading_bot}"
 DB_USER="${DB_USER:-trading_user}"
 DB_BACKUP_FORMAT="${DB_BACKUP_FORMAT:-custom}"  # custom, directory, or plain
+
+# GPG Configuration
+GPG_PASSPHRASE="${GPG_PASSPHRASE:-}"
+GPG_PASSPHRASE_FILE=""
 
 # Command Line Options
 while [[ "$#" -gt 0 ]]; do
@@ -54,6 +59,14 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         --db-format)
             DB_BACKUP_FORMAT="$2"
+            shift 2
+            ;;
+        --gpg-passphrase)
+            GPG_PASSPHRASE="$2"
+            shift 2
+            ;;
+        --gpg-passphrase-file)
+            GPG_PASSPHRASE_FILE="$2"
             shift 2
             ;;
         *)
@@ -167,6 +180,7 @@ backup_files() {
     local include_db="${1:-false}"
     local tar_options=""
     local backup_list="${BACKUP_DIR}/backup_files_${TIMESTAMP}.txt"
+    local recent_logs_list="${BACKUP_DIR}/recent_logs_${TIMESTAMP}.txt"
 
     log "Creating file backup list..."
 
@@ -189,13 +203,11 @@ docs/
 
 # Data directories (exclude large temporary files)
 data/
-logs/
 backups/
 
 # Exclusions
 --exclude=*.pyc
 --exclude=__pycache__/
---exclude=*.log
 --exclude=node_modules/
 --exclude=target/debug/
 --exclude=target/release/
@@ -204,6 +216,17 @@ backups/
 --exclude=*.cache
 --exclude=.pytest_cache/
 EOF
+
+    # Add recent logs to the backup list
+    log "Finding recent logs (last 7 days)..."
+    find "${PROJECT_DIR}/logs" -type f -name 'trading-bot-*.log' -mtime -7 -print > "$recent_logs_list" || true
+    if [ -s "$recent_logs_list" ]; then
+        log "Adding $(wc -l < "$recent_logs_list") recent log files to backup."
+        cat "$recent_logs_list" >> "${backup_list}" || true
+    else
+        log "No recent log files found to include."
+    fi
+    rm -f "$recent_logs_list"
 
     # Add database backup to file backup if requested
     if [ "${include_db}" = "true" ] && [ -n "${DB_BACKUP_FILE}" ]; then
@@ -286,13 +309,14 @@ fi
 # Enhanced encryption
 if [ "${NO_ENCRYPT}" != true ]; then
     log "Encrypting backup with GPG..."
-    if gpg --batch --yes --symmetric --cipher-algo AES256 \
-        --s2k-mode 3 \
-        --s2k-digest-algo SHA512 \
-        --s2k-count 65536 \
-        --compress-algo 9 \
-        -o "${BACKUP_DIR}/${BACKUP_NAME}.gpg" "${BACKUP_DIR}/${BACKUP_NAME}" 2>&1 | tee -a "${LOG_FILE}"; then
+    GPG_OPTS="--batch --yes --symmetric --cipher-algo AES256 --pinentry-mode loopback"
+    if [ -n "${GPG_PASSPHRASE}" ]; then
+        GPG_OPTS="${GPG_OPTS} --passphrase ${GPG_PASSPHRASE}"
+    elif [ -n "${GPG_PASSPHRASE_FILE}" ]; then
+        GPG_OPTS="${GPG_OPTS} --passphrase-file ${GPG_PASSPHRASE_FILE}"
+    fi
 
+    if eval gpg ${GPG_OPTS} -o "\"${BACKUP_DIR}/${BACKUP_NAME}.gpg\"" "\"${BACKUP_DIR}/${BACKUP_NAME}\"" 2>&1 | tee -a "${LOG_FILE}"; then
         rm "${BACKUP_DIR}/${BACKUP_NAME}"
         BACKUP_NAME="${BACKUP_NAME}.gpg"
         log "Backup encryption completed"
@@ -311,7 +335,14 @@ verify_backup() {
 
     if [ "${NO_ENCRYPT}" != true ]; then
         log "Verifying encrypted backup..."
-        if gpg --decrypt "${BACKUP_DIR}/${BACKUP_NAME}" 2>/dev/null | tar -tzf - > /dev/null 2>&1; then
+        GPG_DECRYPT_OPTS="--batch --yes --pinentry-mode loopback"
+        if [ -n "${GPG_PASSPHRASE}" ]; then
+            GPG_DECRYPT_OPTS="${GPG_DECRYPT_OPTS} --passphrase ${GPG_PASSPHRASE}"
+        elif [ -n "${GPG_PASSPHRASE_FILE}" ]; then
+            GPG_DECRYPT_OPTS="${GPG_DECRYPT_OPTS} --passphrase-file ${GPG_PASSPHRASE_FILE}"
+        fi
+
+        if eval gpg ${GPG_DECRYPT_OPTS} --decrypt "\"${BACKUP_DIR}/${BACKUP_NAME}\"" 2>/dev/null | tar -tzf - > /dev/null 2>&1; then
             log "Encrypted backup verification successful"
             return 0
         else

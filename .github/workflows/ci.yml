@@ -51,8 +51,8 @@ jobs:
           MODULAR_AUTH_TOKEN: ${{ secrets.MODULAR_AUTH_TOKEN }}
         run: |
           curl -fsSL https://get.modular.com | sh -s -- --skip-license-prompt
-          mkdir -p ~/.modular
-          echo "token = \"$MODULAR_AUTH_TOKEN\"" > ~/.modular/auth.toml
+          mkdir -p "$HOME/.modular"
+          echo "token = \"$MODULAR_AUTH_TOKEN\"" > "$HOME/.modular/auth.toml"
           modular install mojo
           echo "$HOME/.modular/pkg/packages.modular.com_mojo/bin" >> $GITHUB_PATH
           mojo --version
@@ -76,7 +76,7 @@ jobs:
 
       - name: Validate TOML Files
         run: |
-          python3 -c "
+          python3 << 'EOF'
 import tomllib
 import sys
 import glob
@@ -94,7 +94,7 @@ for f in files:
     except Exception as e:
         print(f'❌ {f} has invalid TOML: {e}')
         sys.exit(1)
-          "
+EOF
 
   security:
     runs-on: ubuntu-latest
@@ -154,8 +154,8 @@ for f in files:
           MODULAR_AUTH_TOKEN: ${{ secrets.MODULAR_AUTH_TOKEN }}
         run: |
           curl -fsSL https://get.modular.com | sh -s -- --skip-license-prompt
-          mkdir -p ~/.modular
-          echo "token = \"$MODULAR_AUTH_TOKEN\"" > ~/.modular/auth.toml
+          mkdir -p "$HOME/.modular"
+          echo "token = \"$MODULAR_AUTH_TOKEN\"" > "$HOME/.modular/auth.toml"
           modular install mojo
           echo "$HOME/.modular/pkg/packages.modular.com_mojo/bin" >> $GITHUB_PATH
           mojo --version
@@ -205,6 +205,10 @@ for f in files:
 
   test:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -213,8 +217,8 @@ for f in files:
           MODULAR_AUTH_TOKEN: ${{ secrets.MODULAR_AUTH_TOKEN }}
         run: |
           curl -fsSL https://get.modular.com | sh -s -- --skip-license-prompt
-          mkdir -p ~/.modular
-          echo "token = \"$MODULAR_AUTH_TOKEN\"" > ~/.modular/auth.toml
+          mkdir -p "$HOME/.modular"
+          echo "token = \"$MODULAR_AUTH_TOKEN\"" > "$HOME/.modular/auth.toml"
           modular install mojo
           echo "$HOME/.modular/pkg/packages.modular.com_mojo/bin" >> $GITHUB_PATH
           mojo --version
@@ -418,8 +422,8 @@ with open('tests/load/results/trading_cycle_results.json', 'r') as f:
           MODULAR_AUTH_TOKEN: ${{ secrets.MODULAR_AUTH_TOKEN }}
         run: |
           curl -fsSL https://get.modular.com | sh -s -- --skip-license-prompt
-          mkdir -p ~/.modular
-          echo "token = \"$MODULAR_AUTH_TOKEN\"" > ~/.modular/auth.toml
+          mkdir -p "$HOME/.modular"
+          echo "token = \"$MODULAR_AUTH_TOKEN\"" > "$HOME/.modular/auth.toml"
           modular install mojo
           echo "$HOME/.modular/pkg/packages.modular.com_mojo/bin" >> $GITHUB_PATH
           mojo --version
@@ -480,8 +484,8 @@ with open('tests/load/results/trading_cycle_results.json', 'r') as f:
           MODULAR_AUTH_TOKEN: ${{ secrets.MODULAR_AUTH_TOKEN }}
         run: |
           curl -fsSL https://get.modular.com | sh -s -- --skip-license-prompt
-          mkdir -p ~/.modular
-          echo "token = \"$MODULAR_AUTH_TOKEN\"" > ~/.modular/auth.toml
+          mkdir -p "$HOME/.modular"
+          echo "token = \"$MODULAR_AUTH_TOKEN\"" > "$HOME/.modular/auth.toml"
           modular install mojo
           echo "$HOME/.modular/pkg/packages.modular.com_mojo/bin" >> $GITHUB_PATH
           mojo --version

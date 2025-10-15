@@ -123,10 +123,11 @@ struct UltimateExecutor:
     var api_circuit_breaker: APICircuitBreaker
 
     fn __init__(inout self, config: ConfigManager, notifier: TelegramNotifier,
-                 portfolio_manager: PortfolioManagerClient) raises:
+                 portfolio_manager: PortfolioManagerClient, monitor: UltimateMonitor) raises:
         self.config = config
         self.notifier = notifier
         self.portfolio_manager = portfolio_manager
+        self.monitor = monitor
         self.rpc_nodes = self._initialize_rpc_nodes()
         self.execution_history = List[ExecutionResult]()
         self.order_book_cache = Dict[String, OrderBookSnapshot]()

@@ -23,6 +23,8 @@ from src.core.types import (
     ArbitrageConfig
 )
 from src.data.jupiter_price_api import JupiterPriceAPI
+from core.api_placeholder_handler import APIFallbackHandler, APIFallbackConfig, generate_consistent_float
+from core.placeholder_detector import global_placeholder_detector, enable_graceful_fallback_for_placeholders
 
 # FFI bindings to Rust arbitrage engine
 struct ArbitrageDetectorFFI:
@@ -98,6 +100,7 @@ struct ArbitrageDetector:
     var last_scan_time: Float64
     var scan_interval: Float64
     var is_enabled: Bool
+    var fallback_handler: APIFallbackHandler
 
     fn __init__(inout self) -> None:
         """Initialize arbitrage detector with config loading"""
@@ -107,6 +110,25 @@ struct ArbitrageDetector:
         self.last_scan_time = 0.0
         self.scan_interval = self.config.scan_interval_ms / 1000.0
         self.is_enabled = self.config.enabled
+
+        # Initialize fallback handler for graceful API degradation
+        var fallback_config = APIFallbackConfig(
+            use_real_api=True,
+            fallback_to_mock=True,
+            mock_data_consistency=True,
+            log_failures=True,
+            log_fallbacks=True,
+            fallback_timeout_ms=3000,
+            max_retry_attempts=2
+        )
+        self.fallback_handler = APIFallbackHandler(fallback_config)
+
+        # Check for placeholder API credentials and enable fallback mode if needed
+        placeholder_handlers = [self.fallback_handler]
+        placeholders_detected = enable_graceful_fallback_for_placeholders(placeholder_handlers)
+
+        if placeholders_detected:
+            print("⚠️  Placeholder API credentials detected - arbitrage detector running in fallback mode")
 
     fn load_config() -> ArbitrageConfig:
         """Load arbitrage configuration from trading.toml or environment"""
@@ -157,9 +179,38 @@ struct ArbitrageDetector:
             )
 
     fn create_jupiter_client() -> Python.Object:
-        """Create Jupiter Price API client"""
+        """Create Jupiter Price API client with comprehensive placeholder detection"""
         jupiter_module = Python.import_module("src.data.jupiter_price_api")
-        return jupiter_module.JupiterPriceAPI()
+        jupiter_api = jupiter_module.JupiterPriceAPI()
+
+        # Check for placeholder API configuration using global detector
+        try:
+            python = Python.import_module("os")
+
+            # Check Jupiter-specific API keys
+            jupiter_env_keys = ["JUPITER_API_KEY", "JUPITER_TOKEN", "JUPITER_SECRET"]
+            for env_key in jupiter_env_keys:
+                env_value = python.environ.get(env_key, "")
+                if env_value and global_placeholder_detector.is_placeholder_value(env_key, env_value):
+                    print(f"⚠️  Jupiter placeholder detected in {env_key} - enabling graceful fallback mode")
+                    self.fallback_handler.config.use_real_api = False
+                    self.fallback_handler.config.fallback_to_mock = True
+                    break
+
+            # Check client API attributes
+            api_key = jupiter_api.api_key if hasattr(jupiter_api, "api_key") else ""
+            base_url = jupiter_api.base_url if hasattr(jupiter_api, "base_url") else ""
+
+            if (api_key and global_placeholder_detector.is_placeholder_value("JUPITER_API_KEY", api_key)) or \
+               (base_url and global_placeholder_detector.is_placeholder_value("JUPITER_BASE_URL", base_url)):
+                print("⚠️  Jupiter API client configured with placeholder credentials - using graceful fallback mode")
+                self.fallback_handler.config.use_real_api = False
+                self.fallback_handler.config.fallback_to_mock = True
+
+        except:
+            pass  # Fallback to normal operation if API detection fails
+
+        return jupiter_api
 
     fn detect_opportunities(inout self, market_data: Tensor[float]) -> Vector[TradingSignal]:
         """Main detection method - return arbitrage signals"""
@@ -200,17 +251,17 @@ struct ArbitrageDetector:
         return opportunities
 
     fn detect_triangular_arbitrage(inout self, market_data: Tensor[float]) -> Vector[TradingSignal]:
-        """Detect triangular arbitrage opportunities"""
+        """Detect triangular arbitrage opportunities with graceful fallback"""
         var signals = Vector[TradingSignal]()
 
-        try:
-            # Use Python interop to get prices from Jupiter API
+        # Use fallback handler for API calls
+        context = {"arbitrage_type": "triangular", "scan_time": now()}
+
+        # Real API call function
+        fn real_triangular_scan(api_client, tokens) -> Vector[TradingSignal]:
+            var real_signals = Vector[TradingSignal]()
             python = Python.import_module("builtins")
             asyncio = Python.import_module("asyncio")
-
-            # Get batch prices for monitored tokens
-            tokens = self.config.monitored_tokens
-            prices_dict = asyncio.run(self.jupiter_api.get_batch_prices(tokens))
 
             # Analyze triangular cycles A -> B -> C -> A
             for i in range(len(tokens)):
@@ -222,7 +273,7 @@ struct ArbitrageDetector:
 
                         # Get triangular arbitrage data
                         triangular_data = asyncio.run(
-                            self.jupiter_api.get_triangular_arbitrage_data(token_a, token_b, token_c)
+                            api_client.get_triangular_arbitrage_data(token_a, token_b, token_c)
                         )
 
                         if triangular_data is not None:
@@ -244,46 +295,77 @@ struct ArbitrageDetector:
                                         "token_b": token_b,
                                         "token_c": token_c,
                                         "profit_potential": profit,
-                                        "data": triangular_data
+                                        "data": triangular_data,
+                                        "api_source": "jupiter_real"
                                     }
                                 )
-                                signals.push_back(signal)
+                                real_signals.push_back(signal)
+            return real_signals
 
-        except:
-            # Fallback to mock detection
-            if rand_float[dtype=float]() < 0.1:  # 10% chance of finding opportunity
+        # Mock fallback function
+        fn mock_triangular_scan() -> Vector[TradingSignal]:
+            var mock_signals = Vector[TradingSignal]()
+
+            # Generate consistent mock opportunities based on time
+            scan_time_seed = int(now()) % 10000
+            opportunity_count = generate_consistent_int(scan_time_seed, 0, 2)  # 0-2 opportunities
+
+            for i in range(opportunity_count):
+                seed = scan_time_seed + i * 1000
+                profit = generate_consistent_float(seed, 15.0, 75.0)  # $15-75 profit
+
                 signal = TradingSignal(
                     source=SignalSource.ARBITRAGE,
                     signal_type=SignalType.BUY,
-                    confidence=rand_float[dtype=float](),
+                    confidence=generate_consistent_float(seed + 100, 0.3, 0.9),
                     token_pair="SOL/USDC",
-                    price=100.0 + rand_float[dtype=float]() * 10.0,
+                    price=generate_consistent_float(seed + 200, 98.0, 105.0),
                     timestamp=now(),
                     metadata={
                         "arbitrage_type": "triangular",
                         "token_a": "So11111111111111111111111111111111111111112",
                         "token_b": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                         "token_c": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
-                        "profit_potential": rand_float[dtype=float]() * 50.0 + 10.0,
-                        "mock": True
+                        "profit_potential": profit,
+                        "api_source": "jupiter_mock",
+                        "mock_seed": seed,
+                        "mock_reason": "placeholder_fallback"
                     }
                 )
-                signals.push_back(signal)
+                mock_signals.push_back(signal)
 
-        return signals
+            return mock_signals
+
+        # Execute with fallback
+        response = self.fallback_handler.execute_with_fallback(
+            "jupiter_triangular",
+            fn(): return real_triangular_scan(self.jupiter_api, self.config.monitored_tokens),
+            fn(): return mock_triangular_scan(),
+            context
+        )
+
+        if response.success:
+            return response.data
+        else:
+            print(f"❌ Triangular arbitrage detection failed: {response.error_message}")
+            return Vector[TradingSignal]()
 
     fn detect_cross_dex_arbitrage(inout self, market_data: Tensor[float]) -> Vector[TradingSignal]:
-        """Detect cross-DEX arbitrage opportunities"""
+        """Detect cross-DEX arbitrage opportunities with graceful fallback"""
         var signals = Vector[TradingSignal]()
 
-        try:
-            # Use Python interop to compare prices across DEXes
+        # Use fallback handler for API calls
+        context = {"arbitrage_type": "cross_dex", "scan_time": now()}
+
+        # Real API call function
+        fn real_cross_dex_scan(api_client, tokens) -> Vector[TradingSignal]:
+            var real_signals = Vector[TradingSignal]()
             python = Python.import_module("builtins")
             asyncio = Python.import_module("asyncio")
 
-            for token in self.config.monitored_tokens:
+            for token in tokens:
                 # Get DEX prices for this token
-                dex_prices = asyncio.run(self.jupiter_api.get_dex_prices(token))
+                dex_prices = asyncio.run(api_client.get_dex_prices(token))
 
                 if len(dex_prices) >= 2:
                     # Sort by price to find buy/sell opportunities
@@ -318,36 +400,66 @@ struct ArbitrageDetector:
                                     "buy_price": buy_price,
                                     "sell_price": sell_price,
                                     "spread": spread,
-                                    "profit_potential": profit
+                                    "profit_potential": profit,
+                                    "api_source": "jupiter_real"
                                 }
                             )
-                            signals.push_back(signal)
+                            real_signals.push_back(signal)
+            return real_signals
 
-        except:
-            # Fallback to mock detection
-            if rand_float[dtype=float]() < 0.05:  # 5% chance
+        # Mock fallback function
+        fn mock_cross_dex_scan() -> Vector[TradingSignal]:
+            var mock_signals = Vector[TradingSignal]()
+
+            # Generate consistent mock cross-DEX opportunities
+            scan_time_seed = int(now()) % 10000
+            opportunity_count = generate_consistent_int(scan_time_seed, 0, 1)  # 0-1 opportunities
+
+            for i in range(opportunity_count):
+                seed = scan_time_seed + i * 1000
+                buy_price = generate_consistent_float(seed, 98.0, 102.0)
+                spread = generate_consistent_float(seed + 100, 0.008, 0.025)  # 0.8%-2.5% spread
+                sell_price = buy_price * (1.0 + spread)
+                profit = spread * 1000  # Assume $1000 position
+
                 signal = TradingSignal(
                     source=SignalSource.ARBITRAGE,
                     signal_type=SignalType.BUY,
-                    confidence=rand_float[dtype=float](),
+                    confidence=generate_consistent_float(seed + 200, 0.2, 0.8),
                     token_pair="SOL/USDC",
-                    price=100.0 + rand_float[dtype=float]() * 5.0,
+                    price=buy_price,
                     timestamp=now(),
                     metadata={
                         "arbitrage_type": "cross_dex",
                         "token": "So11111111111111111111111111111111111111112",
                         "buy_dex": "raydium",
                         "sell_dex": "orca",
-                        "buy_price": 100.0,
-                        "sell_price": 102.0,
-                        "spread": 0.02,
-                        "profit_potential": 20.0,
-                        "mock": True
+                        "buy_price": buy_price,
+                        "sell_price": sell_price,
+                        "spread": spread,
+                        "profit_potential": profit,
+                        "api_source": "jupiter_mock",
+                        "mock_seed": seed,
+                        "mock_reason": "placeholder_fallback"
                     }
                 )
-                signals.push_back(signal)
+                mock_signals.push_back(signal)
 
-        return signals
+            return mock_signals
+
+        # Execute with fallback
+        response = self.fallback_handler.execute_with_fallback(
+            "jupiter_cross_dex",
+            fn(): return real_cross_dex_scan(self.jupiter_api, self.config.monitored_tokens),
+            fn(): return mock_cross_dex_scan(),
+            context
+        )
+
+        if response.success:
+            return response.data
+        else:
+            print(f"❌ Cross-DEX arbitrage detection failed: {response.error_message}")
+            return Vector[TradingSignal]()
 
     fn detect_statistical_arbitrage(inout self, market_data: Tensor[float]) -> Vector[TradingSignal]:
         """Detect statistical arbitrage opportunities"""

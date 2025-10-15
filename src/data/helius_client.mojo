@@ -24,12 +24,14 @@ struct HeliusClient:
     var logger
     var http_session: PythonObject  # aiohttp session for connection pooling
     var cache: Dict[String, Any]     # Response cache
+    var python_initialized: Bool
 
     fn __init__(api_key: String, base_url: String = HELIUS_BASE_URL, timeout_seconds: Float = DEFAULT_TIMEOUT_SECONDS):
         self.api_key = api_key
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
         self.logger = get_api_logger()
+        self.python_initialized = False
 
         # Initialize aiohttp session for connection pooling
         try:
@@ -47,9 +49,11 @@ struct HeliusClient:
                 )
             )
             self.logger.info("Helius HTTP session initialized with connection pooling")
+            self.python_initialized = True
         except e:
             self.logger.warning(f"Failed to initialize aiohttp session, using mock mode: {e}")
             self.http_session = None
+            self.python_initialized = False
 
         self.cache = {}
 
@@ -1013,3 +1017,21 @@ struct HeliusClient:
             "requires_pro_account": True,
             "timestamp": time()
         }
+
+    fn close(inout self):
+        """
+        Close the HTTP session and clean up resources.
+        This method is idempotent and can be called multiple times safely.
+        """
+        if self.python_initialized and self.http_session != None:
+            try:
+                var asyncio = Python.import_module("asyncio")
+                asyncio.create_task(self.http_session.close())
+                self.logger.info("Helius HTTP session closure scheduled.")
+            except e:
+                self.logger.error(f"Error scheduling Helius session closure: {e}")
+            finally:
+                self.http_session = None
+                self.python_initialized = False
+                self.cache.clear()
+                self.logger.info("Helius client resources cleaned up.")

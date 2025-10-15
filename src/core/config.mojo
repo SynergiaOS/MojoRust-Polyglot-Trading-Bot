@@ -905,6 +905,37 @@ struct WhaleConfig:
         self.max_holder_reference = max_holder_reference
 
 # =============================================================================
+# Feature Flags Configuration
+# =============================================================================
+
+@value
+struct FeaturesConfig:
+    """
+    Configuration for feature flags to enable/disable components
+    """
+    var enable_social_analysis: Bool
+    var enable_honeypot_analysis: Bool
+    var enable_rpc_router: Bool
+    var enable_rust_data_consumer: Bool
+    var enable_connection_pool_monitoring: Bool
+    var enable_operational_reliability_monitor: Bool
+
+    fn __init__(
+        enable_social_analysis: Bool = True,
+        enable_honeypot_analysis: Bool = True,
+        enable_rpc_router: Bool = True,
+        enable_rust_data_consumer: Bool = False,
+        enable_connection_pool_monitoring: Bool = True,
+        enable_operational_reliability_monitor: Bool = True
+    ):
+        self.enable_social_analysis = enable_social_analysis
+        self.enable_honeypot_analysis = enable_honeypot_analysis
+        self.enable_rpc_router = enable_rpc_router
+        self.enable_rust_data_consumer = enable_rust_data_consumer
+        self.enable_connection_pool_monitoring = enable_connection_pool_monitoring
+        self.enable_operational_reliability_monitor = enable_operational_reliability_monitor
+
+# =============================================================================
 # Strategy Adaptation Configuration
 # =============================================================================
 
@@ -997,6 +1028,7 @@ struct Config:
     var volume: VolumeConfig
     var whale: WhaleConfig
     var sniper_filters: SniperFilterConfig
+    var features: FeaturesConfig
 
     # Environment-specific
     var trading_env: String
@@ -1275,6 +1307,23 @@ struct Config:
         # Sniper Filter Configuration
         sniper_filter_config = SniperFilterConfig()
 
+        # Feature Flags Configuration
+        enable_social_analysis = getenv("ENABLE_SOCIAL_ANALYSIS", "true").lower() == "true"
+        enable_honeypot_analysis = getenv("ENABLE_HONEYPOT_ANALYSIS", "true").lower() == "true"
+        enable_rpc_router = getenv("ENABLE_RPC_ROUTER", "true").lower() == "true"
+        enable_rust_data_consumer = getenv("ENABLE_RUST_DATA_CONSUMER", "false").lower() == "true"
+        enable_connection_pool_monitoring = getenv("ENABLE_CONNECTION_POOL_MONITORING", "true").lower() == "true"
+        enable_operational_reliability_monitor = getenv("ENABLE_OPERATIONAL_RELIABILITY_MONITOR", "true").lower() == "true"
+
+        features_config = FeaturesConfig(
+            enable_social_analysis=enable_social_analysis,
+            enable_honeypot_analysis=enable_honeypot_analysis,
+            enable_rpc_router=enable_rpc_router,
+            enable_rust_data_consumer=enable_rust_data_consumer,
+            enable_connection_pool_monitoring=enable_connection_pool_monitoring,
+            enable_operational_reliability_monitor=enable_operational_reliability_monitor
+        )
+
         # Wallet configuration
         wallet_address = getenv("WALLET_ADDRESS", "")
         wallet_private_key_path = getenv("WALLET_PRIVATE_KEY_PATH", "")
@@ -1296,6 +1345,7 @@ struct Config:
             volume=volume_config,
             whale=whale_config,
             sniper_filters=sniper_filter_config,
+            features=features_config,
             trading_env=trading_env,
             wallet_address=wallet_config.address,
             wallet_private_key_path=wallet_config.private_key_path

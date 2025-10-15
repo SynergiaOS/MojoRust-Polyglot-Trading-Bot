@@ -53,6 +53,13 @@ scrape_configs:
         target_label: instance
         replacement: 'trading-server'
 
+  # Rust Data Consumer
+  - job_name: 'data-consumer'
+    static_configs:
+      - targets: ['data-consumer:9191']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
   # cAdvisor for container metrics
   - job_name: 'cadvisor'
     static_configs:
@@ -76,15 +83,23 @@ scrape_configs:
         target_label: instance
         replacement: 'timescaledb'
 
-  # Redis Exporter (if enabled)
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis-exporter:9121']
+  # DragonflyDB Cloud Metrics
+  # Scrapes metrics directly from the managed DragonflyDB Cloud instance.
+  # This replaces the local redis-exporter configuration.
+  - job_name: 'dragonflydb-cloud'
+    scheme: https
     metrics_path: /metrics
+    static_configs:
+      - targets: ['612ehcb9i.dragonflydb.cloud']
+    # The provided key is used as a Bearer token for authentication.
+    # This is a common pattern for cloud services.
+    authorization:
+      type: Bearer
+      credentials: 'gv7g6u9svsf1'
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        replacement: 'redis'
+        replacement: 'dragonflydb-cloud'
 
   # Grafana metrics (optional)
   - job_name: 'grafana'

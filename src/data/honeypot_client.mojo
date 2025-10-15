@@ -6,7 +6,7 @@ from json import loads, dumps
 from time import time
 from sys import exit
 from collections import Dict, List
-from core.types import TokenMetadata
+from core.types import TokenMetadata, HoneypotAnalysis
 from core.constants import DEFAULT_TIMEOUT_SECONDS
 from core.logger import get_api_logger
 from python import Python
@@ -317,13 +317,25 @@ struct HoneypotClient:
             "message": "Analysis failed - assuming honeypot for safety"
         }
 
-    fn comprehensive_honeypot_analysis(self, token_address: String) -> Dict[String, Any]:
+    fn comprehensive_honeypot_analysis(self, token_address: String) -> HoneypotAnalysis:
         """
         Perform comprehensive honeypot analysis combining all checks
-        Returns unified safety assessment for sniper filters
+        Returns typed HoneypotAnalysis for sniper filters
         """
         if not self.enabled:
-            return self._get_disabled_response()
+            # Return disabled response as HoneypotAnalysis
+            return HoneypotAnalysis(
+                is_honeypot=False,
+                risk_level="unknown",
+                is_safe_for_sniping=False,
+                buy_tax=0.0,
+                sell_tax=0.0,
+                confidence_score=0.0,
+                liquidity_locked=False,
+                can_sell=False,
+                critical_flags=[],
+                analysis_timestamp=time()
+            )
 
         try:
             # Get all individual analyses
@@ -341,16 +353,12 @@ struct HoneypotClient:
             # Weighted average (Honeypot: 40%, Tradability: 30%, Security: 20%, Liquidity: 10%)
             overall_safety_score = (honeypot_score * 0.4) + (tradable_score * 0.3) + (security_score * 0.2) + (liquidity_score * 0.1)
 
-            # Determine risk level and recommendation
+            # Determine risk level
             risk_level = "low"
-            recommendation = "safe"
-
             if overall_safety_score < 0.3:
                 risk_level = "high"
-                recommendation = "avoid"
             elif overall_safety_score < 0.6:
                 risk_level = "medium"
-                recommendation = "caution"
 
             # Check for critical red flags
             critical_flags = []
@@ -361,48 +369,60 @@ struct HoneypotClient:
             if not liquidity_trap.get("is_safe_from_liquidity_trap", False):
                 critical_flags.append("Liquidity trap risk")
 
-            # Update recommendation if critical flags exist
-            if critical_flags:
-                recommendation = "avoid"
-                overall_safety_score = min(overall_safety_score, 0.2)
+            # Determine if safe for sniping
+            is_safe_for_sniping = overall_safety_score >= 0.7 and len(critical_flags) == 0
 
-            comprehensive_analysis = {
-                "overall_safety_score": overall_safety_score,
-                "risk_level": risk_level,
-                "recommendation": recommendation,
-                "is_safe_for_sniping": overall_safety_score >= 0.7 and len(critical_flags) == 0,
-                "critical_flags": critical_flags,
-                "analyses": {
-                    "honeypot_status": honeypot_status,
-                    "buy_sell_ability": buy_sell_check,
-                    "security_analysis": security_analysis,
-                    "liquidity_trap": liquidity_trap
-                },
-                "key_metrics": {
-                    "can_buy": buy_sell_check.get("can_buy", False),
-                    "can_sell": buy_sell_check.get("can_sell", False),
-                    "contract_verified": security_analysis.get("contract_verified", False),
-                    "liquidity_locked": liquidity_trap.get("liquidity_locked", False),
-                    "buy_tax": buy_sell_check.get("taxes", {}).get("buy_tax_percentage", 0.0),
-                    "sell_tax": buy_sell_check.get("taxes", {}).get("sell_tax_percentage", 0.0)
-                },
-                "analysis_timestamp": time()
-            }
+            # Get tax information
+            buy_tax = buy_sell_check.get("taxes", {}).get("buy_tax_percentage", 0.0)
+            sell_tax = buy_sell_check.get("taxes", {}).get("sell_tax_percentage", 0.0)
+
+            # Get liquidity and sell ability
+            liquidity_locked = liquidity_trap.get("liquidity_locked", False)
+            can_sell = buy_sell_check.get("can_sell", False)
+
+            # Calculate confidence score based on consensus
+            confidence_score = overall_safety_score
+
+            # Create and return HoneypotAnalysis
+            honeypot_analysis = HoneypotAnalysis(
+                is_honeypot=honeypot_status.get("is_honeypot", False),
+                risk_level=risk_level,
+                is_safe_for_sniping=is_safe_for_sniping,
+                buy_tax=buy_tax,
+                sell_tax=sell_tax,
+                confidence_score=confidence_score,
+                liquidity_locked=liquidity_locked,
+                can_sell=can_sell,
+                critical_flags=critical_flags,
+                analysis_timestamp=time()
+            )
 
             self.logger.info(f"Comprehensive honeypot analysis completed",
                            token_address=token_address,
                            overall_score=overall_safety_score,
                            risk_level=risk_level,
-                           recommendation=recommendation,
+                           is_safe_for_sniping=is_safe_for_sniping,
                            critical_flags_count=len(critical_flags))
 
-            return comprehensive_analysis
+            return honeypot_analysis
 
         except e:
             self.logger.error(f"Error in comprehensive honeypot analysis",
                             token_address=token_address,
                             error=str(e))
-            return self._get_error_response(str(e))
+            # Return error response as HoneypotAnalysis
+            return HoneypotAnalysis(
+                is_honeypot=True,
+                risk_level="high",
+                is_safe_for_sniping=False,
+                buy_tax=0.0,
+                sell_tax=0.0,
+                confidence_score=0.0,
+                liquidity_locked=False,
+                can_sell=False,
+                critical_flags=["Analysis error"],
+                analysis_timestamp=time()
+            )
 
     # Real API Integration Methods
 
@@ -752,13 +772,26 @@ struct HoneypotClient:
             self.logger.error(f"Error calculating consensus: {e}")
             return self._get_error_response(str(e))
 
-    async fn comprehensive_honeypot_analysis(self, token_address: String) -> Dict[String, Any]:
+    async fn comprehensive_honeypot_analysis(self, token_address: String) -> HoneypotAnalysis:
         """
         Perform comprehensive honeypot analysis combining all checks
         Enhanced with real API calls and multi-API consensus
+        Returns typed HoneypotAnalysis for sniper filters
         """
         if not self.enabled:
-            return self._get_disabled_response()
+            # Return disabled response as HoneypotAnalysis
+            return HoneypotAnalysis(
+                is_honeypot=False,
+                risk_level="unknown",
+                is_safe_for_sniping=False,
+                buy_tax=0.0,
+                sell_tax=0.0,
+                confidence_score=0.0,
+                liquidity_locked=False,
+                can_sell=False,
+                critical_flags=[],
+                analysis_timestamp=time()
+            )
 
         try:
             # Get enhanced honeypot status with real API calls
@@ -782,9 +815,8 @@ struct HoneypotClient:
             # Enhanced weighted average with API consensus
             overall_safety_score = (honeypot_score * 0.45) + (tradable_score * 0.25) + (security_score * 0.2) + (liquidity_score * 0.1)
 
-            # Determine risk level and recommendation
+            # Determine risk level
             risk_level = honeypot_status.get("risk_level", "medium")
-            recommendation = honeypot_status.get("recommendation", "caution")
 
             # Check for critical red flags
             critical_flags = []
@@ -795,57 +827,66 @@ struct HoneypotClient:
             if not liquidity_trap.get("is_safe_from_liquidity_trap", False):
                 critical_flags.append("Liquidity trap risk")
 
-            # Update recommendation if critical flags exist
+            # Update risk level if critical flags exist
             if critical_flags:
-                recommendation = "avoid"
-                overall_safety_score = min(overall_safety_score, 0.2)
                 risk_level = "high"
+                overall_safety_score = min(overall_safety_score, 0.2)
 
-            comprehensive_analysis = {
-                "overall_safety_score": overall_safety_score,
-                "risk_level": risk_level,
-                "recommendation": recommendation,
-                "is_safe_for_sniping": overall_safety_score >= 0.7 and len(critical_flags) == 0,
-                "critical_flags": critical_flags,
-                "enhanced_features": {
-                    "multi_api_consensus": True,
-                    "real_api_calls": self.use_real_api,
-                    "apis_queried": consensus_data.get("total_apis", 1),
-                    "consensus_confidence": honeypot_status.get("confidence_score", 0.5)
-                },
-                "analyses": {
-                    "honeypot_status": honeypot_status,
-                    "buy_sell_ability": buy_sell_check,
-                    "security_analysis": security_analysis,
-                    "liquidity_trap": liquidity_trap
-                },
-                "key_metrics": {
-                    "can_buy": primary_analysis.get("can_buy", False),
-                    "can_sell": primary_analysis.get("can_sell", False),
-                    "contract_verified": security_analysis.get("contract_verified", False),
-                    "liquidity_locked": liquidity_trap.get("liquidity_locked", False),
-                    "buy_tax": primary_analysis.get("buy_tax", 0.0) * 100,
-                    "sell_tax": primary_analysis.get("sell_tax", 0.0) * 100,
-                    "consensus_apis": consensus_data.get("total_apis", 1)
-                },
-                "analysis_timestamp": time()
-            }
+            # Determine if safe for sniping
+            is_safe_for_sniping = overall_safety_score >= 0.7 and len(critical_flags) == 0
+
+            # Get tax information
+            buy_tax = primary_analysis.get("buy_tax", 0.0) * 100
+            sell_tax = primary_analysis.get("sell_tax", 0.0) * 100
+
+            # Get liquidity and sell ability
+            liquidity_locked = liquidity_trap.get("liquidity_locked", False)
+            can_sell = primary_analysis.get("can_sell", False)
+
+            # Calculate confidence score
+            confidence_score = honeypot_status.get("confidence_score", 0.5)
+
+            # Create and return HoneypotAnalysis
+            honeypot_analysis = HoneypotAnalysis(
+                is_honeypot=honeypot_status.get("is_honeypot", False),
+                risk_level=risk_level,
+                is_safe_for_sniping=is_safe_for_sniping,
+                buy_tax=buy_tax,
+                sell_tax=sell_tax,
+                confidence_score=confidence_score,
+                liquidity_locked=liquidity_locked,
+                can_sell=can_sell,
+                critical_flags=critical_flags,
+                analysis_timestamp=time()
+            )
 
             self.logger.info(f"Enhanced comprehensive honeypot analysis completed",
                            token_address=token_address,
                            overall_score=overall_safety_score,
                            risk_level=risk_level,
-                           recommendation=recommendation,
+                           is_safe_for_sniping=is_safe_for_sniping,
                            critical_flags_count=len(critical_flags),
                            apis_used=consensus_data.get("total_apis", 1))
 
-            return comprehensive_analysis
+            return honeypot_analysis
 
         except e:
             self.logger.error(f"Error in comprehensive honeypot analysis",
                             token_address=token_address,
                             error=str(e))
-            return self._get_error_response(str(e))
+            # Return error response as HoneypotAnalysis
+            return HoneypotAnalysis(
+                is_honeypot=True,
+                risk_level="high",
+                is_safe_for_sniping=False,
+                buy_tax=0.0,
+                sell_tax=0.0,
+                confidence_score=0.0,
+                liquidity_locked=False,
+                can_sell=False,
+                critical_flags=["Analysis error"],
+                analysis_timestamp=time()
+            )
 
     def health_check(self) -> Bool:
         """

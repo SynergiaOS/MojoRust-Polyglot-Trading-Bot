@@ -36,6 +36,14 @@ struct PerformanceMetrics:
     var avg_execution_time: Float64
     var avg_slippage: Float32
     var total_volume: Float64
+    var api_circuit_breaker_open_count: Int
+    var api_circuit_breaker_state: Dict[String, String]
+    var connection_pool_active: Dict[String, Int]
+    var connection_pool_idle: Dict[String, Int]
+    var retry_attempts_total: Int
+    var retry_successes: Int
+    var retry_failures: Int
+    var avg_retry_delay_ms: Float
 
 @value
 struct SystemMetrics:
@@ -199,7 +207,15 @@ struct UltimateMonitor:
             current_drawdown=0.0,
             avg_execution_time=0.0,
             avg_slippage=0.0,
-            total_volume=0.0
+            total_volume=0.0,
+            api_circuit_breaker_open_count=0,
+            api_circuit_breaker_state={},
+            connection_pool_active={},
+            connection_pool_idle={},
+            retry_attempts_total=0,
+            retry_successes=0,
+            retry_failures=0,
+            avg_retry_delay_ms=0.0
         )
 
     fn _initialize_system_metrics(inout self) -> SystemMetrics:
@@ -897,7 +913,7 @@ struct UltimateMonitor:
         except e:
             print(f"Error updating sniper TP/SL metrics: {e}")
 
-    def generate_sniper_performance_report(inout self) -> String:
+    fn generate_sniper_performance_report(inout self) -> String:
         """
         Generate comprehensive sniper performance report
         """
@@ -951,12 +967,12 @@ struct UltimateMonitor:
 
         return report
 
-    def get_sniper_dashboard_data(inout self) -> Dict[String, Any]:
+    fn get_sniper_dashboard_data(inout self) -> Dict[String, Any]:
         """
         Get sniper-specific data for dashboard
         """
         return {
-            "timestamp": now(),
+            "timestamp": time(),
             "total_sniper_trades": self.sniper_metrics.total_sniper_trades,
             "sniper_win_rate": self.sniper_metrics.sniper_win_rate,
             "net_sniper_profit": self.sniper_metrics.net_sniper_profit,
@@ -972,3 +988,48 @@ struct UltimateMonitor:
             "authority_pass_rate": self.sniper_metrics.authority_pass_rate,
             "honeypot_pass_rate": self.sniper_metrics.honeypot_pass_rate
         }
+
+    fn update_circuit_breaker_metrics(inout self, api_name: String, state: String, opened: Bool):
+        self.performance_metrics.api_circuit_breaker_state[api_name] = state
+        if opened:
+            self.performance_metrics.api_circuit_breaker_open_count += 1
+
+    fn update_connection_pool_metrics(inout self, pool_name: String, active: Int, idle: Int):
+        self.performance_metrics.connection_pool_active[pool_name] = active
+        self.performance_metrics.connection_pool_idle[pool_name] = idle
+
+    fn update_retry_metrics(inout self, success: Bool, delay_ms: Float):
+        self.performance_metrics.retry_attempts_total += 1
+        if success:
+            self.performance_metrics.retry_successes += 1
+        else:
+            self.performance_metrics.retry_failures += 1
+        
+        # Update average retry delay
+        var total = self.performance_metrics.retry_attempts_total
+        var current_avg = self.performance_metrics.avg_retry_delay_ms
+        self.performance_metrics.avg_retry_delay_ms = (current_avg * (total - 1) + delay_ms) / total
+
+    fn get_prometheus_metrics(self) -> String:
+        var metrics = ""
+        # Circuit Breaker Metrics
+        for api, state in self.performance_metrics.api_circuit_breaker_state.items():
+            var state_val = 1 if state == "OPEN" else 0
+            metrics += f'trading_bot_circuit_breaker_state{{api="{api}"}} {state_val}\n'
+        metrics += f'trading_bot_circuit_breaker_open_total {self.performance_metrics.api_circuit_breaker_open_count}\n'
+
+        # Connection Pool Metrics
+        for pool, active in self.performance_metrics.connection_pool_active.items():
+            var idle = self.performance_metrics.connection_pool_idle.get(pool, 0)
+            metrics += f'trading_bot_connection_pool_active{{pool="{pool}"}} {active}\n'
+            metrics += f'trading_bot_connection_pool_idle{{pool="{pool}"}} {idle}\n'
+
+        # Retry Metrics
+        metrics += f'trading_bot_retry_attempts_total {self.performance_metrics.retry_attempts_total}\n'
+        var success_rate = 0.0
+        if self.performance_metrics.retry_attempts_total > 0:
+            success_rate = self.performance_metrics.retry_successes / self.performance_metrics.retry_attempts_total
+        metrics += f'trading_bot_retry_success_rate {success_rate}\n'
+        metrics += f'trading_bot_avg_retry_delay_ms {self.performance_metrics.avg_retry_delay_ms}\n'
+
+        return metrics

@@ -17,8 +17,6 @@ networks:
 volumes:
   timescaledb_data:
     driver: local
-  redis_data:
-    driver: local
   prometheus_data:
     driver: local
   grafana_data:
@@ -26,6 +24,8 @@ volumes:
   grafana_provisioning:
     driver: local
   grafana_dashboards:
+    driver: local
+  redis_data:
     driver: local
 
 services:
@@ -54,40 +54,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # Redis for caching and real-time data
-  redis:
-    image: redis:7-alpine
-    container_name: trading-bot-redis
-    <<: *restart-policy
-    command: >
-      redis-server
-      --appendonly yes
-      --appendfsync everysec
-      --maxmemory 512mb
-      --maxmemory-policy allkeys-lru
-      --save 900 1
-      --save 300 10
-      --save 60 10000
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    networks:
-      trading-network:
-        ipv4_address: 172.20.0.11
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
     logging:
       driver: "json-file"
       options:
@@ -192,23 +158,43 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
 
-  # Redis Commander for Redis management (optional)
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    container_name: trading-bot-redis-commander
+  # Redis for caching and Pub/Sub message bus
+  redis:
+    image: redis:7-alpine
+    container_name: trading-bot-redis
     <<: *restart-policy
-    environment:
-      <<: *common-variables
-      REDIS_HOSTS: local:redis:6379
-      HTTP_USER: admin
-      HTTP_PASSWORD: redis_admin
+    command: redis-server --save 60 1 --loglevel warning --requirepass trading_password
     ports:
-      - "8081:8081"
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
     networks:
       trading-network:
         ipv4_address: 172.20.0.15
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "trading_password", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Rust Data Consumer for Geyser
+  data-consumer:
+    build:
+      context: .
+      dockerfile: rust-modules/Dockerfile.data-consumer
+    container_name: trading-bot-data-consumer
+    <<: *restart-policy
+    environment:
+      <<: *common-variables
+      RUST_LOG: info
+      GEYSER_ENDPOINT: ${GEYSER_ENDPOINT}
+      REDIS_URL: redis://:trading_password@redis:6379
+    ports:
+      - "9191:9191" # Metrics port
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.18
     depends_on:
       redis:
         condition: service_healthy
@@ -250,7 +236,8 @@ services:
 
       # Database connections
       TIMESCALEDB_URL: postgresql://trading_user:trading_password@timescaledb:5432/trading_db
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:trading_password@redis:6379
+      ENABLE_RUST_CONSUMER: "true"
 
       # API Keys (loaded from .env file)
       HELIUS_API_KEY: ${HELIUS_API_KEY}

@@ -1,0 +1,36 @@
+# =============================================================================
+# Data Ingestion Pipeline Prometheus Alerting Rules
+# =============================================================================
+# Monitors the health of the Rust Geyser consumer and the Python Task Manager's
+# ability to process events from the Redis Pub/Sub bridge.
+
+groups:
+  - name: data_ingestion_pipeline
+    rules:
+      # Alert for high Redis Pub/Sub lag between the Rust producer and Python consumer.
+      # This indicates the Python service is not keeping up with the event stream.
+      - alert: HighRedisPubSubLag
+        expr: trading_bot_task_pool_stats_redis_pubsub_lag_ms > 5000 # 5 seconds
+        for: 1m
+        labels:
+          severity: critical
+          service: data-ingestion
+          component: task-pool-manager
+        annotations:
+          summary: "High Redis Pub/Sub Lag Detected"
+          description: "The Redis Pub/Sub lag between the Rust producer and Python consumer is {{ $value | printf \"%.0f\" }}ms, which exceeds the 5000ms threshold. The Python task manager is falling behind."
+          runbook_url: "https://github.com/SynergiaOS/MojoRust/blob/main/docs/FREE_DATA_SOURCES_GUIDE.md#troubleshooting"
+
+      # Alert for a high rate of dropped events due to backpressure in the TaskPoolManager.
+      # This means the task queue is nearing its capacity, and low-priority events are being discarded.
+      - alert: HighRateOfDroppedEvents
+        expr: rate(trading_bot_task_pool_stats_dropped_events[5m]) > 0.1 # > 6 events/min
+        for: 5m
+        labels:
+          severity: warning
+          service: data-ingestion
+          component: task-pool-manager
+        annotations:
+          summary: "High Rate of Dropped Events"
+          description: "The system is dropping events at a rate of {{ $value | printf \"%.2f\" }} per second due to backpressure. This indicates high load on the TaskPoolManager."
+          runbook_url: "https://github.com/SynergiaOS/MojoRust/blob/main/docs/PARALLEL_PROCESSING_ARCHITECTURE.md#backpressure"

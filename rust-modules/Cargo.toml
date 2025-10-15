@@ -11,50 +11,60 @@ name = "mojo_trading_bot"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Core dependencies (minimal versions to avoid conflicts)
-ed25519-dalek = "2.0"
-sha2 = "0.10"
-hmac = "0.12"
-aes-gcm = "0.10"
-rand = "0.8"
-zeroize = "1.3"
 
-# Solana blockchain integration
-solana-sdk = { version = "1.18", features = ["full"] }
-solana-client = { version = "1.18", features = ["rpc"] }
-solana-account-decoder = "1.18"
-solana-transaction-status = "1.18"
-solana-program = "1.18"
-solana-program-library = { version = "1.18", features = ["full"] }
-spl-token = "4.0"
-spl-associated-token-account = "2.0"
-anchor-lang = "0.29"
-anchor-client = "0.29"
+# Core dependencies (minimal versions to avoid conflicts)
+
+# Force disable LTO to fix compilation issues
+[profile.release]
+lto = "off"
+codegen-units = 1
+
+[profile.dev]
+lto = "off"
+codegen-units = 1
+
+# Core dependencies (minimal versions to avoid conflicts)
+
+# Solana blockchain integration - using minimal pubkey types only
+# solana-sdk = { version = "1.18", features = ["full"] }  # Disabled - conflict with ed25519-dalek
+# For Pubkey, we can use a simple [u8; 32] wrapper or get the raw bytes from Redis
+# solana-client = "1.18"  # Disabled - not needed for data consumer
+# solana-account-decoder = "1.18"  # Disabled - version conflicts
+# solana-transaction-status = "1.18"  # Disabled - version conflicts
+# solana-program = "1.18"  # Disabled - version conflicts
+# solana-program-library = { version = "1.18", features = ["full"] }  # Disabled - doesn't exist
+# spl-token = "4.0"  # Disabled - not needed for data consumer
+# spl-associated-token-account = "2.0"  # Disabled - not needed for data consumer
+# anchor-lang = "0.29"  # Disabled - not needed for data consumer
+# anchor-client = "0.29"  # Disabled - not needed for data consumer
 
 # Flash loan and DeFi protocol integrations
-solend-sdk = "0.4"
-marginfi-sdk = "0.1"
-mango-v3 = "0.1"
-serum-dex = "4.0"
-raydium-sdk = "0.1"
-jupiter-swap-api-client = "1.0"
+# solend-sdk = "0.4"      # Disabled - doesn't exist
+# marginfi-sdk = "0.1"     # Disabled - doesn't exist
+# mango-v3 = "0.1"         # Disabled - doesn't exist
+# serum-dex = "4.0"        # Disabled - doesn't exist
+# raydium-sdk = "0.1"      # Disabled - doesn't exist
+jupiter-swap-api-client = "0.2"
 
 # Jito bundle execution and MEV protection
-jito-protos = "0.1"
-jito-bundle = "0.1"
-jito-json-rpc = "1.0"
-jito-tip-distribution = "0.1"
-mev-share-rs = "0.1"
-flashloan-protocol = "0.1"
+# jito-protos = "0.1"        # Disabled - doesn't exist
+# jito-bundle = "0.1"         # Disabled - doesn't exist
+# jito-json-rpc = "1.0"       # Disabled - doesn't exist
+# jito-tip-distribution = "0.1"  # Disabled - doesn't exist
+# mev-share-rs = "0.1"        # Disabled - doesn't exist
+# solana-geyser-grpc-client = "1.18"  # Disabled - doesn't exist in crates.io
+# flashloan-protocol = "0.1"  # Disabled - doesn't exist
 
 # gRPC and streaming for Geyser
-tonic = "0.10"
+tonic = { version = "0.11", features = ["tls", "tls-roots"] }
 prost = "0.12"
 prost-types = "0.12"
 tokio-stream = "0.1"
 futures = "0.3"
 tower = "0.4"
-hyper = "0.14"
+hyper = { version = "0.14", features = ["full"] }
+# grpcio = "0.13"  # Disabled - conflicting with tonic
+# protobuf = "3.2"  # Disabled - conflicting with prost
 
 # Serialization and data handling
 serde = { version = "1.0", features = ["derive"] }
@@ -62,15 +72,11 @@ serde_json = "1.0"
 bincode = "1.3"
 bs58 = "0.5"
 hex = "0.4"
-base64 = "0.21"
-bs58 = "0.5"
-hex = "0.4"
 
 # Async and networking
 tokio = { version = "1.0", features = ["full"] }
 reqwest = { version = "0.11", features = ["json", "stream"] }
-hyper = { version = "0.14", features = ["full"] }
-tower-http = "0.4"
+tower-http = { version = "0.5", features = ["trace"] }
 axum = "0.7"
 
 # Database and caching
@@ -80,20 +86,21 @@ deadpool-redis = "0.14"
 diesel = { version = "2.1", features = ["postgres", "uuid", "chrono", "serde_json"] }
 
 # Secrets management and security
-infisical = { version = "0.2", features = ["async"] }
+# infisical = { version = "0.0.3", features = ["async"] }  # Disabled - async feature doesn't exist
 async-trait = "0.1"
 ring = "0.17"
 argon2 = "0.5"
 secrecy = "0.8"
 
 # Cryptography and signatures
-ed25519-dalek = { version = "2.0", features = ["serde", "batch"] }
+ed25519-dalek = { version = "2.0", features = ["serde", "batch", "rand_core"] }
 sha2 = "0.10"
 hmac = "0.12"
 aes-gcm = "0.10"
 rand = "0.8"
-zeroize = "1.3"
+zeroize = "1.5"
 fastrand = "2.0"
+curve25519-dalek = "4.0"
 
 # Time and utilities
 uuid = { version = "1.6", features = ["v4", "serde", "fast-rng"] }
@@ -118,21 +125,21 @@ libloading = "0.8"
 nix = "0.27"
 
 # HTTP and API client
-hyper = { version = "0.14", features = ["full"] }
+# hyper dependency moved to Async and networking section
 tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
 url = "2.4"
 http = "0.2"
 mime = "0.3"
 
 # Configuration and environment
-config = "0.13"
+config = { version = "0.13", features = ["toml"] }
 dotenvy = "0.15"
 clap = { version = "4.4", features = ["derive"] }
 
 # Monitoring and metrics
 prometheus = "0.13"
 metrics = "0.22"
-metrics-exporter-prometheus = "0.12"
+metrics-exporter-prometheus = "0.13"
 sentry = { version = "0.31", features = ["anyhow", "tracing"] }
 
 # Testing and development
@@ -151,6 +158,7 @@ vergen = { version = "8.2", features = ["build", "git", "gitcl"] }
 lazy_static = "1.4"
 dashmap = "5.5"
 parking_lot = "0.12"
+lru_time_cache = "0.11"
 crossbeam = "0.8"
 rayon = "1.8"
 itertools = "0.11"
@@ -161,14 +169,14 @@ pin-project = "1.1"
 async-stream = "0.3"
 futures-util = "0.3"
 backoff = "0.4"
-retry = "0.5"
-circuit-breaker = "0.4"
-rate-limiter = "0.3"
+retry = "2.0"
+circuit_breaker = "0.1.1"
+rate_limiter = "0.1"
 
 # MEV and arbitrage specific
-mev-share-solver = "0.1"
-arbitrage-core = "0.1"
-mev-inspect-rs = "0.1"
+# mev-share-solver = "0.1"  # Disabled - doesn't exist
+# arbitrage-core = "0.1"    # Disabled - doesn't exist
+# mev-inspect-rs = "0.1"    # Disabled - doesn't exist
 
 # Error handling and resilience
 snafu = { version = "0.7", features = ["backtraces", "futures"] }
@@ -179,6 +187,10 @@ eyre = "0.6"
 tokio-test = "0.4"
 tempfile = "3.8"
 mockall = "0.12"
+
+[[bin]]
+name = "data_consumer"
+path = "src/data_consumer.rs"
 
 [features]
 default = ["std"]

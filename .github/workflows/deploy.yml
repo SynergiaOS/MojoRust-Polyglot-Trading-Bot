@@ -132,6 +132,14 @@ except:
             exit 1
           fi
 
+          # Check if placeholder detector is implemented
+          if [ -f "src/core/placeholder_detector.mojo" ]; then
+            echo "✅ Placeholder detector found"
+          else
+            echo "❌ Placeholder detector not found"
+            exit 1
+          fi
+
           # Verify critical Mojo files can be parsed (syntax check)
           critical_files=("src/main.mojo" "src/data/enhanced_data_pipeline.mojo" "src/execution/ultimate_executor.mojo")
 
@@ -150,6 +158,65 @@ except:
               exit 1
             fi
           done
+
+      - name: Validate Placeholder Configuration
+        run: |
+          echo "🔑 Validating placeholder detection configuration..."
+
+          # Check environment template for placeholder patterns
+          if [ -f ".env.production.example" ]; then
+            echo "✅ Production environment template found"
+
+            # Check for obvious placeholder patterns
+            PLACEHOLDER_COUNT=$(grep -c "your_.*\(key\|api\|token\|secret\)" .env.production.example || echo "0")
+            if [[ "$PLACEHOLDER_COUNT" -gt 0 ]]; then
+              echo "⚠️  Found $PLACEHOLDER_COUNT placeholder API keys in template"
+              echo "   This is expected for development templates"
+            fi
+
+            # Check for critical API variables
+            CRITICAL_VARS=("HELIUS_API_KEY" "QUICKNODE_RPC_URL" "INFISICAL_PROJECT_ID")
+            MISSING_CRITICAL=()
+
+            for var in "${CRITICAL_VARS[@]}"; do
+              if grep -q "^${var}=" .env.production.example; then
+                echo "✅ Critical variable template found: $var"
+              else
+                MISSING_CRITICAL+=("$var")
+              fi
+            done
+
+            if [[ ${#MISSING_CRITICAL[@]} -gt 0 ]]; then
+              echo "❌ Missing critical variable templates: ${MISSING_CRITICAL[*]}"
+              exit 1
+            fi
+          else
+            echo "❌ Production environment template not found"
+            exit 1
+          fi
+
+          # Test placeholder detection logic (basic test)
+          echo "🧪 Testing placeholder detection logic..."
+
+          # Test basic placeholder detection patterns
+          if grep -q "your_.*_key" .env.production.example; then
+            echo "✅ Placeholder detection patterns found in environment template"
+          fi
+
+          # Validate that graceful fallback is implemented in core files
+          FALLBACK_FILES=("src/core/api_placeholder_handler.mojo" "src/arbitrage/arbitrage_detector.mojo")
+
+          for file in "${FALLBACK_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              if grep -q "fallback" "$file"; then
+                echo "✅ Graceful fallback implemented in: $file"
+              else
+                echo "⚠️  Fallback patterns not found in: $file"
+              fi
+            fi
+          done
+
+          echo "✅ Placeholder configuration validation completed"
 
   package:
     runs-on: ubuntu-latest
@@ -181,7 +248,6 @@ except:
       - name: Build Application
         run: |
           mkdir -p target
-          echo 'export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"' >> $GITHUB_ENV
           mojo build src/main.mojo -o target/trading-bot
           mojo build src/main_ultimate.mojo -o target/trading-bot-ultimate
           chmod +x target/trading-*

@@ -87,7 +87,14 @@ chmod +x scripts/*.sh
 # Configure API keys (minimum required)
 cp .env.example .env
 nano .env
-# Add your required API keys. At a minimum, you will need:
+
+# Environment setup for basic functionality
+export HELIUS_API_KEY=your_helius_api_key_here
+export QUICKNODE_PRIMARY_RPC=your_quicknode_rpc_here
+export GEYSER_ENDPOINT=your_geyser_endpoint_here
+export TWITTER_API_KEY=your_twitter_api_key_here
+
+# Add your required API keys to .env file. At a minimum, you will need:
 # - HELIUS_API_KEY
 # - QUICKNODE_PRIMARY_RPC
 # For advanced features, you will also need:
@@ -138,33 +145,54 @@ tail -f logs/trading-bot-*.log
 Data Layer (APIs) → Processing Layer (Algorithmic Engines) → Execution Layer (Trading)
 ```
 
+
 ### 🏛️ Advanced Architecture Guides
 
-For a deeper dive into the bot's architecture, refer to our detailed guides:
+For comprehensive understanding of the bot's architecture, refer to these detailed guides:
 
-- **[RPC Provider Strategy](docs/RPC_PROVIDER_STRATEGY.md)**: How the bot selects and fails over between Helius and QuickNode.
-- **[Data Ingestion Architecture](docs/DATA_INGESTION_ARCHITECTURE.md)**: Real-time data pipelines with Geyser and Yellowstone.
-- **[Parallel Processing Architecture](docs/PARALLEL_PROCESSING_ARCHITECTURE.md)**: High-throughput token analysis using an asyncio-based task pool.
-- **[Portfolio Manager Design](docs/PORTFOLIO_MANAGER_DESIGN.md)**: Capital allocation and risk management with the Rust-based portfolio manager.
-- **[Advanced Filters Guide](docs/ADVANCED_FILTERS_GUIDE.md)**: A detailed look at the multi-stage filtering engine.
-- **[MEV Strategy Guide](docs/MEV_STRATEGY_GUIDE.md)**: Techniques for MEV extraction with Jito.
-- **[Flash Loan Integration](docs/FLASH_LOAN_INTEGRATION.md)**: Arbitrage strategies using flash loans from Solend and Kamino.
+- **[RPC Provider Strategy](docs/RPC_PROVIDER_STRATEGY.md)**: Dual-RPC routing, health checks, and failover mechanisms
+- **[Flash Loan Integration](docs/FLASH_LOAN_INTEGRATION.md)**: Arbitrage strategies using Solend and Kamino flash loans
+- **[Data Ingestion Architecture](docs/DATA_INGESTION_ARCHITECTURE.md)**: Real-time data pipelines with Geyser and Yellowstone
+- **[Portfolio Manager Design](docs/PORTFOLIO_MANAGER_DESIGN.md)**: Rust-based capital allocation and risk management
+- **[Advanced Filters Guide](docs/ADVANCED_FILTERS_GUIDE.md)**: Multi-stage filtering engine with spam detection
+- **[Free Data Sources Guide](docs/FREE_DATA_SOURCES_GUIDE.md)**: Integrating Geyser and other free real-time data sources.
+- **[MEV Strategy Guide](docs/MEV_STRATEGY_GUIDE.md)**: MEV extraction techniques with Jito bundles
+- **[Parallel Processing Architecture](docs/PARALLEL_PROCESSING_ARCHITECTURE.md)**: Asyncio-based task pool for high-throughput analysis
 
 ### 🛠️ Technology Layer Responsibilities
 
-This project uses a polyglot architecture to leverage the strengths of each language:
+This project uses a polyglot architecture where each language has specific responsibilities:
 
-- **Mojo (🔥)**: Used for performance-critical components where speed is paramount.
-  - **Responsibilities**: Data analysis, signal generation, filter engines, and strategy execution.
-  - **Why?**: Mojo's Python-like syntax combined with C-level performance is ideal for computationally intensive tasks.
+- **Python (🐍)**: **Orchestration Layer**
+  - **Responsibilities**: API clients, task scheduling, webhooks, database interactions, main application loop
+  - **Why?**: Python's rich ecosystem and mature `asyncio` framework perfect for managing complex workflows
 
-- **Rust (🦀)**: Used for security-critical components and memory-safe concurrency.
-  - **Responsibilities**: Portfolio management, capital allocation, and cryptographic operations.
-  - **Why?**: Rust's ownership model and compile-time guarantees prevent common bugs and ensure the safety of funds.
+- **Mojo (🔥)**: **Intelligence Layer**
+  - **Responsibilities**: Filters/ML inference, signal generation, data analysis, pattern recognition
+  - **Why?**: Mojo's Python-like syntax with C-level performance for computationally intensive tasks
+  - **Note**: Mojo handles intelligence but NOT execution - it provides data to Rust
 
-- **Python (🐍)**: Used for orchestration, I/O-bound tasks, and integrations.
-  - **Responsibilities**: API clients, task scheduling, database interactions, and the main application loop.
-  - **Why?**: Python's rich ecosystem of libraries and mature `asyncio` framework make it perfect for managing complex workflows.
+- **Rust (🦀)**: **Secure Execution Layer**
+  - **Responsibilities**: Private keys, transaction signing, CPI calls, Jito bundles, portfolio management
+  - **Why?**: Rust's ownership model and compile-time guarantees ensure security of funds and safe execution
+  - **NEW**: High-performance Geyser data consumer for filtering on-chain events at the source.
+
+### 🚀 New: Free Data Sources & High-Performance Ingestion
+
+The bot now features a powerful data ingestion pipeline that leverages free, real-time data from Solana's Geyser stream, significantly reducing reliance on paid APIs.
+
+**Architecture:**
+```
+┌──────────────────┐      ┌───────────────────┐      ┌──────────────────┐      ┌──────────────────┐
+│ Solana Geyser    ├─────►│ Rust Data         ├─────►│ Redis Pub/Sub    ├─────►│ Python           │
+│ (gRPC Stream)    │      │ Consumer          │      │ (Channels)       │      │ TaskPoolManager  │
+└──────────────────┘      │ (Filtering >99%)  │      └──────────────────┘      │ (Subscriber)     │
+                          └───────────────────┘                                └──────────────────┘
+```
+
+This design offloads the heavy lifting of event filtering to a compiled Rust binary, allowing the Python layer to focus on complex analysis and orchestration.
+
+📖 **Read the Full Guide: `docs/FREE_DATA_SOURCES_GUIDE.md`**
 
 ### Core Components
 
@@ -384,6 +412,32 @@ Supported channels:
 - Discord/Slack webhooks
 - Telegram bot
 - Email (coming soon)
+
+### Data Ingestion Pipeline Monitoring
+
+The health and performance of the Rust `data-consumer` and Python `TaskPoolManager` are critical. We provide a pre-built Grafana dashboard and Prometheus alerts to monitor this pipeline.
+
+#### Grafana Dashboard
+
+A dedicated "Data Ingestion Pipeline" dashboard is available in Grafana (`config/grafana/dashboards/data_ingestion.json`). It visualizes key metrics, including:
+
+- **Rust Consumer (Geyser)**:
+  - Event Throughput (received vs. published)
+  - Event Filter Rate (%)
+  - Processing Latency (p95)
+  - Geyser Connection Status
+
+- **Python Consumer (Task Manager)**:
+  - Redis Pub/Sub Lag (ms)
+  - Task Queue Size
+  - Dropped Events Rate (due to backpressure)
+
+#### Prometheus Alerts
+
+Alerting rules are defined in `config/prometheus_rules/data_ingestion_alerts.yml` to notify you of potential issues:
+
+- `HighRedisPubSubLag`: Fires if the lag between the Rust producer and Python consumer exceeds 5 seconds, indicating the Python service is falling behind.
+- `HighRateOfDroppedEvents`: Fires if the Python service is dropping events due to a full task queue, indicating sustained high load.
 
 ### Strategy Adaptation
 Dynamic parameter adjustment based on performance:
@@ -1037,3 +1091,69 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 ---
 
 Built with ❤️ and [Mojo](https://www.modular.com/mojo) + [Rust](https://www.rust-lang.org/)
+## Project Structure
+
+```
+MojoRust/
+├── src/                    # Main source code (Mojo)
+│   ├── core/              # Core functionality
+│   ├── data/              # Data layer (Mojo + typed DTOs)
+│   ├── engine/            # Trading engines
+│   ├── risk/              # Risk management
+│   ├── monitoring/        # Monitoring & alerting
+│   └── orchestration/     # Task orchestration (Python)
+│
+├── python/                # Pure Python modules
+│   ├── social_intelligence_engine.py
+│   ├── geyser_client.py
+│   └── jupiter_price_api.py
+│
+├── rust-modules/          # High-performance Rust components
+├── tests/                 # Comprehensive test suite
+├── config/                # Configuration files
+├── scripts/               # Utility scripts
+└── docs/                  # Documentation
+```
+
+### Technology Stack
+
+- **Mojo**: High-performance core components
+- **Python**: Orchestration and external integrations
+- **Rust**: Ultra-performance data processing
+- **Docker**: Containerized deployment
+- **Prometheus/Grafana**: Monitoring stack
+
+### Getting Started
+
+1. **Clone and setup**:
+   ```bash
+   git clone <repository-url>
+   cd MojoRust
+   make dev-setup
+   ```
+
+2. **Configure environment**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your API keys
+   ```
+
+3. **Run tests**:
+   ```bash
+   make test
+   ```
+
+4. **Start the bot**:
+   ```bash
+   make run
+   ```
+
+### Development
+
+- **Code formatting**: `make format`
+- **Linting**: `make lint`
+- **Testing**: `make test`
+- **Coverage**: `make test-coverage`
+- **Docker**: `make docker-build && make docker-run`
+
+See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed information.

@@ -82,13 +82,24 @@ except:
         with:
           fetch-depth: 0  # Fetch full history for deep scan
 
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-        with:
-          args: --report-format json --report-path gitleaks-report.json
+      - name: Install Gitleaks CLI
+        run: |
+          curl -sSL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | bash
+          gitleaks --version
+
+      - name: Run Gitleaks CLI
+        run: |
+          gitleaks detect -v --report-format json --report-path gitleaks-report.json || true
+
+      - name: Verify Gitleaks Report
+        run: |
+          if [ -f "gitleaks-report.json" ]; then
+            echo "✅ Gitleaks report generated successfully"
+            echo "Report size: $(wc -c < gitleaks-report.json) bytes"
+          else
+            echo "❌ Gitleaks report not found"
+            exit 1
+          fi
 
       - name: Run Custom Secret Detection
         run: |

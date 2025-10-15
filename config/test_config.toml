@@ -1,0 +1,42 @@
+# =============================================================================
+# Test Configuration
+# This file uses unique, non-default values to verify config loading.
+# =============================================================================
+
+[trading]
+initial_capital = 999.0
+max_position_size = 0.99
+daily_trade_limit = 99
+
+[filters]
+# Instant Spam Detector
+instant_min_volume_usd = 1111.0
+instant_min_confidence = 0.11
+
+# Spam Filter
+spam_min_volume_usd = 2222.0
+spam_min_confidence = 0.22
+spam_cooldown_seconds = 22.0
+
+# Micro Timeframe Filter
+micro_min_volume_usd = 3333.0
+micro_min_confidence = 0.33
+micro_cooldown_seconds = 33.0
+micro_required_checks_percentage = 0.99
+
+[risk_thresholds]
+# RSI-based risk
+rsi_extreme_overbought = 99.0
+risk_score_extreme_overbought = 0.99
+
+# Risk level
+risk_level_critical = 0.99
+
+# Position sizing
+position_size_high_risk_multiplier = 0.11
+
+[strategy_thresholds]
+stop_loss_below_support = 0.99
+base_confidence = 0.99
+volume_bonus_max = 0.99
+position_age_exit_hours = 9.9

@@ -35,6 +35,7 @@ struct QuickNodeClient:
     var http_session: PythonObject
     var cache: Dict[String, Any]
     var request_id: Int
+    var python_initialized: Bool
 
     fn __init__(rpc_urls: QuickNodeRPCs, timeout_seconds: Float = DEFAULT_TIMEOUT_SECONDS):
         self.rpc_urls = rpc_urls
@@ -42,28 +43,35 @@ struct QuickNodeClient:
         self.current_rpc_index = 0
         self.cache = Dict[String, Any]()
         self.request_id = 0
+        self.python_initialized = False
 
         # Initialize aiohttp session for HTTP requests
-        python = Python()
-        asyncio = python.import("asyncio")
-        aiohttp = python.import("aiohttp")
+        try:
+            python = Python()
+            asyncio = python.import("asyncio")
+            aiohttp = python.import("aiohttp")
 
-        # Create session with connection pooling and retry configuration
-        connector = aiohttp.TCPConnector(
-            limit=20,  # Total connection pool size
-            limit_per_host=5,  # Connections per RPC endpoint
-            ttl_dns_cache=300,  # DNS cache TTL
-            use_dns_cache=True,
-            keepalive_timeout=60,  # Keep connections alive
-            enable_cleanup_closed=True
-        )
+            # Create session with connection pooling and retry configuration
+            connector = aiohttp.TCPConnector(
+                limit=20,  # Total connection pool size
+                limit_per_host=5,  # Connections per RPC endpoint
+                ttl_dns_cache=300,  # DNS cache TTL
+                use_dns_cache=True,
+                keepalive_timeout=60,  # Keep connections alive
+                enable_cleanup_closed=True
+            )
 
-        timeout = aiohttp.ClientTimeout(total=int(timeout_seconds))
-        self.http_session = aiohttp.ClientSession(
-            connector=connector,
-            timeout=timeout,
-            headers={"Content-Type": "application/json"}
-        )
+            timeout = aiohttp.ClientTimeout(total=int(timeout_seconds))
+            self.http_session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                headers={"Content-Type": "application/json"}
+            )
+            self.python_initialized = True
+        except e:
+            print(f"⚠️  Failed to initialize QuickNode aiohttp session: {e}")
+            self.http_session = None
+            self.python_initialized = False
 
     fn get_current_rpc_url(self) -> String:
         """
@@ -784,3 +792,21 @@ struct QuickNodeClient:
         except e:
             print(f"⚠️  Error simulating transaction: {e}")
             return {"err": "Simulation failed"}
+
+    fn close(inout self):
+        """
+        Close the HTTP session and clean up resources.
+        This method is idempotent and can be called multiple times safely.
+        """
+        if self.python_initialized and self.http_session != None:
+            try:
+                var asyncio = Python.import_module("asyncio")
+                asyncio.create_task(self.http_session.close())
+                print("✅ QuickNode HTTP session closure scheduled.")
+            except e:
+                print(f"❌ Error scheduling QuickNode session closure: {e}")
+            finally:
+                self.http_session = None
+                self.python_initialized = False
+                self.cache.clear()
+                print("✅ QuickNode client resources cleaned up.")

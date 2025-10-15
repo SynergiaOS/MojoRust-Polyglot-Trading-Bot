@@ -10,6 +10,18 @@ trading_env = "development"  # development, staging, production
 execution_mode = "paper"     # paper, live
 
 # =============================================================================
+# Feature Flags Configuration
+# =============================================================================
+[features]
+# Enable/disable experimental or resource-intensive features
+enable_social_analysis = true
+enable_honeypot_analysis = true
+enable_rpc_router = true
+enable_rust_data_consumer = false  # Rust consumer (experimental)
+enable_connection_pool_monitoring = true
+enable_operational_reliability_monitor = true
+
+# =============================================================================
 # API Configuration
 # =============================================================================
 [api]

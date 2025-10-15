@@ -25,9 +25,76 @@ from datetime import datetime, timedelta
 from enum import Enum
 import heapq
 from concurrent.futures import ThreadPoolExecutor
+import ssl
 import psutil
 import os
 from collections import defaultdict, deque
+from prometheus_client import Counter, Gauge
+import unittest
+from unittest.mock import patch, AsyncMock, call
+import redis.asyncio as aioredis
+
+# Configure logging
+
+class TokenBucketRateLimiter:
+    """Token bucket rate limiter for controlling event processing rates per event type."""
+
+    def __init__(self, capacity: int, refill_rate: float):
+        """
+        Initialize token bucket rate limiter.
+
+        Args:
+            capacity: Maximum number of tokens in the bucket (burst capacity)
+            refill_rate: Rate at which tokens are refilled (tokens per second)
+        """
+        self.capacity = capacity
+        self.tokens = capacity
+        self.refill_rate = refill_rate
+        self.last_refill = time.time()
+        self._lock = asyncio.Lock()
+
+    async def consume(self, tokens: int = 1, event_type: str = None, metrics: Dict = None) -> bool:
+        """
+        Try to consume tokens from the bucket.
+
+        Args:
+            tokens: Number of tokens to consume
+            event_type: Event type for metrics tracking
+            metrics: Metrics dictionary for updating counters
+
+        Returns:
+            True if tokens were consumed, False if rate limit exceeded
+        """
+        async with self._lock:
+            now = time.time()
+            time_passed = now - self.last_refill
+
+            # Refill tokens based on time passed
+            self.tokens = min(self.capacity, self.tokens + time_passed * self.refill_rate)
+            self.last_refill = now
+
+            # Check if we have enough tokens
+            if self.tokens >= tokens:
+                self.tokens -= tokens
+
+                # Update metrics if provided
+                if metrics and event_type:
+                    metrics.get('rate_limit_consumed_total', {}).labels(event_type=event_type).inc()
+
+                return True
+            else:
+                return False
+
+    def get_available_tokens(self) -> int:
+        """Get current number of available tokens."""
+        return int(self.tokens)
+
+    def get_refill_time(self, tokens: int = 1) -> float:
+        """Get time in seconds until specified number of tokens will be available."""
+        if self.tokens >= tokens:
+            return 0.0
+        needed_tokens = tokens - self.tokens
+        return needed_tokens / self.refill_rate
 
 # Configure logging
 logging.basicConfig(
@@ -174,6 +241,31 @@ class TaskPoolManager:
             'tasks_per_second': 0.0,
             'error_rate': 0.0
         }
+        self.last_rust_event_time = 0
+        self.redis_connection_attempts = 0
+
+        # Prometheus Metrics
+        self.rust_events_processed_total = Counter('rust_events_processed_total', 'Total events processed from Rust consumer', ['event_type'])
+        self.redis_errors_total = Counter('redis_errors_total', 'Total Redis errors', ['error_type'])
+        self.task_drops_total = Counter('task_drops_total', 'Total tasks dropped due to backpressure', ['reason'])
+        self.schema_errors_total = Counter('schema_errors_total', 'Total events with schema errors from Redis')
+
+        self.task_queue_size_gauge = Gauge('task_queue_size', 'Current size of the task priority queue')
+        self.redis_pubsub_lag_gauge = Gauge('redis_pubsub_lag_ms', 'Lag in milliseconds for Redis Pub/Sub messages')
+        self.active_workers_gauge = Gauge('workers_active', 'Number of currently active workers')
+
+        # Rate limiting metrics
+        self.rate_limit_tokens_gauge = Gauge('rate_limit_tokens_available', 'Available tokens in rate limit buckets', ['event_type'])
+        self.rate_limit_consumed_total = Counter('rate_limit_tokens_consumed_total', 'Total tokens consumed from rate limiters', ['event_type'])
+
+        # Per-event-type rate limiting (token bucket)
+        self.event_rate_limiters = {
+            'NewTokenMint': TokenBucketRateLimiter(capacity=10, refill_rate=1.0),      # 10 burst, 1/sec
+            'LargeTransaction': TokenBucketRateLimiter(capacity=50, refill_rate=10.0),   # 50 burst, 10/sec
+            'WhaleActivity': TokenBucketRateLimiter(capacity=20, refill_rate=5.0),       # 20 burst, 5/sec
+            'LiquidityChange': TokenBucketRateLimiter(capacity=30, refill_rate=8.0),     # 30 burst, 8/sec
+            'PriceUpdate': TokenBucketRateLimiter(capacity=100, refill_rate=20.0),      # 100 burst, 20/sec
+        }
 
         # Monitoring state
         self._monitoring_task = None
@@ -201,6 +293,19 @@ class TaskPoolManager:
             TaskType.MEV_DETECTION: {'timeout': 3.0, 'priority': TaskPriority.CRITICAL}
         }
 
+        # Redis Pub/Sub for Rust consumer integration
+        self.redis_client = None
+        self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        self.redis_subscriptions = []
+        self._redis_task = None
+
+        # Event batching and coalescing
+        self.event_batch_buffer = defaultdict(list)
+        self.batch_max_size = 100
+        self.batch_max_wait = 0.1  # 100ms
+        self._batch_processor_task = None
+        self._last_batch_flush = time.time()
+
     async def start(self):
         """Start the task pool manager"""
         if self._running:
@@ -219,7 +324,201 @@ class TaskPoolManager:
         if self.enable_monitoring:
             self._monitoring_task = asyncio.create_task(self._monitoring_loop())
 
+        # Start Redis consumer if enabled
+        if os.getenv("ENABLE_RUST_CONSUMER", "false").lower() == "true":
+            await self.connect_to_rust_consumer()
+            if self.redis_client:
+                self._redis_task = asyncio.create_task(self._redis_consumer_loop())
+                self._batch_processor_task = asyncio.create_task(self._batch_processor_loop())
+                logger.info("Redis consumer connected to Rust data stream")
+
         logger.info(f"TaskPoolManager started with {self.max_workers} workers")
+
+    async def connect_to_rust_consumer(self):
+        """Connect to Redis Pub/Sub to receive events from the Rust consumer."""
+        self.redis_connection_attempts += 1
+        ssl_context = None
+        try:
+            if self.redis_url.startswith("rediss://"):
+                ca_path = os.getenv("REDIS_SSL_CA")
+                ssl_context = ssl.create_default_context(cafile=ca_path)
+                cert_path = os.getenv("REDIS_SSL_CERT")
+                key_path = os.getenv("REDIS_SSL_KEY")
+                if cert_path and key_path:
+                    ssl_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        except ssl.SSLError as e:
+            logger.error(f"SSL Error creating Redis context: {e}")
+            self.redis_errors_total.labels(error_type='ssl_setup').inc()
+
+        try:
+            self.redis_client = aioredis.from_url(
+                self.redis_url,
+                decode_responses=True,
+                ssl=ssl_context
+            )
+            await self.redis_client.ping()
+            logger.info("Successfully connected to Redis for Pub/Sub.")
+            self.redis_connection_attempts = 0 # Reset on success
+        except Exception as e:
+            logger.error(f"Failed to connect to Redis: {e}")
+            if isinstance(e, ssl.SSLError):
+                self.redis_errors_total.labels(error_type='ssl_connection').inc()
+            else:
+                self.redis_errors_total.labels(error_type='connection').inc()
+            self.redis_client = None
+            raise  # Re-raise to be handled by the reconnection loop
+
+    async def _redis_consumer_loop(self):
+        """Listen for messages on subscribed Redis channels in a loop."""
+        if not self.redis_client:
+            return
+
+        pubsub = self.redis_client.pubsub(ignore_subscribe_messages=True)
+        channels = ['new_token', 'large_tx', 'whale_activity', 'liquidity_change', 'price_update']
+
+        while self._running:
+            try:
+                if self.redis_client is None:
+                    await self.connect_to_rust_consumer()
+                    pubsub = self.redis_client.pubsub(ignore_subscribe_messages=True)
+
+                await pubsub.subscribe(*channels)
+                logger.info(f"Subscribed to Redis channels: {channels}")
+
+                async for message in pubsub.listen():
+                    if message and message.get('type') == 'message':
+                        try:
+                            event_data = json.loads(message['data'])
+                            # Add to batch buffer for processing
+                            event_type = event_data.get('event_type')
+                            if event_type:
+                                self.event_batch_buffer[event_type].append(event_data)
+                        except json.JSONDecodeError:
+                            logger.warning(f"Received invalid JSON from Redis: {message['data']}")
+                        except Exception as e:
+                            logger.error(f"Error processing Redis message: {e}")
+                    # Add a small sleep to prevent tight loop on no messages
+                    await asyncio.sleep(0.01)
+
+            except Exception as e:
+                self.redis_errors_total.labels(error_type='consumer_loop').inc()
+                logger.error(f"Redis consumer loop error: {e}. Attempting to reconnect...")
+                if pubsub:
+                    await pubsub.close()
+                if self.redis_client:
+                    await self.redis_client.close()
+                    self.redis_client = None
+
+                # Exponential backoff with jitter
+                backoff_time = min(60, (2 ** self.redis_connection_attempts)) + (time.time() % 1)
+                logger.info(f"Reconnecting in {backoff_time:.2f} seconds.")
+                await asyncio.sleep(backoff_time)
+
+    async def _batch_processor_loop(self):
+        """Process batched events to improve throughput and apply rate limiting."""
+        while self._running:
+            try:
+                current_time = time.time()
+                time_since_flush = current_time - self._last_batch_flush
+
+                # Check if we need to flush batches
+                should_flush = (
+                    time_since_flush >= self.batch_max_wait or
+                    any(len(batch) >= self.batch_max_size for batch in self.event_batch_buffer.values())
+                )
+
+                if should_flush:
+                    await self._flush_event_batches()
+                    self._last_batch_flush = current_time
+
+                await asyncio.sleep(0.01)  # Small sleep to prevent busy loop
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Batch processor error: {e}")
+                await asyncio.sleep(0.1)
+
+    async def _flush_event_batches(self):
+        """Flush all event batches through rate limiting and processing."""
+        for event_type, events in self.event_batch_buffer.items():
+            if not events:
+                continue
+
+            # Get rate limiter for this event type
+            rate_limiter = self.event_rate_limiters.get(event_type)
+            if not rate_limiter:
+                # No rate limiting, process all events
+                for event_data in events:
+                    await self._process_rust_event(event_data)
+            else:
+                # Apply rate limiting
+                events_processed = 0
+                for event_data in events:
+                    if await rate_limiter.consume(event_type=event_type, metrics={
+                        'rate_limit_consumed_total': self.rate_limit_consumed_total
+                    }):
+                        await self._process_rust_event(event_data)
+                        events_processed += 1
+                    else:
+                        # Rate limit hit, drop remaining events in this batch
+                        dropped_count = len(events) - events_processed
+                        self.task_drops_total.labels(reason='rate_limit_batch').inc(dropped_count)
+                        logger.debug(f"Rate limited batch for {event_type}, dropped {dropped_count} events")
+                        break
+
+            # Clear the batch
+            events.clear()
+
+        if any(self.event_batch_buffer.values()):
+            logger.debug(f"Processed event batches, remaining buffer sizes: {[(k, len(v)) for k, v in self.event_batch_buffer.items() if v]}")
+
+    async def _process_rust_event(self, event_data: Dict):
+        """Parse event from Rust consumer and submit appropriate tasks."""
+        event_type = event_data.get('event_type')
+        valid_event_types = {"NewTokenMint", "LargeTransaction", "WhaleActivity", "LiquidityChange", "PriceUpdate"}
+        if not event_type:
+            logger.warning(f"Received event from Rust with no event_type: {event_data}")
+            self.schema_errors_total.inc()
+            return
+
+        if event_type not in valid_event_types:
+            logger.warning(f"Received unknown event_type '{event_type}' from Rust.")
+            self.schema_errors_total.inc()
+            return
+
+        # Validate schema
+        if event_type in {"NewTokenMint", "LiquidityChange"} and not event_data.get('token_mint'):
+            logger.warning(f"Event '{event_type}' missing 'token_mint': {event_data}")
+            self.task_drops_total.labels(reason='invalid_payload').inc()
+            return
+
+        self.last_rust_event_time = time.time()
+        self.rust_events_processed_total.labels(event_type=event_type).inc()
+
+        logger.debug(f"Processing event from Rust consumer: {event_type}")
+
+        if event_type == 'NewTokenMint':
+            token_mint = event_data.get('token_mint')
+            await self.submit_task(TaskType.TOKEN_METRICS, {'token_mint': token_mint})
+            await self.submit_task(TaskType.HELIUS_METADATA, {'token_mint': token_mint})
+        elif event_type == 'LargeTransaction':
+            wallet_address = event_data.get('wallet')
+            if wallet_address:
+                await self.submit_task(TaskType.WALLET_ANALYSIS, {'wallet_address': wallet_address})
+
+            # Ensure transaction_data is present for MEV detection
+            if event_data.get('token_mint'): # Only if it's an AMM interaction
+                 await self.submit_task(TaskType.MEV_DETECTION, {'transaction_data': event_data})
+
+        elif event_type == 'WhaleActivity':
+            await self.submit_task(TaskType.WALLET_ANALYSIS, {'wallet_address': event_data.get('wallet')})
+        elif event_type == 'LiquidityChange':
+            await self.submit_task(TaskType.ARBITRAGE_SCAN, {'token_mint': event_data.get('token_mint')})
+        elif event_type == 'PriceUpdate':
+            await self.submit_task(TaskType.PRICE_UPDATE, {'token_mint': event_data.get('token_mint'), 'price': event_data.get('amount')})
+        else:
+            logger.warning(f"Unknown event type from Rust consumer: {event_type}")
 
     async def stop(self):
         """Stop the task pool manager gracefully"""
@@ -244,6 +543,26 @@ class TaskPoolManager:
                 await self._monitoring_task
             except asyncio.CancelledError:
                 pass
+
+        # Stop Redis consumer
+        if self._redis_task:
+            self._redis_task.cancel()
+            try:
+                await self._redis_task
+            except asyncio.CancelledError:
+                pass
+
+        # Stop batch processor
+        if self._batch_processor_task:
+            self._batch_processor_task.cancel()
+            try:
+                await self._batch_processor_task
+            except asyncio.CancelledError:
+                pass
+
+        # Close Redis connection
+        if self.redis_client:
+            await self.redis_client.close()
 
         # Shutdown thread pool
         self.thread_pool.shutdown(wait=True)
@@ -277,14 +596,22 @@ class TaskPoolManager:
         Returns:
             Task ID for tracking
         """
-        # Check queue size limit
-        if len(self.priority_queue) >= self.max_queue_size:
+        # Backpressure: Check queue size limit (80% threshold for low priority)
+        config = self.task_configs.get(task_type, {})
+        task_priority = priority or config.get('priority', TaskPriority.MEDIUM)
+        queue_len = len(self.priority_queue)
+
+        if (queue_len >= self.max_queue_size) or \
+           (task_priority.value < TaskPriority.HIGH.value and queue_len >= self.max_queue_size * 0.8):
+                self.task_drops_total.labels(reason='queue_full').inc()
+                logger.warning(f"Task queue full. Dropping low-priority task: {task_type.value}")
+                return None
             raise RuntimeError("Task queue is full")
 
         # Get task configuration
         config = self.task_configs.get(task_type, {})
         if priority is None:
-            priority = config.get('priority', TaskPriority.MEDIUM)
+            priority = task_priority
         if timeout is None:
             timeout = config.get('timeout', 30.0)
 
@@ -379,6 +706,19 @@ class TaskPoolManager:
         # Calculate error rate
         total_processed = self.stats['total_tasks_completed'] + self.stats['total_tasks_failed']
         error_rate = self.stats['total_tasks_failed'] / max(total_processed, 1)
+        
+        # Redis pub/sub lag
+        redis_lag = 0
+        if self.last_rust_event_time > 0:
+            redis_lag = (time.time() - self.last_rust_event_time) * 1000 # in ms
+
+        self.redis_pubsub_lag_gauge.set(redis_lag)
+        self.task_queue_size_gauge.set(len(self.priority_queue))
+        self.active_workers_gauge.set(len([w for w in self.worker_stats.values() if w.current_task]))
+
+        # Update rate limiting metrics
+        for event_type, rate_limiter in self.event_rate_limiters.items():
+            self.rate_limit_tokens_gauge.labels(event_type=event_type).set(rate_limiter.get_available_tokens())
 
         # Update system stats
         self.stats.update({
@@ -386,10 +726,7 @@ class TaskPoolManager:
             'memory_usage': memory_percent,
             'tasks_per_second': tasks_per_second,
             'error_rate': error_rate,
-            'queue_size': len(self.priority_queue),
-            'running_tasks': len(self.running_tasks),
-            'workers_active': len([w for w in self.worker_stats.values() if w.current_task]),
-            'uptime_seconds': uptime_seconds
+            'uptime_seconds': uptime_seconds,
         })
 
         return {
@@ -817,3 +1154,41 @@ async def submit_data_synthesis_task(
         token_data,
         priority=priority
     )
+
+
+class TestTaskPoolManager(unittest.TestCase):
+    def setUp(self):
+        # Use a new event loop for each test to ensure isolation
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.manager = TaskPoolManager()
+
+    def tearDown(self):
+        self.loop.close()
+
+    def test_process_rust_event_new_token(self):
+        async def run_test():
+            # Sample event from Rust consumer, matching the expected JSON schema
+            sample_event = {
+              "event_type": "NewTokenMint",
+              "token_mint": "So11111111111111111111111111111111111111112",
+              "program_id": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+              "amount": 0.0,
+              "wallet": "",
+              "timestamp": 1678886400000000,
+              "metadata": {}
+            }
+
+            # Mock the submit_task method to track calls
+            with patch.object(self.manager, 'submit_task', new_callable=AsyncMock) as mock_submit_task:
+                await self.manager._process_rust_event(sample_event)
+
+                # Verify that the correct tasks were submitted
+                self.assertEqual(mock_submit_task.call_count, 2)
+                expected_calls = [
+                    call(TaskType.TOKEN_METRICS, {'token_mint': 'So11111111111111111111111111111111111111112'}),
+                    call(TaskType.HELIUS_METADATA, {'token_mint': 'So11111111111111111111111111111111111111112'})
+                ]
+                mock_submit_task.assert_has_calls(expected_calls, any_order=True)
+
+        self.loop.run_until_complete(run_test())
