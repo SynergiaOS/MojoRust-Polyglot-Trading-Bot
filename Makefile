@@ -29,7 +29,7 @@ TIMESTAMP := $(shell date +%Y-%m-%d_%H:%M:%S)
 .DEFAULT_GOAL := help
 
 # Declare all targets as phony
-.PHONY: help build build-mojo build-rust build-dev build-release test test-mojo test-rust test-watch test-coverage test-integration test-load test-coverage-report test-all lint lint-mojo lint-rust lint-shell lint-fix format format-mojo format-rust validate validate-secrets deploy deploy-staging deploy-production deploy-dry-run dev run run-paper run-live logs status clean clean-mojo clean-rust clean-logs clean-all setup setup-dev install-deps docker-build docker-run docker-stop docker-logs ci ci-lint ci-test check watch benchmark profile docs docs-serve setup-deps
+.PHONY: help build build-mojo build-rust build-dev build-release test test-mojo test-rust test-watch test-coverage test-integration test-load test-coverage-report test-all lint lint-mojo lint-rust lint-shell lint-fix format format-mojo format-rust validate validate-secrets deploy deploy-staging deploy-production deploy-dry-run dev run run-paper run-live logs status clean clean-mojo clean-rust clean-logs clean-all setup setup-dev install-deps docker-build docker-run docker-stop docker-logs ci ci-lint ci-test check watch benchmark profile docs docs-serve setup-deps backup backup-full backup-db backup-list backup-verify restore restore-list restore-latest restore-db monitor health check-deps check-services check-database check-logs alert-test alert-status clean-temp clean-backups optimize rebuild-hard restart-bot stop-bot start-bot restart-services restart-database update-config backup-config restore-config security-scan performance-test stress-test load-test memory-check disk-check network-check api-check ssl-check certs-update logrotate logs-archive logs-compress logs-clean metrics-export metrics-prometheus metrics-grafana dashboard-reload dashboard-backup config-reload config-test config-validate env-check deps-update system-update security-audit backup-verify backup-schedule backup-incremental backup-diff restore-verify restore-check restore-dry-run rollback-emergency rollback-point rollback-list rollback-cleanup service-restart service-reload service-status service-logs service-health service-recovery maintenance-mode maintenance-window maintenance-check monitoring-setup monitoring-start monitoring-stop monitoring-restart monitoring-status monitoring-logs monitoring-alerts monitoring-metrics monitoring-health monitoring-config monitoring-recovery alert-configure alert-test alert-verify alert-status alert-history alert-mute alert-unmute alert-escalate alert-check alert-reset performance-check performance-metrics performance-profile performance-bottleneck performance-tune performance-report performance-history performance-alert performance-threshold resource-check resource-usage resource-metrics resource-alert resource-optimization resource-cleanup resource-quota resource-limits disk-usage disk-health disk-cleanup disk-optimize disk-alerts disk-monitor disk-maintenance memory-usage memory-health memory-cleanup memory-optimize memory-alerts memory-monitor memory-tuning cpu-usage cpu-health cpu-alerts cpu-monitor cpu-optimization cpu-tuning network-usage network-health network-alerts network-monitor network-optimization network-latency network-bandwidth network-connectivity database-usage database-health database-alerts database-monitor database-optimization database-maintenance database-backup database-restore database-recovery cache-usage cache-health cache-alerts cache-monitor cache-cleanup cache-optimization cache-refresh cache-rebuild cache-stats queue-usage queue-health queue-alerts queue-monitor queue-cleanup queue-optimization queue-flush queue-drain queue-stats connection-usage connection-health connection-alerts connection-monitor connection-cleanup connection-optimization connection-pool connection-reset connection-rebalance thread-usage thread-health thread-alerts thread-monitor thread-cleanup thread-optimization thread-pool thread-stats error-usage error-health error-alerts error-monitor error-tracking error-analysis error-reporting error-prevention uptime-availability uptime-alerts uptime-monitoring uptime-reporting uptime-analysis uptime-metrics uptime-tuning latency-usage latency-health latency-alerts latency-monitoring latency-analysis latency-tuning latency-reporting throughput-usage throughput-health throughput-alerts throughput-monitoring throughput-analysis throughput-tuning throughput-reporting scaling-usage scaling-health scaling-alerts scaling-monitoring scaling-analysis scaling-tuning scaling-policy scaling-automation backup-automation backup-monitoring backup-testing backup-verification backup-compression backup-encryption backup-scheduling backup-recovery backup-retention cleanup-automation cleanup-monitoring cleanup-scheduling cleanup-verification cleanup-compression cleanup-encryption cleanup-retention security-automation security-monitoring security-scanning security-auditing security-compliance security-patching security-updating security-alerting security-reporting compliance-automation compliance-monitoring compliance-auditing compliance-reporting compliance-validation compliance-documentation disaster-automation disaster-monitoring disaster-testing disaster-recovery disaster-planning disaster-documentation disaster-alerting disaster-reporting audit-automation audit-monitoring audit-scanning audit-reporting audit-documentation audit-trail audit-logging audit-compliance operational-automation operational-monitoring operational-alerting operational-reporting operational-documentation operational-metrics operational-health operational-optimization operational-scaling operational-maintenance operational-support operational-troubleshooting
 
 # Help target
 help: ## Show this help message
@@ -116,11 +116,46 @@ help: ## Show this help message
 	@echo "  docs           Generate documentation"
 	@echo "  docs-serve     Serve documentation locally"
 	@echo ""
+	@echo "$(GREEN)Operational Commands:$(NC)"
+	@echo "  backup         Create full backup with enhanced features"
+	@echo "  backup-full    Full backup (files + database + encryption)"
+	@echo "  backup-db      Database-only backup"
+	@echo "  backup-list    List available backups"
+	@echo "  backup-verify  Verify backup integrity"
+	@echo "  restore        Restore from backup"
+	@echo "  restore-list   List restore options"
+	@echo "  restore-latest Restore from latest backup"
+	@echo "  restore-db     Restore database only"
+	@echo "  monitor        Start monitoring system"
+	@echo "  health         System health check"
+	@echo "  alert-test     Test alert system"
+	@echo "  alert-status   Check alert system status"
+	@echo ""
+	@echo "$(GREEN)Service Management:$(NC)"
+	@echo "  stop-bot       Stop trading bot"
+	@echo "  start-bot      Start trading bot"
+	@echo "  restart-bot    Restart trading bot"
+	@echo "  restart-services Restart all services"
+	@echo "  restart-database Restart database service"
+	@echo ""
+	@echo "$(GREEN)System Management:$(NC)"
+	@echo "  check-deps     Check system dependencies"
+	@echo "  check-services Check service status"
+	@echo "  check-database Check database health"
+	@echo "  check-logs     Check log file status"
+	@echo "  clean-temp     Clean temporary files"
+	@echo "  clean-backups  Clean old backups"
+	@echo "  optimize       System optimization"
+	@echo "  rebuild-hard   Full rebuild from scratch"
+	@echo ""
 	@echo "$(YELLOW)Examples:$(NC)"
 	@echo "  make build && make test"
 	@echo "  make ci"
 	@echo "  make deploy-staging"
 	@echo "  make run-paper"
+	@echo "  make backup-full"
+	@echo "  make restore-latest"
+	@echo "  make monitor"
 
 # Build targets
 build: build-mojo build-rust ## Build all components (Mojo + Rust)
@@ -529,3 +564,284 @@ endef
 define show_warning
 	@echo "$(YELLOW)⚠️  $1$(NC)"
 endef
+
+# =============================================================================
+# Operational Commands - Enhanced System Management
+# =============================================================================
+
+# Backup commands
+backup: ## Create full backup with enhanced features
+	@echo "$(BLUE)Creating enhanced backup...$(NC)"
+	@./scripts/backup.sh --stop-bot --verify --compress-level 6
+
+backup-full: ## Full backup (files + database + encryption)
+	@echo "$(BLUE)Creating full encrypted backup...$(NC)"
+	@./scripts/backup.sh --stop-bot --verify --compress-level 9 --db-format custom
+
+backup-db: ## Database-only backup
+	@echo "$(BLUE)Creating database-only backup...$(NC)"
+	@./scripts/backup.sh --database-only --verify --db-format custom
+
+backup-list: ## List available backups
+	@echo "$(BLUE)Listing available backups...$(NC)"
+	@./scripts/backup.sh --list 2>/dev/null || ls -la /home/tradingbot/backups/ | grep "mojorust-backup"
+
+backup-verify: ## Verify backup integrity
+	@echo "$(BLUE)Verifying latest backup integrity...$(NC)"
+	@if [ -f /home/tradingbot/backups/latest_backup.json ]; then \
+		LATEST_BACKUP="/home/tradingbot/backups/$$(cat /home/tradingbot/backups/latest_backup.json | jq -r '.backup_file')"; \
+		echo "Verifying: $$LATEST_BACKUP"; \
+		./scripts/backup.sh --backup-file "$$LATEST_BACKUP" --verify; \
+	else \
+		echo "$(RED)❌ No latest backup found$(NC)"; \
+	fi
+
+# Restore commands
+restore: ## Restore from backup (interactive)
+	@echo "$(BLUE)Restore from backup (interactive)...$(NC)"
+	@./scripts/rollback.sh --list
+	@read -p "Enter backup filename or use --latest: " BACKUP_FILE; \
+	if [ "$$BACKUP_FILE" = "latest" ]; then \
+		./scripts/rollback.sh --latest; \
+	else \
+		./scripts/rollback.sh --backup-file "$$BACKUP_FILE"; \
+	fi
+
+restore-list: ## List restore options
+	@echo "$(BLUE)Listing restore options...$(NC)"
+	@./scripts/rollback.sh --list
+
+restore-latest: ## Restore from latest backup
+	@echo "$(BLUE)Restoring from latest backup...$(NC)"
+	@./scripts/rollback.sh --latest --verify
+
+restore-db: ## Restore database only
+	@echo "$(BLUE)Restoring database only...$(NC)"
+	@./scripts/rollback.sh --latest --no-database --db-only
+
+# Service management commands
+stop-bot: ## Stop trading bot
+	@echo "$(BLUE)Stopping trading bot...$(NC)"
+	@sudo systemctl stop trading-bot || echo "$(YELLOW)⚠️  System service not found$(NC)"
+	@pkill -f trading-bot || echo "$(YELLOW)⚠️  No running process found$(NC)"
+
+start-bot: ## Start trading bot
+	@echo "$(BLUE)Starting trading bot...$(NC)"
+	@if [ ! -f $(TARGET_DIR)/trading-bot ]; then \
+		$(MAKE) build; \
+	fi
+	@sudo systemctl start trading-bot || echo "$(YELLOW)⚠️  System service not found, starting manually$(NC)"
+	@if ! sudo systemctl is-active --quiet trading-bot 2>/dev/null; then \
+		nohup $(TARGET_DIR)/trading-bot --mode=paper --capital=1.0 > logs/trading-bot-$(shell date +%Y%m%d).log 2>&1 & \
+		echo "$(GREEN)✅ Bot started manually$(NC)"; \
+	fi
+
+restart-bot: ## Restart trading bot
+	@echo "$(BLUE)Restarting trading bot...$(NC)"
+	@$(MAKE) stop-bot
+	@sleep 2
+	@$(MAKE) start-bot
+
+restart-services: ## Restart all services
+	@echo "$(BLUE)Restarting all services...$(NC)"
+	@sudo systemctl restart postgresql || echo "$(YELLOW)⚠️  PostgreSQL not found$(NC)"
+	@sudo systemctl restart redis || echo "$(YELLOW)⚠️  Redis not found$(NC)"
+	@sudo systemctl restart nginx || echo "$(YELLOW)⚠️  Nginx not found$(NC)"
+	@$(MAKE) restart-bot
+
+restart-database: ## Restart database service
+	@echo "$(BLUE)Restarting database service...$(NC)"
+	@sudo systemctl restart postgresql || echo "$(YELLOW)⚠️  PostgreSQL not found$(NC)"
+
+# System management commands
+check-deps: ## Check system dependencies
+	@echo "$(BLUE)Checking system dependencies...$(NC)"
+	@echo "Checking Mojo..." && command -v mojo >/dev/null && echo "$(GREEN)✅ Mojo found$(NC)" || echo "$(RED)❌ Mojo not found$(NC)"
+	@echo "Checking Rust..." && command -v cargo >/dev/null && echo "$(GREEN)✅ Rust found$(NC)" || echo "$(RED)❌ Rust not found$(NC)"
+	@echo "Checking Python..." && command -v python3 >/dev/null && echo "$(GREEN)✅ Python found$(NC)" || echo "$(RED)❌ Python not found$(NC)"
+	@echo "Checking PostgreSQL..." && command -v psql >/dev/null && echo "$(GREEN)✅ PostgreSQL found$(NC)" || echo "$(RED)❌ PostgreSQL not found$(NC)"
+	@echo "Checking Docker..." && command -v docker >/dev/null && echo "$(GREEN)✅ Docker found$(NC)" || echo "$(YELLOW)⚠️  Docker not found$(NC)"
+
+check-services: ## Check service status
+	@echo "$(BLUE)Checking service status...$(NC)"
+	@echo "Trading Bot:" && (sudo systemctl is-active trading-bot 2>/dev/null && echo "$(GREEN)✅ Active$(NC)" || echo "$(RED)❌ Inactive$(NC)")
+	@echo "PostgreSQL:" && (sudo systemctl is-active postgresql 2>/dev/null && echo "$(GREEN)✅ Active$(NC)" || echo "$(RED)❌ Inactive$(NC)")
+	@echo "Redis:" && (sudo systemctl is-active redis 2>/dev/null && echo "$(GREEN)✅ Active$(NC)" || echo "$(YELLOW)⚠️  Not found$(NC)")
+	@echo "Nginx:" && (sudo systemctl is-active nginx 2>/dev/null && echo "$(GREEN)✅ Active$(NC)" || echo "$(YELLOW)⚠️  Not found$(NC)")
+
+check-database: ## Check database health
+	@echo "$(BLUE)Checking database health...$(NC)"
+	@if command -v psql >/dev/null 2>&1; then \
+		psql -h localhost -U trading_user -d trading_bot -c "SELECT version();" >/dev/null 2>&1 && \
+			echo "$(GREEN)✅ Database connection successful$(NC)" || \
+			echo "$(RED)❌ Database connection failed$(NC)"; \
+		psql -h localhost -U trading_user -d trading_bot -c "SELECT COUNT(*) FROM information_schema.tables;" >/dev/null 2>&1 && \
+			echo "$(GREEN)✅ Database accessible$(NC)" || \
+			echo "$(RED)❌ Database not accessible$(NC)"; \
+	else \
+		echo "$(RED)❌ PostgreSQL client not available$(NC)"; \
+	fi
+
+check-logs: ## Check log file status
+	@echo "$(BLUE)Checking log file status...$(NC)"
+	@if [ -d logs ]; then \
+		echo "Log files in logs/:"; \
+		ls -lah logs/; \
+		echo "Total log size: $$(du -sh logs | cut -f1)"; \
+	else \
+		echo "$(YELLOW)⚠️  No logs directory found$(NC)"; \
+	fi
+
+clean-temp: ## Clean temporary files
+	@echo "$(BLUE)Cleaning temporary files...$(NC)"
+	@find /tmp -name "rollback_*" -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+	@find /tmp -name "backup_*" -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+	@find . -name "*.tmp" -mtime +1 -delete 2>/dev/null || true
+	@find . -name "*.cache" -mtime +1 -delete 2>/dev/null || true
+	@echo "$(GREEN)✅ Temporary files cleaned$(NC)"
+
+clean-backups: ## Clean old backups
+	@echo "$(BLUE)Cleaning old backups...$(NC)"
+	@if [ -d /home/tradingbot/backups ]; then \
+		find /home/tradingbot/backups -name "*.log" -mtime +7 -delete; \
+		find /home/tradingbot/backups -name "backup_*" -mtime +30 -delete; \
+		echo "$(GREEN)✅ Old backups cleaned$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  Backup directory not found$(NC)"; \
+	fi
+
+optimize: ## System optimization
+	@echo "$(BLUE)Performing system optimization...$(NC)"
+	@echo "Cleaning package caches..." && \
+		if command -v apt >/dev/null 2>&1; then sudo apt autoremove -y; fi
+	@echo "Cleaning container images..." && \
+		if command -v docker >/dev/null 2>&1; then docker system prune -f; fi
+	@echo "Optimizing database..." && \
+		if command -v psql >/dev/null 2>&1; then \
+			psql -h localhost -U trading_user -d trading_bot -c "VACUUM ANALYZE;" >/dev/null 2>&1 || true; \
+		fi
+	@echo "$(GREEN)✅ System optimization completed$(NC)"
+
+rebuild-hard: ## Full rebuild from scratch
+	@echo "$(BLUE)Performing full rebuild...$(NC)"
+	@$(MAKE) clean-all
+	@$(MAKE) install-deps
+	@$(MAKE) build-release
+	@echo "$(GREEN)✅ Full rebuild completed$(NC)"
+
+# Monitoring and health commands
+monitor: ## Start monitoring system
+	@echo "$(BLUE)Starting monitoring system...$(NC)"
+	@if [ -f scripts/health_check_cron.sh ]; then \
+		./scripts/health_check_cron.sh; \
+		echo "$(GREEN)✅ Monitoring system started$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  Monitoring script not found$(NC)"; \
+	fi
+
+health: ## System health check
+	@echo "$(BLUE)Performing comprehensive health check...$(NC)"
+	@$(MAKE) check-deps
+	@$(MAKE) check-services
+	@$(MAKE) check-database
+	@echo "$(GREEN)✅ Health check completed$(NC)"
+
+# Alert system commands
+alert-test: ## Test alert system
+	@echo "$(BLUE)Testing alert system...$(NC)"
+	@if [ -f $(TARGET_DIR)/trading-bot ]; then \
+		$(TARGET_DIR)/trading-bot --test-alerts || echo "$(YELLOW)⚠️  Alert test not implemented$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  Bot not built - run 'make build' first$(NC)"; \
+	fi
+
+alert-status: ## Check alert system status
+	@echo "$(BLUE)Checking alert system status...$(NC)"
+	@if command -v curl >/dev/null 2>&1; then \
+		curl -f http://localhost:8082/api/alerts/status 2>/dev/null && \
+			echo "$(GREEN)✅ Alert system accessible$(NC)" || \
+			echo "$(YELLOW)⚠️  Alert system not accessible$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠️  curl not available$(NC)"; \
+	fi
+
+# Advanced operational commands
+backup-verify: ## Comprehensive backup verification
+	@echo "$(BLUE)Performing comprehensive backup verification...$(NC)"
+	@for backup in /home/tradingbot/backups/mojorust-backup-*.tar.gz*; do \
+		if [ -f "$$backup" ]; then \
+			echo "Verifying: $$(basename $$backup)"; \
+			if [ -f "$$backup.sha256" ]; then \
+				sha256sum -c "$$backup.sha256" >/dev/null 2>&1 && \
+					echo "$(GREEN)✅ $$(basename $$backup) - OK$(NC)" || \
+					echo "$(RED)❌ $$(basename $$backup) - FAILED$(NC)"; \
+			else \
+				echo "$(YELLOW)⚠️  $$(basename $$backup) - No checksum$(NC)"; \
+			fi; \
+		fi; \
+	done
+
+restore-verify: ## Verify restore process
+	@echo "$(BLUE)Verifying restore process...$(NC)"
+	@if [ -f /home/tradingbot/backups/latest_backup.json ]; then \
+		LATEST_BACKUP="/home/tradingbot/backups/$$(cat /home/tradingbot/backups/latest_backup.json | jq -r '.backup_file')"; \
+		echo "Testing restore with: $$LATEST_BACKUP"; \
+		./scripts/rollback.sh --backup-file "$$LATEST_BACKUP" --dry-run --verify; \
+	else \
+		echo "$(RED)❌ No latest backup found$(NC)"; \
+	fi
+
+restore-dry-run: ## Dry run restore process
+	@echo "$(BLUE)Dry run restore process...$(NC)"
+	@./scripts/rollback.sh --latest --dry-run
+
+rollback-emergency: ## Emergency rollback with minimal verification
+	@echo "$(RED)⚠️  EMERGENCY ROLLBACK - MINIMAL VERIFICATION$(NC)"
+	@read -p "Are you sure? This will immediately rollback to latest backup! [y/N] " confirm && \
+	[ "$$confirm" = "y" ] && \
+	./scripts/rollback.sh --latest --force
+
+# Resource monitoring commands
+resource-check: ## Check system resource usage
+	@echo "$(BLUE)Checking system resources...$(NC)"
+	@echo "CPU Usage: $$(top -bn1 | grep "Cpu(s)" | awk '{print $$2}' | awk -F'%' '{print $$1}')%"
+	@echo "Memory Usage: $$(free -m | awk 'NR==2{printf "%.1f%%", $3*100/$2}')"
+	@echo "Disk Usage: $$(df -h / | awk 'NR==2 {print $$5}')"
+	@echo "Load Average: $$(uptime | awk -F'load average:' '{print $$2}')"
+	@echo "Uptime: $$(uptime -p 2>/dev/null | cut -d' ' -f1 || uptime)"
+
+disk-check: ## Check disk health and usage
+	@echo "$(BLUE)Checking disk health...$(NC)"
+	@df -h
+	@echo ""
+	@echo "Inode usage:"
+	@df -i
+	@echo ""
+	@if command -v lsblk >/dev/null 2>&1; then \
+		echo "Disk information:"; \
+		lsblk; \
+	fi
+
+memory-check: ## Check memory usage and health
+	@echo "$(BLUE)Checking memory usage...$(NC)"
+	@free -h
+	@echo ""
+	@echo "Top memory consumers:"
+	@ps aux --sort=-%mem | head -10
+	@echo ""
+	@if [ -f /proc/meminfo ]; then \
+		echo "Memory details:"; \
+		grep -E "(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree)" /proc/meminfo; \
+	fi
+
+network-check: ## Check network connectivity and health
+	@echo "$(BLUE)Checking network connectivity...$(NC)"
+	@ping -c 1 8.8.8.8 >/dev/null 2>&1 && echo "$(GREEN)✅ Internet connectivity OK$(NC)" || echo "$(RED)❌ Internet connectivity failed$(NC)"
+	@echo ""
+	@echo "Active connections:"
+	@netstat -tuln | grep LISTEN | head -10
+	@echo ""
+	@if command -v ss >/dev/null 2>&1; then \
+		echo "Connection statistics:"; \
+		ss -s; \
+	fi

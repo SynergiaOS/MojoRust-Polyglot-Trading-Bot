@@ -197,7 +197,7 @@ micro_required_checks_percentage = 0.75   # Required checks pass rate
 # RSI-based risk thresholds
 rsi_extreme_overbought = 90.0            # Extreme overbought RSI
 rsi_very_overbought = 80.0               # Very overbought RSI
-rsi_extreme_oversold = 10.0              # Extreme oversold RSI
+rsin_extreme_oversold = 10.0              # Extreme oversold RSI
 rsi_very_oversold = 20.0                 # Very oversold RSI
 risk_score_extreme_overbought = 0.3      # Risk score for extreme overbought
 risk_score_very_overbought = 0.2         # Risk score for very overbought
@@ -449,3 +449,102 @@ honeypot_api_enabled = true                    # Use Honeypot.is API
 sniper_mode = "balanced"                      # Trading mode: aggressive, balanced, conservative
 max_slippage_bps = 500                        # Maximum slippage in basis points (5%)
 default_buy_amount_sol = 0.1                 # Default buy amount in SOL
+
+# =============================================================================
+# RPC Provider Configuration
+# =============================================================================
+[rpc_providers]
+# Configuration for RPC providers like Helius and QuickNode
+# The router will select the best provider based on health and latency.
+
+[rpc_providers.helius]
+api_key_env = "HELIUS_API_KEY"
+primary_rpc_env = "HELIUS_RPC_URL"
+# Add other specific Helius endpoints if needed (e.g., for different regions)
+
+[rpc_providers.quicknode]
+primary_rpc_env = "QUICKNODE_PRIMARY_RPC"
+secondary_rpc_env = "QUICKNODE_SECONDARY_RPC"
+archive_rpc_env = "QUICKNODE_ARCHIVE_RPC"
+
+[rpc_providers.routing]
+strategy = "latency"  # Options: "latency", "failover", "round-robin"
+health_check_interval_seconds = 60
+latency_check_samples = 10
+failover_threshold = 3 # Number of consecutive failures before switching
+
+# =============================================================================
+# Geyser Real-Time Data Streaming
+# =============================================================================
+[geyser]
+enabled_env = "GEYSER_ENABLED"
+endpoint_env = "GEYSER_ENDPOINT"
+token_env = "GEYSER_TOKEN"
+reconnect_delay_seconds = 5
+
+# =============================================================================
+# Advanced Filter Configuration
+# =============================================================================
+[advanced_filters]
+# This section contains fine-grained controls for the Master Filter Engine.
+# Each filter can be individually enabled, disabled, and tuned.
+
+[advanced_filters.wallet_analysis]
+enabled = true
+min_wallet_age_days = 7
+min_transaction_count = 20
+max_spam_score = 0.3
+
+[advanced_filters.social_intel]
+enabled = true
+min_follower_count = 100
+min_mention_velocity_per_hour = 10
+influencer_multiplier = 1.5 # Boost score for mentions by influencers
+
+[advanced_filters.honeypot_detection]
+enabled = true
+provider = "honeypot.is" # Or a custom implementation
+max_risk_score = 0.1
+
+# =============================================================================
+# Flash Loan Integration
+# =============================================================================
+[flash_loan]
+enabled_env = "FLASH_LOAN_ENABLED"
+provider = "Solend" # Options: "Solend", "Kamino"
+min_profitability_sol = 0.05
+max_slippage_bps = 20
+fee_bps_env = "FLASH_LOAN_FEE_BPS"
+
+[flash_loan.solend]
+program_id_env = "FLASH_LOAN_PROGRAM_ID_SOLEND"
+
+[flash_loan.kamino]
+program_id_env = "FLASH_LOAN_PROGRAM_ID_KAMINO"
+
+# =============================================================================
+# Portfolio Manager (Rust Module)
+# =============================================================================
+[portfolio_manager]
+enabled_env = "PORTFOLIO_MANAGER_ENABLED"
+rebalance_interval_minutes_env = "PORTFOLIO_REBALANCE_INTERVAL_MINUTES"
+max_concentration_per_strategy_env = "PORTFOLIO_MAX_CONCENTRATION_PER_STRATEGY"
+capital_reservation_timeout_seconds = 10
+
+# =============================================================================
+# MEV (Maximal Extractable Value) Strategy
+# =============================================================================
+[mev]
+jito_enabled = true
+jito_endpoint_env = "JITO_ENDPOINT"
+jito_tip_lamports_env = "JITO_TIP_LAMPORTS"
+jito_max_tip_lamports_env = "JITO_MAX_TIP_LAMPORTS"
+min_profit_threshold_sol = 0.01
+
+# =============================================================================
+# Parallel Processing Configuration
+# =============================================================================
+[parallel_processing]
+enabled_env = "PARALLEL_PROCESSING_ENABLED"
+pool_size_env = "PARALLEL_POOL_SIZE"
+task_timeout_seconds_env = "PARALLEL_TASK_TIMEOUT_SECONDS"

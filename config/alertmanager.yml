@@ -53,6 +53,27 @@ route:
         component: api
       receiver: 'telegram-api'
 
+    # Connection pool alerts
+    - match:
+        component: connection_pool
+      receiver: 'telegram-system'
+      group_wait: 5s
+      repeat_interval: 30m
+
+    # Operational metrics alerts
+    - match:
+        component: operational_metrics
+      receiver: 'telegram-system'
+      group_wait: 30s
+      repeat_interval: 1h
+
+    # Database alerts
+    - match:
+        component: database
+      receiver: 'telegram-critical'
+      group_wait: 5s
+      repeat_interval: 15m
+
 # Notification receivers
 receivers:
 
@@ -92,6 +113,30 @@ receivers:
   - name: 'telegram-api'
     webhook_configs:
       - url: 'http://trading-bot:8082/api/alerts/telegram/api'
+        send_resolved: true
+        http_config:
+          bearer_token: '${TELEGRAM_WEBHOOK_TOKEN}'
+
+  # Connection pool alerts receiver
+  - name: 'telegram-connection-pool'
+    webhook_configs:
+      - url: 'http://trading-bot:8082/api/alerts/telegram/connection_pool'
+        send_resolved: true
+        http_config:
+          bearer_token: '${TELEGRAM_WEBHOOK_TOKEN}'
+
+  # Operational metrics alerts receiver
+  - name: 'telegram-operational'
+    webhook_configs:
+      - url: 'http://trading-bot:8082/api/alerts/telegram/operational'
+        send_resolved: true
+        http_config:
+          bearer_token: '${TELEGRAM_WEBHOOK_TOKEN}'
+
+  # Database alerts receiver
+  - name: 'telegram-database'
+    webhook_configs:
+      - url: 'http://trading-bot:8082/api/alerts/telegram/database'
         send_resolved: true
         http_config:
           bearer_token: '${TELEGRAM_WEBHOOK_TOKEN}'
