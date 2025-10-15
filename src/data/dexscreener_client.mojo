@@ -7,18 +7,105 @@ from time import time
 from collections import Dict, List, Any
 from core.types import TradingPair, MarketData
 from core.constants import DEXSCREENER_BASE_URL, DEFAULT_TIMEOUT_SECONDS
+from python import Python
 
 @value
 struct DexScreenerClient:
     """
-    DexScreener API client for DEX market data
+    DexScreener API client for DEX market data with connection pooling
     """
     var base_url: String
     var timeout_seconds: Float
+    var http_session: PythonObject
+    var python_initialized: Bool
 
     fn __init__(base_url: String = DEXSCREENER_BASE_URL, timeout_seconds: Float = DEFAULT_TIMEOUT_SECONDS):
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
+        self.python_initialized = False
+        self._initialize_connection_pool()
+
+    fn _initialize_connection_pool(inout self):
+        """
+        🔧 Initialize connection pool using Python aiohttp
+        """
+        try:
+            if not self.python_initialized:
+                # Import required modules
+                Python.import("aiohttp")
+                Python.import("asyncio")
+
+                # Create TCP connector with connection pooling
+                var python = Python()
+                var aiohttp = python.import("aiohttp")
+
+                # Configure connector for connection pooling
+                var connector = aiohttp.TCPConnector(
+                    limit=10,  # Total connection pool size
+                    limit_per_host=5,  # Connections per host
+                    ttl_dns_cache=300,  # DNS cache TTL
+                    use_dns_cache=True,
+                    keepalive_timeout=60,  # Keep connections alive
+                    enable_cleanup_closed=True
+                )
+
+                # Create session with connection pooling and timeouts
+                var timeout = aiohttp.ClientTimeout(
+                    total=self.timeout_seconds,
+                    connect=10.0,
+                    sock_read=30.0
+                )
+
+                self.http_session = aiohttp.ClientSession(
+                    connector=connector,
+                    timeout=timeout
+                )
+
+                self.python_initialized = True
+                print("🔗 DexScreener connection pool initialized (10 total, 5 per host)")
+        except e:
+            print(f"⚠️ Failed to initialize DexScreener connection pool: {e}")
+            self.python_initialized = False
+
+    fn close(inout self):
+        """
+        🔧 Close connection pool
+        """
+        if self.python_initialized:
+            try:
+                Python.import("asyncio")
+                var python = Python()
+                var asyncio = python.import("asyncio")
+
+                # Close the session
+                asyncio.create_task(self.http_session.close())
+                self.http_session = None
+                self.python_initialized = False
+                print("🔗 DexScreener connection pool closed")
+            except e:
+                print(f"⚠️ Error closing DexScreener connection pool: {e}")
+
+    async def _make_request(inout self, url: String) -> Any:
+        """
+        🌐 Make HTTP request using connection pool
+        """
+        if not self.python_initialized:
+            return None
+
+        try:
+            var python = Python()
+            var session = self.http_session
+
+            # Make request
+            async with session.get(url) as response:
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    print(f"⚠️ HTTP {response.status} for URL: {url}")
+                    return None
+        except e:
+            print(f"⚠️ DexScreener request error: {e}")
+            return None
 
     fn get_token_pairs(self, token_address: String) -> List[TradingPair]:
         """

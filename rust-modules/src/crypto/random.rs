@@ -449,6 +449,44 @@ impl Default for RandomDelay {
     }
 }
 
+/// FFI-safe exponential backoff calculation
+#[no_mangle]
+pub extern "C" fn exponential_backoff_delay_ms(attempt: u32, base_ms: u64, max_ms: u64) -> f64 {
+    let delay_ms = (base_ms * 2_u64.pow(attempt)).min(max_ms);
+
+    // Add jitter: 25% of the delay
+    let jitter_range = delay_ms / 4;
+    let jitter = fastrand::u64(0..jitter_range * 2);
+
+    let final_delay = delay_ms + jitter;
+    final_delay as f64 / 1000.0  // Convert to seconds
+}
+
+/// FFI-safe jitter calculation
+#[no_mangle]
+pub extern "C" fn add_jitter(base_delay_s: f64, jitter_percent: f64) -> f64 {
+    let jitter_range = base_delay_s * jitter_percent / 100.0;
+    let jitter = fastrand::f64() * jitter_range * 2.0;
+    let adjustment = jitter - jitter_range;
+    (base_delay_s + adjustment).max(0.0)
+}
+
+/// FFI-safe backoff with full calculation
+#[no_mangle]
+pub extern "C" fn calculate_retry_delay_with_jitter(
+    attempt: u32,
+    base_delay_s: f64,
+    max_delay_s: f64,
+    jitter_percent: f64
+) -> f64 {
+    // Calculate exponential backoff
+    let exponential_delay = base_delay_s * (2.0_f64).powi32(attempt as i32);
+    let capped_delay = exponential_delay.min(max_delay_s);
+
+    // Add jitter
+    add_jitter(capped_delay, jitter_percent)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

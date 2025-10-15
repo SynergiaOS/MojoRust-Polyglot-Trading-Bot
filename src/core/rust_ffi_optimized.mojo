@@ -34,6 +34,29 @@ from sys import info
 #     ffi_cleanup_optimizations
 # )
 
+# Backoff and retry functions for executor
+fn exponential_backoff_delay(attempt: Int, base_ms: Int, max_ms: Int) -> Float64 = external
+fn add_jitter(base_delay: Float64, jitter_percent: Float64) -> Float64 = external
+fn calculate_retry_delay_with_jitter(attempt: Int, base_delay: Float64, max_delay: Float64, jitter_percent: Float64) -> Float64 = external
+
+# Helper functions for executor retry logic
+fn calculate_retry_delay(attempt: Int) -> Float64:
+    """
+    Calculate retry delay with exponential backoff and jitter
+    """
+    let base_delay: Float64 = 0.1  # 100ms base delay
+    let max_delay: Float64 = 30.0  # 30 seconds max delay
+    let jitter_percent: Float64 = 25.0  # 25% jitter
+
+    return calculate_retry_delay_with_jitter(attempt, base_delay, max_delay, jitter_percent)
+
+fn add_jitter_to_delay(base_delay: Float64) -> Float64:
+    """
+    Add jitter to a delay value to prevent thundering herd
+    """
+    let jitter_percent: Float64 = 10.0  # 10% jitter
+    return add_jitter(base_delay, jitter_percent)
+
 # =============================================================================
 # FFI Result Types
 # =============================================================================

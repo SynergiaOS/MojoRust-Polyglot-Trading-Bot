@@ -9,11 +9,13 @@ use std::ptr;
 use std::slice;
 use std::sync::{Mutex, OnceLock};
 use std::sync::Arc;
+use uuid;
 
 // Re-export main interfaces for FFI
 pub use crate::crypto::CryptoEngine;
 pub use crate::security::SecurityEngine;
 pub use crate::solana::SolanaEngine;
+pub use crate::portfolio::{PortfolioManager, StrategyType, Position, RiskLevel, PortfolioMetrics};
 
 // Import for Result handling
 use anyhow::Result;
@@ -814,6 +816,348 @@ pub extern "C" fn secrets_manager_is_initialized() -> c_int {
         } else {
             0
         }
+    }
+}
+
+// =============================================================================
+// Portfolio Manager FFI
+// =============================================================================
+
+/// Global portfolio manager instance (thread-safe)
+static PORTFOLIO_MANAGER: OnceLock<Arc<Mutex<Option<PortfolioManager>>>> = OnceLock::new();
+
+/// Create new portfolio manager
+#[no_mangle]
+pub extern "C" fn portfolio_manager_new(total_capital: f64) -> *mut PortfolioManager {
+    let manager = match PortfolioManager::new(total_capital) {
+        Ok(manager) => manager,
+        Err(_) => return ptr::null_mut(),
+    };
+
+    Box::into_raw(Box::new(manager))
+}
+
+/// Destroy portfolio manager
+#[no_mangle]
+pub extern "C" fn portfolio_manager_destroy(manager: *mut PortfolioManager) {
+    if !manager.is_null() {
+        unsafe {
+            let _ = Box::from_raw(manager);
+        }
+    }
+}
+
+/// Initialize global portfolio manager
+#[no_mangle]
+pub extern "C" fn portfolio_manager_init_global(total_capital: f64) -> FfiResult {
+    let portfolio_manager = PORTFOLIO_MANAGER.get_or_init(|| {
+        Arc::new(Mutex::new(None))
+    });
+
+    let mut pm = portfolio_manager.lock().unwrap();
+    if pm.is_some() {
+        return FfiResult::Success; // Already initialized
+    }
+
+    match PortfolioManager::new(total_capital) {
+        Ok(manager) => {
+            *pm = Some(manager);
+            FfiResult::Success
+        }
+        Err(e) => {
+            let msg = format!("Failed to initialize portfolio manager: {}", e);
+            if let Ok(cstring) = CString::new(msg) {
+                unsafe {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+            }
+            FfiResult::InternalError
+        }
+    }
+}
+
+/// Open a new position
+#[no_mangle]
+pub extern "C" fn portfolio_manager_open_position(
+    manager: *mut PortfolioManager,
+    strategy: i32, // StrategyType as i32
+    token_mint: *const c_char,
+    symbol: *const c_char,
+    side: i32, // OrderSide as i32
+    size: f64,
+    entry_price: f64,
+    risk_level: i32, // RiskLevel as i32
+    out_position_id: *mut [u8; 16], // UUID as byte array
+) -> FfiResult {
+    if manager.is_null() || token_mint.is_null() || symbol.is_null() || out_position_id.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = &*manager;
+        let token_mint_str = CStr::from_ptr(token_mint).to_string_lossy();
+        let symbol_str = CStr::from_ptr(symbol).to_string_lossy();
+
+        let strategy_type = match strategy {
+            0 => StrategyType::Sniper,
+            1 => StrategyType::Arbitrage,
+            2 => StrategyType::FlashLoan,
+            3 => StrategyType::MarketMaking,
+            _ => return FfiResult::InvalidInput,
+        };
+
+        let order_side = match side {
+            0 => crate::portfolio::OrderSide::Buy,
+            1 => crate::portfolio::OrderSide::Sell,
+            _ => return FfiResult::InvalidInput,
+        };
+
+        let risk = match risk_level {
+            1 => RiskLevel::Low,
+            2 => RiskLevel::Medium,
+            3 => RiskLevel::High,
+            4 => RiskLevel::Critical,
+            _ => return FfiResult::InvalidInput,
+        };
+
+        match manager.open_position(
+            strategy_type,
+            token_mint_str.to_string(),
+            symbol_str.to_string(),
+            order_side,
+            size,
+            entry_price,
+            risk,
+        ) {
+            Ok(position_id) => {
+                *out_position_id = position_id.as_bytes().clone();
+                FfiResult::Success
+            }
+            Err(e) => {
+                let msg = format!("Failed to open position: {}", e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                FfiResult::InternalError
+            }
+        }
+    }
+}
+
+/// Close a position
+#[no_mangle]
+pub extern "C" fn portfolio_manager_close_position(
+    manager: *mut PortfolioManager,
+    position_id: *const [u8; 16],
+    close_price: f64,
+    fees: f64,
+    out_pnl: *mut f64,
+) -> FfiResult {
+    if manager.is_null() || position_id.is_null() || out_pnl.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = &*manager;
+        let uuid = uuid::Uuid::from_bytes(*position_id);
+
+        match manager.close_position(uuid, close_price, fees) {
+            Ok(pnl) => {
+                *out_pnl = pnl;
+                FfiResult::Success
+            }
+            Err(e) => {
+                let msg = format!("Failed to close position: {}", e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                FfiResult::InternalError
+            }
+        }
+    }
+}
+
+/// Update position price
+#[no_mangle]
+pub extern "C" fn portfolio_manager_update_position_price(
+    manager: *mut PortfolioManager,
+    position_id: *const [u8; 16],
+    new_price: f64,
+) -> FfiResult {
+    if manager.is_null() || position_id.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = &*manager;
+        let uuid = uuid::Uuid::from_bytes(*position_id);
+
+        match manager.update_position_price(uuid, new_price) {
+            Ok(()) => FfiResult::Success,
+            Err(e) => {
+                let msg = format!("Failed to update position price: {}", e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                FfiResult::InternalError
+            }
+        }
+    }
+}
+
+/// Get portfolio metrics
+#[no_mangle]
+pub extern "C" fn portfolio_manager_get_metrics(
+    manager: *mut PortfolioManager,
+    out_bytes: *mut FfiBytes,
+) -> FfiResult {
+    if manager.is_null() || out_bytes.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = &*manager;
+        let metrics = manager.get_metrics();
+
+        // Serialize metrics to JSON
+        let json = match serde_json::to_string(&metrics) {
+            Ok(json) => json,
+            Err(e) => {
+                let msg = format!("Failed to serialize metrics: {}", e);
+                if let Ok(cstring) = CString::new(msg) {
+                    ffi_set_last_error(cstring.as_ptr());
+                }
+                return FfiResult::InternalError;
+            }
+        };
+
+        *out_bytes = FfiBytes::from_vec(json.into_bytes());
+        FfiResult::Success
+    }
+}
+
+/// Get available capital for strategy
+#[no_mangle]
+pub extern "C" fn portfolio_manager_get_available_capital(
+    manager: *mut PortfolioManager,
+    strategy: i32,
+    out_capital: *mut f64,
+) -> FfiResult {
+    if manager.is_null() || out_capital.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = &*manager;
+        let strategy_type = match strategy {
+            0 => StrategyType::Sniper,
+            1 => StrategyType::Arbitrage,
+            2 => StrategyType::FlashLoan,
+            3 => StrategyType::MarketMaking,
+            _ => return FfiResult::InvalidInput,
+        };
+
+        *out_capital = manager.get_available_capital(strategy_type);
+        FfiResult::Success
+    }
+}
+
+/// Check if can take new position
+#[no_mangle]
+pub extern "C" fn portfolio_manager_can_take_position(
+    manager: *mut PortfolioManager,
+    strategy: i32,
+    amount: f64,
+    risk_level: i32,
+    out_can_take: *mut bool,
+) -> FfiResult {
+    if manager.is_null() || out_can_take.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = &*manager;
+        let strategy_type = match strategy {
+            0 => StrategyType::Sniper,
+            1 => StrategyType::Arbitrage,
+            2 => StrategyType::FlashLoan,
+            3 => StrategyType::MarketMaking,
+            _ => return FfiResult::InvalidInput,
+        };
+
+        let risk = match risk_level {
+            1 => RiskLevel::Low,
+            2 => RiskLevel::Medium,
+            3 => RiskLevel::High,
+            4 => RiskLevel::Critical,
+            _ => return FfiResult::InvalidInput,
+        };
+
+        *out_can_take = manager.can_take_position(strategy_type, amount, risk);
+        FfiResult::Success
+    }
+}
+
+/// Update token price
+#[no_mangle]
+pub extern "C" fn portfolio_manager_update_token_price(
+    manager: *mut PortfolioManager,
+    token_mint: *const c_char,
+    symbol: *const c_char,
+    price: f64,
+    decimals: u8,
+) -> FfiResult {
+    if manager.is_null() || token_mint.is_null() || symbol.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = &*manager;
+        let token_mint_str = CStr::from_ptr(token_mint).to_string_lossy();
+        let symbol_str = CStr::from_ptr(symbol).to_string_lossy();
+
+        manager.update_token_price(
+            token_mint_str.to_string(),
+            symbol_str.to_string(),
+            price,
+            decimals,
+        );
+        FfiResult::Success
+    }
+}
+
+/// Set emergency stop
+#[no_mangle]
+pub extern "C" fn portfolio_manager_set_emergency_stop(
+    manager: *mut PortfolioManager,
+    stop: bool,
+) -> FfiResult {
+    if manager.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = &*manager;
+        manager.set_emergency_stop(stop);
+        FfiResult::Success
+    }
+}
+
+/// Get open positions count
+#[no_mangle]
+pub extern "C" fn portfolio_manager_get_open_positions_count(
+    manager: *mut PortfolioManager,
+    out_count: *mut usize,
+) -> FfiResult {
+    if manager.is_null() || out_count.is_null() {
+        return FfiResult::InvalidInput;
+    }
+
+    unsafe {
+        let manager = &*manager;
+        let positions = manager.get_open_positions();
+        *out_count = positions.len();
+        FfiResult::Success
     }
 }
 
