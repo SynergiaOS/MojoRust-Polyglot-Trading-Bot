@@ -34,6 +34,7 @@ wallets/
 *.json.key
 keypair.json
 id.json
+secrets/
 
 # Logs
 *.log

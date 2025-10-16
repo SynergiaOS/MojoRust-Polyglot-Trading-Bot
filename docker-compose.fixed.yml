@@ -1,34 +1,5 @@
 version: '3.8'
 
-x-common-variables: &common-variables
-  TZ: UTC
-  LOG_LEVEL: INFO
-
-x-restart-policy: &restart-policy
-  restart: unless-stopped
-
-x-cpu-limits: &cpu-limits
-  cpus: '2.0'
-  cpu_shares: 1024
-
-x-memory-limits: &memory-limits
-  mem_limit: 2g
-  memswap_limit: 2g
-
-x-resource-limits: &resource-limits
-  cpus: '2.0'
-  cpu_shares: 1024
-  mem_limit: 2g
-  memswap_limit: 2g
-  deploy:
-    resources:
-      limits:
-        cpus: '2.0'
-        memory: 2G
-      reservations:
-        cpus: '0.5'
-        memory: 512M
-
 networks:
   trading-network:
     driver: bridge
@@ -47,15 +18,13 @@ volumes:
     driver: local
   pgadmin_data:
     driver: local
-  # Redis data volume removed - using DragonflyDB Cloud instead
 
 services:
   # TimescaleDB for time-series market data and trade history
   timescaledb:
     image: timescale/timescaledb:latest-pg15
     container_name: trading-bot-timescaledb
-    <<: *restart-policy
-    <<: *resource-limits
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -65,20 +34,16 @@ services:
           cpus: '0.5'
           memory: 1G
     environment:
-      <<: *common-variables
+      TZ: UTC
+      LOG_LEVEL: INFO
       POSTGRES_DB: ${TIMESCALEDB_DBNAME:-trading_db}
       POSTGRES_USER: ${TIMESCALEDB_USER:-trading_user}
       POSTGRES_PASSWORD: ${TIMESCALEDB_PASSWORD:-trading_password}
-      # For production, avoid trusting host auth; use POSTGRES_HOST_AUTH_METHOD only for dev/testing
       POSTGRES_HOST_AUTH_METHOD: ${TIMESCALEDB_HOST_AUTH_METHOD:-}
     ports:
-      # External port can be configured via TIMESCALEDB_PORT environment variable
-      # Internal container port remains 5432 for container-to-container communication
-      # Example: Set TIMESCALEDB_PORT=5433 in .env to avoid port conflicts
       - "${TIMESCALEDB_PORT:-5432}:5432"
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
-      # TimescaleDB initialization handled by extension installation on first run
     networks:
       trading-network:
         ipv4_address: 172.20.0.10
@@ -88,18 +53,12 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # Prometheus for metrics collection
   prometheus:
     image: prom/prometheus:latest
     container_name: trading-bot-prometheus
-    <<: *restart-policy
-    <<: *resource-limits
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -131,18 +90,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # Grafana for visualization dashboards
   grafana:
     image: grafana/grafana:latest
     container_name: trading-bot-grafana
-    <<: *restart-policy
-    <<: *resource-limits
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -152,7 +105,8 @@ services:
           cpus: '0.25'
           memory: 256M
     environment:
-      <<: *common-variables
+      TZ: UTC
+      LOG_LEVEL: INFO
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-trading_admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
@@ -166,7 +120,6 @@ services:
       - "3001:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      # Provisioning & dashboards are bind-mounted from repo for easier editing
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
@@ -181,18 +134,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # AlertManager for alert routing
   alertmanager:
     image: prom/alertmanager:latest
     container_name: trading-bot-alertmanager
-    <<: *restart-policy
-    <<: *resource-limits
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -219,156 +166,11 @@ services:
       timeout: 10s
       retries: 3
 
-  # DragonflyDB for high-performance caching and Pub/Sub message bus
-  # Production DragonflyDB Cloud connection via REDIS_URL environment variable
-  # No local Redis service needed - DragonflyDB provides Redis-compatible API
-
-  # Rust Data Consumer for Geyser
-  data-consumer:
-    build:
-      context: .
-      dockerfile: rust-modules/Dockerfile.data-consumer
-    container_name: trading-bot-data-consumer
-    <<: *restart-policy
-    <<: *resource-limits
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-    environment:
-      <<: *common-variables
-      RUST_LOG: info
-      GEYSER_ENDPOINT: ${GEYSER_ENDPOINT}
-      REDIS_URL: ${REDIS_URL}
-    ports:
-      - "9191:9191" # Metrics port
-    networks:
-      trading-network:
-        ipv4_address: 172.20.0.18
-    # DragonflyDB Cloud connection - no local dependency needed
-
-  # pgAdmin for TimescaleDB management (optional)
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: trading-bot-pgadmin
-    <<: *restart-policy
-    <<: *resource-limits
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.1'
-          memory: 128M
-    environment:
-      <<: *common-variables
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@trading-bot.local}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-pgadmin_password}
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-    ports:
-      - "8081:80"  # pgAdmin web interface
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-      # pgAdmin server configuration can be added manually via UI
-    networks:
-      trading-network:
-        ipv4_address: 172.20.0.16
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-
-  # Trading Bot Application
-  trading-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: ${BUILD_TARGET:-development}
-    container_name: trading-bot-app
-    <<: *restart-policy
-    <<: *resource-limits
-    deploy:
-      resources:
-        limits:
-          cpus: '3.0'
-          memory: 4G
-        reservations:
-          cpus: '1.0'
-          memory: 1G
-    env_file:
-      - .env
-      - .env.docker
-    environment:
-      <<: *common-variables
-      # Environment
-      TRADING_ENV: ${TRADING_ENV:-development}
-
-      # Database connections
-      TIMESCALEDB_URL: postgresql://${TIMESCALEDB_USER:-trading_user}:${TIMESCALEDB_PASSWORD:-trading_password}@timescaledb:5432/${TIMESCALEDB_DBNAME:-trading_db}
-      REDIS_URL: ${REDIS_URL}
-      ENABLE_RUST_CONSUMER: "true"
-
-      # API Keys (loaded from .env file)
-      HELIUS_API_KEY: ${HELIUS_API_KEY}
-      QUICKNODE_RPC_URL: ${QUICKNODE_RPC_URL}
-      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
-
-      # Wallet configuration
-      WALLET_ADDRESS: ${WALLET_ADDRESS}
-      WALLET_PRIVATE_KEY_PATH: /app/secrets/wallet.keypair
-
-      # Trading parameters
-      INITIAL_CAPITAL: ${INITIAL_CAPITAL:-1.0}
-      EXECUTION_MODE: ${EXECUTION_MODE:-paper}
-      MAX_POSITION_SIZE: ${MAX_POSITION_SIZE:-0.10}
-      MAX_DRAWDOWN: ${MAX_DRAWDOWN:-0.15}
-
-      # Monitoring
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      LOG_FORMAT: json
-
-      # Development flags
-      MOCK_APIS: ${MOCK_APIS:-false}
-      VERBOSE_LOGGING: ${VERBOSE_LOGGING:-false}
-    ports:
-      - "8082:8082"  # Health check port (includes /metrics endpoint)
-    volumes:
-      - ./src:/app/src:ro
-      - ./config:/app/config:ro
-      - ./secrets:/app/secrets:ro
-      - ./logs:/app/logs
-      - ./rust-modules:/app/rust-modules:ro
-    networks:
-      trading-network:
-        ipv4_address: 172.20.0.20
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-      prometheus:
-        condition: service_healthy
-    # DragonflyDB Cloud connection - no local dependency needed
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "10"
-
   # Node Exporter for system metrics
   node-exporter:
     image: prom/node-exporter:latest
     container_name: trading-bot-node-exporter
-    <<: *restart-policy
-    <<: *resource-limits
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -396,8 +198,7 @@ services:
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: trading-bot-cadvisor
-    <<: *restart-policy
-    <<: *resource-limits
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -424,3 +225,63 @@ services:
       trading-network:
         ipv4_address: 172.20.0.31
 
+  # Trading Bot Application
+  trading-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-development}
+    container_name: trading-bot-app
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    env_file:
+      - .env
+      - .env.docker
+    environment:
+      TZ: UTC
+      LOG_LEVEL: INFO
+      TRADING_ENV: ${TRADING_ENV:-development}
+      TIMESCALEDB_URL: postgresql://${TIMESCALEDB_USER:-trading_user}:${TIMESCALEDB_PASSWORD:-trading_password}@timescaledb:5432/${TIMESCALEDB_DBNAME:-trading_db}
+      REDIS_URL: ${REDIS_URL}
+      ENABLE_RUST_CONSUMER: "true"
+      HELIUS_API_KEY: ${HELIUS_API_KEY}
+      QUICKNODE_RPC_URL: ${QUICKNODE_RPC_URL}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+      WALLET_ADDRESS: ${WALLET_ADDRESS}
+      WALLET_PRIVATE_KEY_PATH: /app/secrets/wallet.keypair
+      INITIAL_CAPITAL: ${INITIAL_CAPITAL:-1.0}
+      EXECUTION_MODE: ${EXECUTION_MODE:-paper}
+      MAX_POSITION_SIZE: ${MAX_POSITION_SIZE:-0.10}
+      MAX_DRAWDOWN: ${MAX_DRAWDOWN:-0.15}
+      LOG_FORMAT: json
+      MOCK_APIS: ${MOCK_APIS:-false}
+      VERBOSE_LOGGING: ${VERBOSE_LOGGING:-false}
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+      - ./logs:/app/logs
+      - ./rust-modules:/app/rust-modules:ro
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.20
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

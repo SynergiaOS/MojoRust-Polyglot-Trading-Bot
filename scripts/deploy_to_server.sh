@@ -370,6 +370,29 @@ configure_environment() {
     fi
 }
 
+# Function to handle port conflicts during deployment
+handle_port_conflicts() {
+    print_status "WARNING" "Port conflicts detected, attempting resolution..."
+
+    # Try to resolve port conflicts automatically
+    execute "cd $DEPLOYMENT_DIR && if [ -f ./scripts/resolve_port_conflict.sh ]; then ./scripts/resolve_port_conflict.sh --automatic; else echo 'Port resolution script not found'; fi" true
+
+    # Check if resolution was successful
+    local port_check_result=$(execute "cd $DEPLOYMENT_DIR && if [ -f ./scripts/verify_port_availability.sh ]; then ./scripts/verify_port_availability.sh --validate-for-deployment >/dev/null 2>&1 && echo 'OK' || echo 'FAIL'; else echo 'OK'; fi" true)
+
+    if [[ "$port_check_result" == "OK" ]]; then
+        print_status "SUCCESS" "Port conflicts resolved successfully"
+        return 0
+    else
+        print_status "ERROR" "Failed to resolve port conflicts automatically"
+        print_status "INFO" "Manual intervention required:"
+        print_status "INFO" "1. SSH into server: ssh $SSH_USER@$SERVER_IP"
+        print_status "INFO" "2. Run port diagnosis: cd $DEPLOYMENT_DIR && ./scripts/diagnose_port_conflict.sh"
+        print_status "INFO" "3. Resolve conflicts manually: ./scripts/resolve_port_conflict.sh"
+        return 1
+    fi
+}
+
 # Function to deploy bot
 deploy_bot() {
     if [ "$CONFIG_ONLY" = false ]; then
@@ -381,6 +404,17 @@ deploy_bot() {
 
             # Transfer docker-compose files if not already done
             execute "cd $DEPLOYMENT_DIR && [ -f docker-compose.yml ] || echo 'docker-compose.yml missing'" true
+
+            # Verify port availability before starting services
+            print_status "INFO" "Checking port availability..."
+            local port_check_result=$(execute "cd $DEPLOYMENT_DIR && if [ -f ./scripts/verify_port_availability.sh ]; then ./scripts/verify_port_availability.sh --validate-for-deployment >/dev/null 2>&1 && echo 'OK' || echo 'FAIL'; else echo 'OK'; fi" true)
+
+            if [[ "$port_check_result" != "OK" ]]; then
+                if ! handle_port_conflicts; then
+                    print_status "ERROR" "Cannot proceed with deployment due to unresolved port conflicts"
+                    exit 1
+                fi
+            fi
 
             # Pull/build images
             # Use remote detection to pick docker compose variant (docker compose vs docker-compose)
@@ -424,6 +458,10 @@ verify_docker_compose_deployment() {
         # Check logs for errors (fallback to simple grep)
         print_status "INFO" "Checking logs for errors..."
         execute "cd $DEPLOYMENT_DIR && if docker compose version >/dev/null 2>&1; then COMPOSE='docker compose'; else COMPOSE='docker-compose'; fi; $COMPOSE logs --tail=50 | grep -i error || echo 'No errors found'" true
+
+        # Verify port availability after deployment
+        print_status "INFO" "Verifying port availability after deployment..."
+        execute "cd $DEPLOYMENT_DIR && if [ -f ./scripts/verify_port_availability.sh ]; then ./scripts/verify_port_availability.sh --json; else echo 'Port verification script not found'; fi" true
 
         return
     fi

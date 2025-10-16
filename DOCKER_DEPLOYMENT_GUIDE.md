@@ -184,6 +184,54 @@ docker-compose build --no-cache --progress=plain data-consumer
 
 ---
 
+## Pre-Deployment Port Verification
+
+**Before starting services, always verify port availability:**
+
+```bash
+cd ~/mojo-trading-bot
+
+# Run comprehensive port verification
+./scripts/verify_port_availability.sh --pre-deploy
+
+# Expected output if all ports available:
+# ✅ Pre-deployment validation PASSED
+# System is ready for Docker Compose deployment
+# Command: docker-compose up -d
+```
+
+**If port conflicts are detected:**
+
+```bash
+# Diagnose the specific conflict
+./scripts/diagnose_port_conflict.sh
+
+# Resolve conflicts interactively
+./scripts/resolve_port_conflict.sh
+
+# Re-verify after resolution
+./scripts/verify_port_availability.sh --pre-deploy
+```
+
+**Port Verification Checklist:**
+- ✅ Docker is running and accessible
+- ✅ Docker Compose is installed and functional
+- ✅ docker-compose.yml syntax is valid
+- ✅ All required ports are available (5432, 9090, 3001, 8082, 9093, 8081, 9191, 9100, 8083)
+- ✅ No conflicts with system services
+- ✅ No conflicts with other Docker containers
+
+**Alternative Quick Check:**
+```bash
+# Quick availability check (non-comprehensive)
+./scripts/verify_port_availability.sh
+
+# Check specific port (e.g., TimescaleDB)
+./scripts/verify_port_availability.sh --port 5432
+```
+
+---
+
 ## Step 4: Start Services
 
 **Start All Services:**
@@ -191,7 +239,20 @@ docker-compose build --no-cache --progress=plain data-consumer
 ```bash
 cd ~/mojo-trading-bot
 
-# 1. Start services in detached mode
+# 1. Pre-deployment port verification (REQUIRED)
+./scripts/verify_port_availability.sh --pre-deploy
+
+# 2. If ports are available, start services
+if [ $? -eq 0 ]; then
+    echo "✅ All ports verified, starting services..."
+    docker-compose up -d
+else
+    echo "❌ Port conflicts detected, resolve before starting services"
+    echo "Run: ./scripts/resolve_port_conflict.sh"
+    exit 1
+fi
+
+# Alternative: Start services in detached mode
 docker-compose up -d
 
 # Expected output:
@@ -551,11 +612,50 @@ docker-compose up -d --build
 
 **Port Conflicts:**
 
+The MojoRust Trading Bot uses automated port conflict resolution tools. For comprehensive port conflict management, see [Port Conflict Resolution Guide](./docs/port_conflict_resolution_guide.md).
+
+**Quick Port Conflict Resolution:**
+
 ```bash
-# Check if ports are already in use
+# 1. Diagnose port conflicts (automated)
+./scripts/diagnose_port_conflict.sh
+
+# 2. Verify all required ports before deployment
+./scripts/verify_port_availability.sh --pre-deploy
+
+# 3. If conflicts detected, use interactive resolution
+./scripts/resolve_port_conflict.sh
+
+# 4. Alternative: Manual port check
 sudo netstat -tulpn | grep -E "(9090|8080|8082|3000|5432|6379)"
 
-# If conflicts, stop conflicting services or change ports in docker-compose.yml
+# 5. Alternative: Change TimescaleDB port in .env
+echo "TIMESCALEDB_PORT=5433" >> .env
+```
+
+**Common Port Conflicts and Solutions:**
+
+- **Port 5432 (TimescaleDB)**: Conflict with system PostgreSQL
+  - Solution: Use `./scripts/resolve_port_conflict.sh` to reconfigure to port 5433
+  - Or stop system PostgreSQL: `sudo systemctl stop postgresql`
+
+- **Port 3000 (Grafana)**: Conflict with other web applications
+  - Solution: Already configured to use port 3001 in docker-compose.yml
+
+- **Port 9090 (Prometheus)**: Conflict with monitoring tools
+  - Solution: Change port in docker-compose.yml if needed
+
+**Pre-Deployment Port Check (Recommended):**
+
+```bash
+# Always verify ports before deployment
+if ./scripts/verify_port_availability.sh --pre-deploy; then
+    echo "✅ All ports available, proceeding with deployment"
+    docker-compose up -d
+else
+    echo "❌ Port conflicts detected, resolve first"
+    ./scripts/resolve_port_conflict.sh
+fi
 ```
 
 **Container Won't Start:**

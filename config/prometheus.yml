@@ -25,7 +25,7 @@ scrape_configs:
   # Trading Bot Application Metrics
   - job_name: 'trading-bot'
     static_configs:
-      - targets: ['trading-bot:8082']
+      - targets: ['trading-bot-app:8082']
     metrics_path: '/metrics'
     scrape_interval: 10s      # More frequent for trading metrics
     scrape_timeout: 5s

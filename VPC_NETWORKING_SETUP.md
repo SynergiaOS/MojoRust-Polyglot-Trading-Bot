@@ -10,7 +10,15 @@ This guide covers the VPC networking configuration required to connect your Mojo
 - **VPC ID**: `vpc-00e79f7555aa68c0e`
 - **CIDR Block**: `192.168.0.0/16`
 - **AWS Account ID**: `962364259018`
-- **Region**: [Your AWS Region]
+- **Region**: [Your AWS Region - set as AWS_REGION]
+
+### DragonflyDB Cloud Details
+- **DragonflyDB Host**: `612ehcb9i.dragonflydb.cloud`
+- **DragonflyDB Port**: `6385`
+- **DragonflyDB VPC ID**: [Request from DragonflyDB Support]
+- **DragonflyDB VPC CIDR**: [Request from DragonflyDB Support]
+- **DragonflyDB Account ID**: [Request from DragonflyDB Support]
+- **DragonflyDB Region**: [Request from DragonflyDB Support]
 
 ### Network Architecture
 
@@ -80,17 +88,17 @@ aws ec2 create-security-group \
 
 # Allow outbound traffic to DragonflyDB (port 6385)
 aws ec2 authorize-security-group-egress \
-    --group-id sg-xxxxxxxx \
+    --group-id <sg-id> \
     --protocol tcp \
     --port 6385 \
-    --destination-cidr-block DRAGONFLYDB_VPC_CIDR
+    --cidr <DRAGONFLYDB_VPC_CIDR>
 
 # Allow outbound traffic to DragonflyDB (port 443 for management)
 aws ec2 authorize-security-group-egress \
-    --group-id sg-xxxxxxxx \
+    --group-id <sg-id> \
     --protocol tcp \
     --port 443 \
-    --destination-cidr-block DRAGONFLYDB_VPC_CIDR
+    --cidr <DRAGONFLYDB_VPC_CIDR>
 ```
 
 ### 2.2 DragonflyDB Security Group
@@ -105,7 +113,10 @@ DragonflyDB team will configure inbound rules to accept traffic from your VPC.
 # Enable DNS resolution for VPC peering
 aws ec2 modify-vpc-attribute \
     --vpc-id vpc-00e79f7555aa68c0e \
-    --enable-dns-support \
+    --enable-dns-support
+
+aws ec2 modify-vpc-attribute \
+    --vpc-id vpc-00e79f7555aa68c0e \
     --enable-dns-hostnames
 
 # Create DNS records for DragonflyDB endpoints
@@ -172,13 +183,21 @@ if __name__ == "__main__":
 
 ```bash
 # Enable VPC Flow Logs for monitoring
+# Prerequisites: Create log group and IAM role first
+aws logs create-log-group --log-group-name vpc-flow-logs --region $AWS_REGION
+
+# Create IAM role for VPC Flow Logs (if not exists)
+aws iam create-role --role-name VPCFlowLogsRole --assume-role-policy-document file://trust-policy.json
+aws iam attach-role-policy --role-name VPCFlowLogsRole --policy-arn arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
 aws ec2 create-flow-logs \
     --resource-type VPC \
     --resource-ids vpc-00e79f7555aa68c0e \
     --traffic-type ALL \
     --log-destination-type cloud-watch-logs \
     --log-group-name vpc-flow-logs \
-    --deliver-logs-per-hour 10
+    --max-aggregation-interval 60 \
+    --deliver-logs-status ENABLED
 ```
 
 ### 5.2 CloudWatch Metrics
@@ -323,6 +342,93 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/16
+```
+
+## Post-Configuration Steps
+
+### Actual Configuration Details
+
+After completing the VPC peering setup, record the following details:
+
+**VPC Peering Connection:**
+- **Peering Connection ID**: `pcx-[generated-id]`
+- **Status**: `active`
+- **Requester VPC**: `vpc-00e79f7555aa68c0e` (192.168.0.0/16)
+- **Accepter VPC**: `[DragonflyDB VPC ID]` ([DragonflyDB VPC CIDR])
+
+**Route Table Configuration:**
+- **Route Table IDs**: [List of updated route table IDs]
+- **Routes Added**:
+  - Destination: `[DragonflyDB VPC CIDR]` → Target: `pcx-[generated-id]`
+  - Status: `active`
+
+**Security Group Configuration:**
+- **Security Group ID**: [Your security group ID]
+- **Egress Rules Added**:
+  - Rule ID: [sg-rule-id-6385] - Port 6385 to `[DragonflyDB VPC CIDR]`
+  - Rule ID: [sg-rule-id-443] - Port 443 to `[DragonflyDB VPC CIDR]`
+
+**DragonflyDB Cloud Details:**
+- **Host**: `612ehcb9i.dragonflydb.cloud`
+- **Port**: `6385`
+- **VPC ID**: `[DragonflyDB VPC ID]`
+- **VPC CIDR**: `[DragonflyDB VPC CIDR]`
+- **Account ID**: `[DragonflyDB Account ID]`
+- **Region**: `[DragonflyDB Region]`
+
+### Verification Steps
+
+1. **VPC Peering Status Check**:
+   ```bash
+   aws ec2 describe-vpc-peering-connections --vpc-peering-connection-ids pcx-[generated-id]
+   ```
+
+2. **Route Table Verification**:
+   ```bash
+   aws ec2 describe-route-tables --filters Name=vpc-id,Values=vpc-00e79f7555aa68c0e
+   ```
+
+3. **Security Group Rules Check**:
+   ```bash
+   aws ec2 describe-security-groups --group-ids [your-sg-id]
+   ```
+
+4. **Connectivity Test**:
+   ```bash
+   ./scripts/verify_dragonflydb_connection.sh --vpc-only
+   ```
+
+5. **DNS Resolution Test**:
+   ```bash
+   nslookup 612ehcb9i.dragonflydb.cloud
+   ```
+
+6. **TCP Connection Test**:
+   ```bash
+   nc -vz 612ehcb9i.dragonflydb.cloud 6385
+   ```
+
+### Environment Configuration Updates
+
+Update your `.env` file with the VPC peering details:
+
+```bash
+# VPC Configuration
+VPC_ID=vpc-00e79f7555aa68c0e
+VPC_CIDR=192.168.0.0/16
+AWS_ACCOUNT_ID=962364259018
+AWS_REGION=[your-region]
+
+# VPC Peering
+ENABLE_VPC_PEERING=true
+VPC_PEERING_ID=pcx-[generated-id]
+DRAGONFLYDB_VPC_ID=[DragonflyDB VPC ID]
+DRAGONFLYDB_VPC_CIDR=[DragonflyDB VPC CIDR]
+
+# DragonflyDB Connection (aligned with VPC peering)
+REDIS_URL=rediss://default:<password>@612ehcb9i.dragonflydb.cloud:6385
+DRAGONFLYDB_HOST=612ehcb9i.dragonflydb.cloud
+DRAGONFLYDB_PORT=6385
 ```
 
 ## Verification Checklist

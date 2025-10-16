@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy Rust workspace configuration
 COPY Cargo.toml Cargo.lock ./
-COPY rust-modules/ ./rust-modules/
+COPY rust-modules/Cargo.toml ./rust-modules/
 
 # Build Rust dependencies first (for layer caching)
 RUN cargo build --workspace --release
@@ -40,7 +40,8 @@ RUN cargo build --workspace --release
 COPY rust-modules/src/ ./rust-modules/src/
 
 # Build Rust modules with optimizations
-RUN cargo build --workspace --release
+WORKDIR /build/rust-modules
+RUN cargo build --release
 
 # =============================================================================
 # Stage 2: Mojo Builder - DISABLED
@@ -90,7 +91,7 @@ COPY ./trading-bot /app/trading-bot
 RUN chown trading:trading /app/trading-bot && chmod 0755 /app/trading-bot
 
 # Copy compiled Rust libraries from builder
-COPY --from=rust-builder /build/rust-modules/target/release/*.so /app/lib/
+COPY --from=rust-builder /build/rust-modules/target/release/deps/*.so /app/lib/
 
 # Copy configuration files
 COPY config/ ./config/

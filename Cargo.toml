@@ -1,0 +1,11 @@
+[package]
+name = "mojorust-trading-launcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4"
+
+[[bin]]
+name = "rust_trading_launcher"
+path = "rust_trading_launcher.rs"

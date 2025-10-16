@@ -529,9 +529,9 @@ sudo journalctl -u trading-bot -f
 
 ```bash
 # Health check endpoints (external access)
-http://YOUR_SERVER_IP:8082/health          # Trading bot health
+http://YOUR_SERVER_IP:8082/health          # Trading bot health (includes /metrics)
 http://YOUR_SERVER_IP:9090/-/healthy       # Prometheus health
-http://YOUR_SERVER_IP:3000/api/health       # Grafana health
+http://YOUR_SERVER_IP:3001/api/health      # Grafana health (external port 3001)
 http://YOUR_SERVER_IP:9191/health          # Data consumer health
 
 # Internal container health checks
@@ -544,7 +544,7 @@ docker-compose exec grafana wget --quiet --tries=1 --spider http://localhost:300
 #### Metrics Endpoints
 
 ```bash
-# Trading bot metrics (port 8082 - internal container port)
+# Trading bot metrics (unified port 8082 - Option A implementation)
 curl http://YOUR_SERVER_IP:8082/metrics     # Prometheus format metrics
 docker-compose exec trading-bot curl http://localhost:8082/metrics
 
@@ -554,22 +554,30 @@ docker-compose exec data-consumer curl http://localhost:9191/metrics
 
 # Prometheus metrics (port 9090)
 curl http://YOUR_SERVER_IP:9090/metrics    # Prometheus internal metrics
+
+# Grafana metrics (port 3001 externally, 3000 internally)
+curl http://YOUR_SERVER_IP:3001/metrics    # Grafana internal metrics
+docker-compose exec grafana curl http://localhost:3000/metrics
 ```
 
 #### Port Configuration Reference
 
-| Service | External Port | Internal Port | Purpose |
-|---------|---------------|---------------|---------|
-| trading-bot | 8082 | 8082 | Health + Metrics (unified) |
-| prometheus | 9090 | 9090 | Metrics collection |
-| grafana | 3000 | 3000 | Visualization |
-| timescaledb | 5432 | 5432 | Database |
-| data-consumer | 9191 | 9191 | Geyser metrics |
-| alertmanager | 9093 | 9093 | Alert routing |
-| node-exporter | 9100 | 9100 | System metrics |
-| cadvisor | 8083 | 8080 | Container metrics |
+| Service | External Port | Internal Port | Purpose | Notes |
+|---------|---------------|---------------|---------|-------|
+| trading-bot | 8082 | 8082 | Health + Metrics (unified) | Single port for both endpoints |
+| prometheus | 9090 | 9090 | Metrics collection | - |
+| grafana | 3001 | 3000 | Visualization | External port differs from internal |
+| timescaledb | 5432 | 5432 | Database | - |
+| data-consumer | 9191 | 9191 | Geyser metrics | - |
+| alertmanager | 9093 | 9093 | Alert routing | - |
+| node-exporter | 9100 | 9100 | System metrics | - |
+| cadvisor | 8083 | 8080 | Container metrics | External port differs from internal |
 
-**Important**: The trading bot uses a unified port 8082 for both health checks (`/health`) and metrics (`/metrics`) endpoints.
+**Important Port Alignment Notes:**
+- **Option A Implementation**: Trading bot uses unified port 8082 for both health checks (`/health`) and metrics (`/metrics`) endpoints
+- **Grafana External Access**: Use port 3001 for external access (http://YOUR_SERVER_IP:3001), port 3000 is internal to containers
+- **cAdvisor External Access**: Use port 8083 for external access (http://YOUR_SERVER_IP:8083), port 8080 is internal
+- **No Prometheus Port Confusion**: Removed PROMETHEUS_PORT environment variable to avoid conflicts
 
 #### Filter Performance Monitoring
 

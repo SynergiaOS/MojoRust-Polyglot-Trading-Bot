@@ -670,6 +670,16 @@ curl http://38.242.239.150:9093/api/v1/alerts | jq '.data.alerts[] | {labels: .l
 
 # Check specific service targets
 curl http://38.242.239.150:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, instance: .labels.instance, health: .health}'
+
+# Check trading bot metrics (unified port 8082)
+curl http://38.242.239.150:8082/metrics | grep -E "(trading_bot_|up|http_requests)"
+
+# Check data consumer metrics (port 9191)
+curl http://38.242.239.150:9191/metrics | grep -E "(geyser_|redis_|up)"
+
+# Verify DragonflyDB cloud metrics
+curl -H "Authorization: Bearer 8551e334580b024d94d6cbdf41f2dd31" \
+  https://13dccedc-5c9e-4197-98de-9eaca473abe6.9d0cbd306e75da6bac5029ef1e84abb6.dragonflydb.cloud/metrics
 ```
 
 ### 3. Test Alert Firing

@@ -23,9 +23,16 @@ DRAGONFLYDB_PORT="6385"
 DRAGONFLYDB_PASSWORD="gv7g6u9svsf1"
 REDIS_URL="rediss://default:gv7g6u9svsf1@612ehcb9i.dragonflydb.cloud:6385"
 
+# VPC Peering configuration
+VPC_ID="${VPC_ID:-vpc-00e79f7555aa68c0e}"
+VPC_PEERING_ID="${VPC_PEERING_ID:-}"
+DRAGONFLYDB_VPC_CIDR="${DRAGONFLYDB_VPC_CIDR:-}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+
 # Options
 CONNECTION_ONLY=false
 PROMETHEUS_ONLY=false
+VPC_ONLY=false
 BENCHMARK=false
 JSON_OUTPUT=false
 VERBOSE=false
@@ -49,12 +56,32 @@ while [[ $# -gt 0 ]]; do
             REDIS_URL="$2"
             shift 2
             ;;
+        --vpc-id)
+            VPC_ID="$2"
+            shift 2
+            ;;
+        --vpc-peering-id)
+            VPC_PEERING_ID="$2"
+            shift 2
+            ;;
+        --dragonflydb-vpc-cidr)
+            DRAGONFLYDB_VPC_CIDR="$2"
+            shift 2
+            ;;
+        --aws-region)
+            AWS_REGION="$2"
+            shift 2
+            ;;
         --connection-only)
             CONNECTION_ONLY=true
             shift
             ;;
         --prometheus-only)
             PROMETHEUS_ONLY=true
+            shift
+            ;;
+        --vpc-only)
+            VPC_ONLY=true
             shift
             ;;
         --benchmark)
@@ -79,6 +106,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --redis-url <URL>       Redis connection URL (default: auto-generated)"
             echo "  --connection-only      Test connection only (skip Prometheus)"
             echo "  --prometheus-only      Test Prometheus scraping only"
+            echo "  --vpc-only             Test VPC peering connectivity only"
             echo "  --benchmark            Run performance benchmark"
             echo "  --json                 Output results in JSON format"
             echo "  --verbose              Show detailed output"
@@ -88,6 +116,7 @@ while [[ $# -gt 0 ]]; do
             echo "  $0                                          # Full verification"
             echo "  $0 --connection-only                         # Test connection only"
             echo "  $0 --prometheus-only                          # Test Prometheus only"
+            echo "  $0 --vpc-only                                # Test VPC peering only"
             echo "  $0 --benchmark                               # Performance test"
             echo "  $0 --json                                     # JSON output"
             echo ""
@@ -159,9 +188,13 @@ check_dependencies() {
         missing_deps+=("curl")
     fi
 
+    if [ "$VPC_ONLY" = true ] && ! command -v aws >/dev/null 2>&1; then
+        missing_deps+=("aws")
+    fi
+
     if [ ${#missing_deps[@]} -gt 0 ]; then
         log_error "Missing required tools: ${missing_deps[*]}"
-        log_info "Install with: apt-get install redis-tools curl"
+        log_info "Install with: apt-get install redis-tools curl awscli"
         return 1
     fi
 
@@ -473,6 +506,181 @@ test_direct_metrics() {
     return 0
 }
 
+# Test VPC peering connectivity
+test_vpc_peering() {
+    log_header "Testing VPC Peering Connectivity"
+
+    local vpc_peering_status="unknown"
+    local route_tables_configured=false
+    local security_groups_configured=false
+    local dns_ok=false
+    local tcp_6385_ok=false
+
+    # Check VPC peering status
+    if [ -n "$VPC_PEERING_ID" ]; then
+        log_verbose "Checking VPC peering status: $VPC_PEERING_ID"
+        local peering_result
+        if peering_result=$(aws ec2 describe-vpc-peering-connections \
+            --vpc-peering-connection-ids "$VPC_PEERING_ID" \
+            --region "$AWS_REGION" 2>/dev/null); then
+
+            local status=$(echo "$peering_result" | jq -r '.VpcPeeringConnections[0].Status.Code // "unknown"')
+            log_verbose "VPC peering status: $status"
+
+            if [ "$status" = "active" ]; then
+                log_success "VPC peering connection: Active"
+                vpc_peering_status="active"
+                test_results["vpc_peering_status"]="active"
+            else
+                log_error "VPC peering connection: $status"
+                test_results["vpc_peering_status"]="$status"
+                return 1
+            fi
+        else
+            log_error "Failed to check VPC peering status"
+            test_results["vpc_peering_status"]="error"
+            return 1
+        fi
+    else
+        log_warning "VPC_PEERING_ID not provided, skipping VPC peering status check"
+        test_results["vpc_peering_status"]="not_configured"
+    fi
+
+    # Check route tables configuration
+    if [ -n "$DRAGONFLYDB_VPC_CIDR" ]; then
+        log_verbose "Checking route tables for routes to $DRAGONFLYDB_VPC_CIDR"
+        local route_tables
+        if route_tables=$(aws ec2 describe-route-tables \
+            --filters "Name=vpc-id,Values=$VPC_ID" "Name=route.destination-cidr-block,Values=$DRAGONFLYDB_VPC_CIDR" \
+            --region "$AWS_REGION" 2>/dev/null); then
+
+            local route_count=$(echo "$route_tables" | jq '.RouteTables | length // 0')
+            if [ "$route_count" -gt 0 ]; then
+                log_success "Route tables: $route_count routes configured to DragonflyDB VPC"
+                route_tables_configured=true
+                test_results["route_tables_configured"]="true"
+
+                # Check if routes are active
+                local active_routes=$(echo "$route_tables" | jq '.RouteTables[].Routes[] | select(.DestinationCidrBlock == "'$DRAGONFLYDB_VPC_CIDR'" and .State == "active") | length')
+                log_verbose "Active routes to DragonflyDB VPC: $active_routes"
+                test_results["active_routes_count"]="$active_routes"
+            else
+                log_error "No routes found to DragonflyDB VPC in route tables"
+                test_results["route_tables_configured"]="false"
+            fi
+        else
+            log_error "Failed to check route tables"
+            test_results["route_tables_configured"]="error"
+        fi
+    else
+        log_warning "DRAGONFLYDB_VPC_CIDR not provided, skipping route table check"
+        test_results["route_tables_configured"]="not_configured"
+    fi
+
+    # Check security group egress rules
+    log_verbose "Checking security group egress rules for port 6385"
+    local sg_rules
+    if sg_rules=$(aws ec2 describe-security-group-rules \
+        --filters "Name=group-id,Values=$(aws ec2 describe-security-groups --filters Name=vpc-id,Values=$VPC_ID --query 'SecurityGroups[0].GroupId' --output text --region $AWS_REGION 2>/dev/null)" "Name=is-egress,Values=true" "Name=ip-protocol,Values=tcp" "Name=from-port,Values=6385" "Name=to-port,Values=6385" \
+        --region "$AWS_REGION" 2>/dev/null); then
+
+        local sg_count=$(echo "$sg_rules" | jq '.SecurityGroupRules | length // 0')
+        if [ "$sg_count" -gt 0 ]; then
+            log_success "Security groups: $sg_count egress rules for port 6385 found"
+            security_groups_configured=true
+            test_results["security_groups_configured"]="true"
+            test_results["sg_rules_count"]="$sg_count"
+        else
+            log_error "No security group egress rules found for port 6385"
+            test_results["security_groups_configured"]="false"
+        fi
+    else
+        log_error "Failed to check security group rules"
+        test_results["security_groups_configured"]="error"
+    fi
+
+    # Test DNS resolution
+    log_verbose "Testing DNS resolution for $DRAGONFLYDB_HOST"
+    if command -v nslookup >/dev/null 2>&1; then
+        if nslookup "$DRAGONFLYDB_HOST" >/dev/null 2>&1; then
+            log_success "DNS resolution: OK"
+            dns_ok=true
+            test_results["dns_resolution"]="ok"
+        else
+            log_error "DNS resolution: Failed"
+            test_results["dns_resolution"]="failed"
+        fi
+    elif command -v dig >/dev/null 2>&1; then
+        if dig "$DRAGONFLYDB_HOST" >/dev/null 2>&1; then
+            log_success "DNS resolution: OK (using dig)"
+            dns_ok=true
+            test_results["dns_resolution"]="ok"
+        else
+            log_error "DNS resolution: Failed (using dig)"
+            test_results["dns_resolution"]="failed"
+        fi
+    else
+        log_warning "DNS resolution test skipped (nslookup/dig not available)"
+        test_results["dns_resolution"]="skipped"
+    fi
+
+    # Test TCP connectivity to DragonflyDB
+    log_verbose "Testing TCP connectivity to $DRAGONFLYDB_HOST:$DRAGONFLYDB_PORT"
+    if command -v nc >/dev/null 2>&1; then
+        if timeout 10 nc -vz "$DRAGONFLYDB_HOST" "$DRAGONFLYDB_PORT" 2>&1 | grep -q "succeeded"; then
+            log_success "TCP connection (port 6385): OK"
+            tcp_6385_ok=true
+            test_results["tcp_6385"]="ok"
+        elif timeout 10 nc -vz "$DRAGONFLYDB_HOST" "$DRAGONFLYDB_PORT" >/dev/null 2>&1; then
+            log_success "TCP connection (port 6385): OK"
+            tcp_6385_ok=true
+            test_results["tcp_6385"]="ok"
+        else
+            log_error "TCP connection (port 6385): Failed"
+            test_results["tcp_6385"]="failed"
+        fi
+    elif command -v telnet >/dev/null 2>&1; then
+        if timeout 10 bash -c "echo > /dev/tcp/$DRAGONFLYDB_HOST/$DRAGONFLYDB_PORT" 2>/dev/null; then
+            log_success "TCP connection (port 6385): OK (using telnet)"
+            tcp_6385_ok=true
+            test_results["tcp_6385"]="ok"
+        else
+            log_error "TCP connection (port 6385): Failed (using telnet)"
+            test_results["tcp_6385"]="failed"
+        fi
+    else
+        log_warning "TCP connection test skipped (nc/telnet not available)"
+        test_results["tcp_6385"]="skipped"
+    fi
+
+    # Test SSL/TLS connectivity
+    log_verbose "Testing SSL/TLS connectivity to $DRAGONFLYDB_HOST:$DRAGONFLYDB_PORT"
+    if command -v openssl >/dev/null 2>&1; then
+        if echo | timeout 10 openssl s_client -connect "$DRAGONFLYDB_HOST:$DRAGONFLYDB_PORT" -servername "$DRAGONFLYDB_HOST" 2>/dev/null | grep -q "Verify return code: 0 (ok)"; then
+            log_success "SSL/TLS connection: OK"
+            test_results["ssl_tls"]="ok"
+        else
+            log_warning "SSL/TLS connection: Certificate verification failed (may be expected for internal endpoints)"
+            test_results["ssl_tls"]="verification_failed"
+        fi
+    else
+        log_warning "SSL/TLS test skipped (openssl not available)"
+        test_results["ssl_tls"]="skipped"
+    fi
+
+    # Store overall VPC peering status
+    if [ "$vpc_peering_status" = "active" ] && [ "$route_tables_configured" = true ] && [ "$security_groups_configured" = true ]; then
+        test_results["vpc_peering_overall"]="healthy"
+        log_success "VPC peering overall: Healthy"
+    else
+        test_results["vpc_peering_overall"]="unhealthy"
+        log_error "VPC peering overall: Unhealthy"
+        return 1
+    fi
+
+    return 0
+}
+
 # Banner function
 print_banner() {
     if [ "$JSON_OUTPUT" = false ]; then
@@ -555,8 +763,39 @@ print_summary() {
             fi
         fi
 
+        # VPC Peering status
+        if [ "$VPC_ONLY" = true ] || [ -n "${test_results[vpc_peering_status]:-}" ]; then
+            echo ""
+            echo "VPC Peering Status:"
+            if [ "${test_results[vpc_peering_status]}" = "active" ]; then
+                log_success "  Connection: ✅ Active"
+            else
+                log_error "  Connection: ❌ ${test_results[vpc_peering_status]:-Unknown}"
+            fi
+            if [ "${test_results[route_tables_configured]}" = "true" ]; then
+                log_success "  Route Tables: ✅ Configured (${test_results[active_routes_count]:-0} active routes)"
+            else
+                log_error "  Route Tables: ❌ ${test_results[route_tables_configured]:-Unknown}"
+            fi
+            if [ "${test_results[security_groups_configured]}" = "true" ]; then
+                log_success "  Security Groups: ✅ Configured (${test_results[sg_rules_count]:-0} rules)"
+            else
+                log_error "  Security Groups: ❌ ${test_results[security_groups_configured]:-Unknown}"
+            fi
+            if [ "${test_results[dns_resolution]}" = "ok" ]; then
+                log_success "  DNS Resolution: ✅ Working"
+            else
+                log_error "  DNS Resolution: ❌ ${test_results[dns_resolution]:-Failed}"
+            fi
+            if [ "${test_results[tcp_6385]}" = "ok" ]; then
+                log_success "  TCP (6385): ✅ Connected"
+            else
+                log_error "  TCP (6385): ❌ ${test_results[tcp_6385]:-Failed}"
+            fi
+        fi
+
         # Prometheus status
-        if [ "$PROMETHEUS_ONLY" = false ] && [ "$CONNECTION_ONLY" = false ]; then
+        if [ "$PROMETHEUS_ONLY" = false ] && [ "$CONNECTION_ONLY" = false ] && [ "$VPC_ONLY" = false ]; then
             echo ""
             echo "Prometheus Status:"
             if [ "${test_results[prometheus_connection]}" = "ok" ]; then
@@ -620,6 +859,15 @@ print_summary() {
         echo "    \"status\": \"${test_results[direct_metrics]}\","
         echo "    \"metrics_count\": \"${test_results[metrics_count]}\""
         echo "  },"
+        echo "  \"vpc_peering\": {"
+        echo "    \"status\": \"${test_results[vpc_peering_status]}\","
+        echo "    \"connection_id\": \"$VPC_PEERING_ID\","
+        echo "    \"route_tables_configured\": \"${test_results[route_tables_configured]}\","
+        echo "    \"security_groups_configured\": \"${test_results[security_groups_configured]}\","
+        echo "    \"dns_ok\": \"${test_results[dns_resolution]}\","
+        echo "    \"tcp_6385_ok\": \"${test_results[tcp_6385]}\","
+        echo "    \"overall\": \"${test_results[vpc_peering_overall]}\""
+        echo "  },"
         echo "  \"overall_status\": \"$overall_status\""
         echo "}"
     fi
@@ -642,7 +890,9 @@ main() {
     fi
 
     # Run tests based on options
-    if [ "$CONNECTION_ONLY" = true ]; then
+    if [ "$VPC_ONLY" = true ]; then
+        test_vpc_peering
+    elif [ "$CONNECTION_ONLY" = true ]; then
         test_connection
     elif [ "$PROMETHEUS_ONLY" = true ]; then
         test_prometheus_scraping
@@ -653,6 +903,11 @@ main() {
         test_performance
         test_prometheus_scraping
         test_direct_metrics
+
+        # Also run VPC peering test if configuration is available
+        if [ -n "$VPC_PEERING_ID" ] || [ -n "$DRAGONFLYDB_VPC_CIDR" ]; then
+            test_vpc_peering
+        fi
     fi
 
     # Print summary

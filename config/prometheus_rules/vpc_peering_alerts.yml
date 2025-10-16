@@ -1,0 +1,135 @@
+# VPC Peering Alert Rules for DragonflyDB Cloud Integration
+# MojoRust Trading Bot - VPC Network Monitoring
+
+groups:
+  - name: vpc-peering.rules
+    rules:
+      # Alert: VPC Peering Connection Down
+      - alert: VPCPeeringConnectionDown
+        expr: aws_vpc_peering_connection_status != 1
+        for: 5m
+        labels:
+          severity: critical
+          service: vpc-peering
+          component: network
+        annotations:
+          summary: "VPC peering connection is down"
+          description: "VPC peering connection {{ $labels.vpc_peering_id }} between {{ $labels.requester_vpc }} and {{ $labels.accepter_vpc }} has been down for more than 5 minutes. This affects DragonflyDB connectivity."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/docs/vpc_peering_troubleshooting.md"
+
+      # Alert: DragonflyDB High Latency
+      - alert: DragonflyDBHighLatency
+        expr: histogram_quantile(0.95, rate(redis_slowlog_length_seconds_bucket[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: dragonflydb
+          component: performance
+        annotations:
+          summary: "DragonflyDB latency is high"
+          description: "DragonflyDB 95th percentile latency is {{ $value }}s for the last 10 minutes, which is above the 50ms threshold. This may indicate VPC peering performance issues."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/docs/vpc_peering_troubleshooting.md"
+
+      # Alert: VPC Peering Packets Dropped
+      - alert: VPCPeeringPacketsDropped
+        expr: rate(aws_vpc_flow_logs_packets_dropped_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: vpc-peering
+          component: network
+        annotations:
+          summary: "VPC peering packets are being dropped"
+          description: "VPC peering connection {{ $labels.vpc_peering_id }} is dropping {{ $value }} packets per minute for the last 5 minutes. This may indicate network congestion or configuration issues."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/docs/vpc_peering_troubleshooting.md"
+
+      # Alert: Security Group Misconfigured
+      - alert: SecurityGroupMisconfigured
+        expr: aws_security_group_egress_rules{protocol="tcp", port="6385"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: security
+          component: security-groups
+        annotations:
+          summary: "Security group rule for DragonflyDB port 6385 is missing"
+          description: "Security group {{ $labels.security_group_id }} in VPC {{ $labels.vpc_id }} is missing egress rule for port 6385 to DragonflyDB CIDR. DragonflyDB connectivity will fail."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/VPC_NETWORKING_SETUP.md#step-2-security-group-configuration"
+
+      # Alert: DragonflyDB DNS Failure
+      - alert: DragonflyDBDNSFailure
+        expr: probe_success{instance="612ehcb9i.dragonflydb.cloud"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: dns
+          component: resolution
+        annotations:
+          summary: "DragonflyDB DNS resolution is failing"
+          description: "DNS resolution for DragonflyDB endpoint 612ehcb9i.dragonflydb.cloud has failed 3 times in the last 2 minutes. This affects VPC peering connectivity."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/docs/vpc_peering_troubleshooting.md#dns-resolution-issues"
+
+      # Alert: VPC Peering Route Table Issues
+      - alert: VPCPeeringRouteTableIssues
+        expr: aws_route_table_routes{state="blackhole"} > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: vpc-peering
+          component: routing
+        annotations:
+          summary: "VPC peering route table has blackhole routes"
+          description: "Route table {{ $labels.route_table_id }} has {{ $value }} blackhole routes to DragonflyDB VPC. Network traffic will be dropped."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/docs/vpc_peering_troubleshooting.md#route-table-issues"
+
+      # Alert: DragonflyDB Connection Rate Limiting
+      - alert: DragonflyDBConnectionRateLimiting
+        expr: rate(redis_connections_received_total[5m]) / rate(redis_connections_accepted_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: dragonflydb
+          component: connections
+        annotations:
+          summary: "DragonflyDB is rejecting connections"
+          description: "DragonflyDB is rejecting {{ $value | humanizePercentage }} of connection attempts. This may indicate connection limits or VPC peering bandwidth issues."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/docs/vpc_peering_troubleshooting.md#bandwidth-and-connection-issues"
+
+      # Alert: VPC Peering Bandwidth Utilization High
+      - alert: VPCPeeringBandwidthHigh
+        expr: rate(aws_vpc_flow_logs_bytes_total[5m]) / (1024*1024*1024) > 0.8  # 800 MB/s
+        for: 10m
+        labels:
+          severity: warning
+          service: vpc-peering
+          component: bandwidth
+        annotations:
+          summary: "VPC peering bandwidth utilization is high"
+          description: "VPC peering connection {{ $labels.vpc_peering_id }} is using {{ $value | humanizePercentage }} of available bandwidth. Consider upgrading connection or optimizing traffic."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/docs/vpc_peering_troubleshooting.md#performance-issues"
+
+      # Alert: DragonflyDB Memory Pressure
+      - alert: DragonflyDBMemoryPressure
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: dragonflydb
+          component: memory
+        annotations:
+          summary: "DragonflyDB memory usage is high"
+          description: "DragonflyDB memory usage is {{ $value | humanizePercentage }} of maximum. This may cause performance degradation or connection drops."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/docs/vpc_peering_troubleshooting.md#performance-issues"
+
+      # Alert: VPC Peering Connection Flapping
+      - alert: VPCPeeringConnectionFlapping
+        expr: rate(aws_vpc_peering_connection_state_changes[10m]) > 3
+        for: 5m
+        labels:
+          severity: critical
+          service: vpc-peering
+          component: stability
+        annotations:
+          summary: "VPC peering connection is flapping"
+          description: "VPC peering connection {{ $labels.vpc_peering_id }} has changed state {{ $value }} times in the last 10 minutes. This indicates network instability."
+          runbook_url: "https://github.com/your-org/mojorust/blob/main/docs/vpc_peering_troubleshooting.md#connection-stability-issues"

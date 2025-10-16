@@ -1349,30 +1349,36 @@ curl -s http://38.242.239.150:9090/api/v1/query?query=up | jq '.data.result[].me
 ### 3. Access Grafana
 
 ```bash
-# URL: http://38.242.239.150:3000
+# URL: http://38.242.239.150:3001
 # Username: admin
-# Password: [Check .env.docker for GRAFANA_ADMIN_PASSWORD]
+# Password: trading_admin
 
 # Quick dashboard access links:
-echo "Trading Performance: http://38.242.239.150:3000/d/trading-performance"
-echo "System Health: http://38.242.239.150:3000/d/system-health"
-echo "Docker Services: http://38.242.239.150:3000/d/docker-services"
-echo "DragonflyDB Performance: http://38.242.239.150:3000/d/dragonflydb"
-echo "API Monitoring: http://38.242.239.150:3000/d/api-monitoring"
-echo "Alert Management: http://38.242.239.150:3000/d/alert-management"
+echo "Trading Performance: http://38.242.239.150:3001/d/trading-performance"
+echo "System Health: http://38.242.239.150:3001/d/system-health"
+echo "Docker Services: http://38.242.239.150:3001/d/docker-services"
+echo "DragonflyDB Performance: http://38.242.239.150:3001/d/dragonflydb"
+echo "API Monitoring: http://38.242.239.150:3001/d/api-monitoring"
+echo "Alert Management: http://38.242.239.150:3001/d/alert-management"
 
 # API access
 export GRAFANA_TOKEN=$(curl -X POST -H "Content-Type: application/json" \
   -d '{"name":"apikey","role":"Admin"}' \
-  http://admin:admin@38.242.239.150:3000/api/auth_keys | jq -r '.key')
+  http://admin:trading_admin@38.242.239.150:3001/api/auth_keys | jq -r '.key')
 
 # List dashboards via API
 curl -H "Authorization: Bearer $GRAFANA_TOKEN" \
-  http://38.242.239.150:3000/api/search | jq '.[].title'
+  http://38.242.239.150:3001/api/search | jq '.[].title'
 
 # Test metrics availability from Grafana
 curl -H "Authorization: Bearer $GRAFANA_TOKEN" \
-  http://38.242.239.150:3000/api/datasources/proxy/1/api/v1/query?query=trading_bot_trades_total
+  http://38.242.239.150:3001/api/datasources/proxy/1/api/v1/query?query=trading_bot_trades_total
+
+# Direct service URLs for monitoring:
+echo "Prometheus: http://38.242.239.150:9090"
+echo "AlertManager: http://38.242.239.150:9093"
+echo "Trading Bot Health: http://38.242.239.150:8082/health"
+echo "Data Consumer Health: http://38.242.239.150:9191/health"
 ```
 
 ---
@@ -1387,9 +1393,9 @@ curl -H "Authorization: Bearer $GRAFANA_TOKEN" \
 # Grafana Dashboard Verification Script
 set -e
 
-GRAFANA_URL="http://38.242.239.150:3000"
+GRAFANA_URL="http://38.242.239.150:3001"
 GRAFANA_USER="admin"
-GRAFANA_PASS="${GRAFANA_ADMIN_PASSWORD:-admin}"
+GRAFANA_PASS="${GRAFANA_ADMIN_PASSWORD:-trading_admin}"
 
 # Color codes
 GREEN='\033[0;32m'
@@ -1727,7 +1733,7 @@ The alert rules are configured within each dashboard JSON configuration. Key ale
    curl http://38.242.239.150:9090/api/v1/query?query=up
 
    # Verify Grafana datasource configuration
-   curl -u admin:admin http://38.242.239.150:3000/api/datasources
+   curl -u admin:trading_admin http://38.242.239.150:3001/api/datasources
    ```
 
 2. **Dashboards Not Loading**

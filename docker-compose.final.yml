@@ -1,0 +1,29 @@
+services:
+  # Simple Python Trading Bot
+  trading-bot:
+    image: python:3.11-slim
+    container_name: trading-bot-app
+    restart: unless-stopped
+    working_dir: /app
+    command: >
+      bash -c "
+        pip install --break-system-packages -r requirements.txt &&
+        python app.py
+      "
+    ports:
+      - "8082:8082"
+    environment:
+      TZ: UTC
+      LOG_LEVEL: INFO
+      TRADING_ENV: development
+      EXECUTION_MODE: paper
+      INITIAL_CAPITAL: 1.0
+    volumes:
+      - ./python-bot:/app:ro
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

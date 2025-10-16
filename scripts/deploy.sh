@@ -25,6 +25,7 @@ TRADING_BOT_BIN="$BUILD_DIR/trading-bot"
 MODE="paper"
 CAPITAL="1.0"
 CONFIG_FILE="$PROJECT_ROOT/config/trading.toml"
+SKIP_PORT_CHECK=false
 
 # =============================================================================
 # Functions
@@ -200,6 +201,48 @@ run_tests() {
     log_success "All tests passed"
 }
 
+check_port_availability() {
+    if [[ "$SKIP_PORT_CHECK" == true ]]; then
+        log_warning "Skipping port availability check as requested"
+        return 0
+    fi
+
+    log_info "Checking port availability..."
+
+    # Run port availability verification
+    if ! "$PROJECT_ROOT/scripts/verify_port_availability.sh" --json >/dev/null 2>&1; then
+        log_error "Port conflicts detected!"
+        echo
+        log_info "Port conflicts prevent successful deployment."
+        log_info "Please run the following command to resolve conflicts:"
+        echo "  $PROJECT_ROOT/scripts/resolve_port_conflict.sh"
+        echo
+
+        # Ask user if they want to run the resolver now
+        read -p "Would you like to run the port conflict resolver now? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Running port conflict resolver..."
+            "$PROJECT_ROOT/scripts/resolve_port_conflict.sh"
+
+            # Re-check after resolution
+            log_info "Re-checking port availability after resolution..."
+            if ! "$PROJECT_ROOT/scripts/verify_port_availability.sh" --json >/dev/null 2>&1; then
+                log_error "Port conflicts still exist after resolution attempt"
+                log_error "Please resolve conflicts manually and try again"
+                exit 1
+            else
+                log_success "Port conflicts resolved successfully"
+            fi
+        else
+            log_error "Port conflicts must be resolved before deployment"
+            exit 1
+        fi
+    else
+        log_success "All required ports are available"
+    fi
+}
+
 print_configuration() {
     log_info "Deployment Configuration:"
     echo "  Mode: $MODE"
@@ -207,6 +250,7 @@ print_configuration() {
     echo "  Config File: $CONFIG_FILE"
     echo "  Binary: $TRADING_BOT_BIN"
     echo "  Wallet: $WALLET_ADDRESS"
+    echo "  TimescaleDB Port: ${TIMESCALEDB_PORT:-5432}"
     echo
 }
 
@@ -259,6 +303,10 @@ main() {
                 SKIP_TESTS=true
                 shift
                 ;;
+            --skip-port-check)
+                SKIP_PORT_CHECK=true
+                shift
+                ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo
@@ -267,6 +315,7 @@ main() {
                 echo "  --capital=AMOUNT    Initial capital in SOL [default: 1.0]"
                 echo "  --config=FILE       Configuration file path"
                 echo "  --skip-tests        Skip running tests"
+                echo "  --skip-port-check   Skip port availability verification"
                 echo "  --help, -h          Show this help message"
                 echo
                 exit 0
@@ -295,6 +344,7 @@ main() {
 
     # Execute deployment steps
     validate_environment
+    check_port_availability
     build_project
 
     if [[ "$SKIP_TESTS" != "true" ]]; then
