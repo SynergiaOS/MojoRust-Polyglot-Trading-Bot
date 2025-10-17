@@ -76,8 +76,8 @@ services:
     ports:
       # External port can be configured via TIMESCALEDB_PORT environment variable
       # Internal container port remains 5432 for container-to-container communication
-      # Example: Set TIMESCALEDB_PORT=5433 in .env to avoid port conflicts
-      - "${TIMESCALEDB_PORT:-5432}:5432"
+      # Changed to 5434 to avoid port conflicts with existing PostgreSQL instances
+      - "${TIMESCALEDB_PORT:-5434}:5432"
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
       # TimescaleDB initialization handled by extension installation on first run
@@ -165,7 +165,7 @@ services:
       GF_AUTH_ORG_ROLE: Editor
       GF_FEATURE_TOGGLES_ENABLE: publicDashboards
     ports:
-      - "3001:3000"
+      - "3002:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       # Provisioning & dashboards are bind-mounted from repo for easier editing

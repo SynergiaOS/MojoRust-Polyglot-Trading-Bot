@@ -80,34 +80,26 @@ receivers:
   # Default Telegram receiver
   - name: 'telegram'
     webhook_configs:
-      - url: 'http://trading-bot:8082/api/alerts/telegram'
+      - url: 'http://172.20.0.20:8082/api/alerts/telegram'
         send_resolved: true
-        http_config:
-          bearer_token: '${TELEGRAM_WEBHOOK_TOKEN}'
 
   # Critical alerts Telegram receiver
   - name: 'telegram-critical'
     webhook_configs:
-      - url: 'http://trading-bot:8082/api/alerts/telegram/critical'
+      - url: 'http://172.20.0.20:8082/api/alerts/telegram/critical'
         send_resolved: true
-        http_config:
-          bearer_token: '${TELEGRAM_WEBHOOK_TOKEN}'
 
   # Trading alerts Telegram receiver
   - name: 'telegram-trading'
     webhook_configs:
-      - url: 'http://trading-bot:8082/api/alerts/telegram/trading'
+      - url: 'http://172.20.0.20:8082/api/alerts/telegram/trading'
         send_resolved: true
-        http_config:
-          bearer_token: '${TELEGRAM_WEBHOOK_TOKEN}'
 
   # System alerts Telegram receiver
   - name: 'telegram-system'
     webhook_configs:
-      - url: 'http://trading-bot:8082/api/alerts/telegram/system'
+      - url: 'http://172.20.0.20:8082/api/alerts/telegram/system'
         send_resolved: true
-        http_config:
-          bearer_token: '${TELEGRAM_WEBHOOK_TOKEN}'
 
   # API alerts Telegram receiver
   - name: 'telegram-api'
