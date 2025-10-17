@@ -516,7 +516,7 @@ services:
       # Monitoring
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: json
-      METRICS_ENABLED: true
+      METRICS_ENABLED: "true"
 
       # Performance
       MAX_CONCURRENT_TRADES: ${MAX_CONCURRENT_SNIPER_TRADES:-3}
