@@ -13,13 +13,13 @@ x-cpu-limits: &cpu-limits
 
 x-memory-limits: &memory-limits
   mem_limit: 2g
-  memswap_limit: 2g
+  memswap_limit: 4g
 
 x-resource-limits: &resource-limits
   cpus: '2.0'
   cpu_shares: 1024
   mem_limit: 2g
-  memswap_limit: 2g
+  memswap_limit: 4g
   deploy:
     resources:
       limits:
