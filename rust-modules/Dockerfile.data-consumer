@@ -1,21 +1,17 @@
 # --- Builder Stage ---
-FROM rust:1.70 as builder
+FROM rust:1.82 as builder
 
-# Create a new empty shell project
 WORKDIR /usr/src
-RUN USER=root cargo new --bin data-consumer
-WORKDIR /usr/src/data-consumer
 
-# Copy over your manifests
+# Copy over your manifests first for better layer caching
 COPY ./rust-modules/Cargo.lock ./Cargo.lock
 COPY ./rust-modules/Cargo.toml ./Cargo.toml
 
-# Copy over your source code
 # Copy source code
 COPY ./rust-modules/src ./src
 
-# Build for release using feature flag 'mock-geyser' to avoid sed-based source patching
-RUN cargo build --release --bin data_consumer --features mock-geyser
+# Build for release
+RUN cargo build --release --bin data_consumer
 
 # --- Final Stage ---
 FROM debian:bullseye-slim
