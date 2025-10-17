@@ -60,6 +60,123 @@ scrape_configs:
     metrics_path: /metrics
     scrape_interval: 10s
 
+  # =============================================================================
+  # PumpFun Sniper Bot Metrics (Backtest)
+  # =============================================================================
+  - job_name: 'sniper-bot'
+    static_configs:
+      - targets: ['trading-bot-sniper:8080']
+    metrics_path: /metrics
+    scrape_interval: 5s       # High frequency for sniper metrics
+    scrape_timeout: 3s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'sniper-bot-1'
+      - source_labels: [__address__]
+        target_label: service_type
+        replacement: 'backtest'
+    metric_relabel_configs:
+      # Keep sniper-specific metrics
+      - source_labels: [__name__]
+        regex: 'sniper_.*|backtest_.*|arbitrage_.*|trade_.*|position_.*|rpc_.*|provider_.*|bundle_.*'
+        action: keep
+      # Filter out high-frequency noise metrics
+      - source_labels: [__name__]
+        regex: '.*_debug$|.*_trace$'
+        action: drop
+
+  # Sniper Bot WebSocket Metrics (Real-time monitoring)
+  - job_name: 'sniper-bot-websocket'
+    static_configs:
+      - targets: ['trading-bot-sniper:8081']
+    metrics_path: /ws/metrics
+    scrape_interval: 2s       # Very high frequency for real-time updates
+    scrape_timeout: 1s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'sniper-bot-ws-1'
+      - source_labels: [__address__]
+        target_label: connection_type
+        replacement: 'websocket'
+
+  # =============================================================================
+  # 2025 RPC Provider Metrics
+  # =============================================================================
+  # RPC Router Health and Performance
+  - job_name: 'rpc-router'
+    static_configs:
+      - targets: ['trading-bot-app:8082']
+    metrics_path: '/rpc/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'rpc-router-1'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'rpc_.*|provider_.*|shredstream_.*|liljit_.*|priority_fee_.*|bundle_.*'
+        action: keep
+
+  # Helius ShredStream Metrics
+  - job_name: 'helius-shredstream'
+    static_configs:
+      - targets: ['trading-bot-app:8082']
+    metrics_path: '/helius/shredstream/metrics'
+    scrape_interval: 5s
+    scrape_timeout: 3s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'helius-shredstream-1'
+      - source_labels: [__address__]
+        target_label: provider
+        replacement: 'helius'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'shredstream_.*|websocket_.*|bundle_.*'
+        action: keep
+
+  # QuickNode Lil' JIT Metrics
+  - job_name: 'quicknode-liljit'
+    static_configs:
+      - targets: ['trading-bot-app:8082']
+    metrics_path: '/quicknode/liljit/metrics'
+    scrape_interval: 5s
+    scrape_timeout: 3s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'quicknode-liljit-1'
+      - source_labels: [__address__]
+        target_label: provider
+        replacement: 'quicknode'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'liljit_.*|http_.*|bundle_.*|priority_fee_.*'
+        action: keep
+
+  # Jito Bundle Builder Metrics
+  - job_name: 'jito-bundle-builder'
+    static_configs:
+      - targets: ['trading-bot-app:8082']
+    metrics_path: '/jito/bundle/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'jito-bundle-builder-1'
+      - source_labels: [__address__]
+        target_label: provider
+        replacement: 'jito'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'bundle_.*|jito_.*|arbitrage_.*|mev_.*'
+        action: keep
+
   # cAdvisor for container metrics
   - job_name: 'cadvisor'
     static_configs:

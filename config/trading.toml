@@ -55,6 +55,64 @@ support_distance = 0.15
 atr_multiplier = 1.5
 
 # =============================================================================
+# Multi-Token Flash Loan Arbitrage Configuration
+# =============================================================================
+[arbitrage]
+# Flash loan arbitrage settings
+enable_flash_loan = true
+max_flash_loan_amount_sol = 100.0
+
+# Tokens to monitor for arbitrage opportunities
+tokens_to_monitor = [
+    "So11111111111111111111111111111111111111112",  # SOL (Wrapped SOL)
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",  # USDT (Tether USD)
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC (USD Coin)
+    "3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im",  # WBTC (Wrapped Bitcoin)
+    "Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA",  # LINK (Chainlink)
+    "5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5",  # USDE (Ethena USDe)
+    "A1KLoBrKBZi9Su7dphQNUkyKApe5tx1uLVdjZ9mgnz3r",  # USDS (Sky Dollar)
+    "cbbtcZFNemZYe4orNZTnGveTZETdkbpNXY7KB4c2rTF",   # CBBTC (Coinbase Wrapped BTC)
+    "BTf6gkxMbBDfE1oY8gYCbMcZTxosS95dxKVmeJqyTNGw",  # SUSDE (Staked USDe)
+    "EewxydAPCCMs6V4obubWRzvf4wdfJ9sNJY8HbgQwgJ26"   # WLFI (World Liberty Financial)
+]
+
+# Token symbol mapping (for logging and display)
+token_symbols = {
+    "So11111111111111111111111111111111111111112" = "SOL",
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" = "USDT",
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" = "USDC",
+    "3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im" = "WBTC",
+    "Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA" = "LINK",
+    "5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5" = "USDE",
+    "A1KLoBrKBZi9Su7dphQNUkyKApe5tx1uLVdjZ9mgnz3r" = "USDS",
+    "cbbtcZFNemZYe4orNZTnGveTZETdkbpNXY7KB4c2rTF" = "CBBTC",
+    "BTf6gkxMbBDfE1oY8gYCbMcZTxosS95dxKVmeJqyTNGw" = "SUSDE",
+    "EewxydAPCCMs6V4obubWRzvf4wdfJ9sNJY8HbgQwgJ26" = "WLFI"
+}
+
+# Flash loan strategies
+enable_cross_exchange_arbitrage = true
+enable_triangular_arbitrage = true
+enable_liquidation_strategy = false  # Requires advanced monitoring
+
+# Strategy-specific settings
+cross_exchange_min_spread = 0.01     # 1% minimum spread
+triangular_min_profit = 0.005        # 0.5% minimum profit
+liquidation_min_reward = 0.05        # 5% minimum liquidation reward
+
+# Flash loan provider preferences
+preferred_provider = "auto"           # auto, solend, marginfi, mango
+solend_fee_rate = 0.0003              # 0.03% flash loan fee
+marginfi_fee_rate = 0.0005            # 0.05% flash loan fee
+mango_fee_rate = 0.0002               # 0.02% flash loan fee
+
+# Risk management
+max_arbitrage_position_size = 0.2     # 20% of portfolio max
+min_profit_threshold_sol = 0.01       # 0.01 SOL minimum profit
+max_slippage_arbitrage = 0.02         # 2% max slippage for arbitrage
+execution_timeout_seconds = 30        # 30 seconds max execution time
+
+# =============================================================================
 # Risk Management Configuration
 # =============================================================================
 [risk]
@@ -353,3 +411,239 @@ min_trade_value_usd = 100.0
 max_alerts_per_hour = 20
 quiet_hours_start = "22:00"
 quiet_hours_end = "08:00"
+
+# =============================================================================
+# RPC Provider Configuration
+# =============================================================================
+[rpc_providers]
+# Configuration for RPC providers like Helius and QuickNode
+# The router will select the best provider based on health and latency.
+
+[rpc_providers.helius]
+api_key_env = "HELIUS_API_KEY"
+primary_rpc_env = "HELIUS_RPC_URL"
+enable_shredstream = true
+shredstream_endpoint_env = "HELIUS_SHREDSTREAM_ENDPOINT"
+enable_priority_fee_api = true
+enable_webhooks = true
+webhook_types = ["token_transfers", "new_mints", "large_transactions", "account_changes"]
+organic_score_enabled = true
+tier = "developer"  # Options: "free", "developer", "pro", "enterprise"
+
+[rpc_providers.quicknode]
+primary_rpc_env = "QUICKNODE_PRIMARY_RPC"
+secondary_rpc_env = "QUICKNODE_SECONDARY_RPC"
+archive_rpc_env = "QUICKNODE_ARCHIVE_RPC"
+enable_lil_jit = true
+lil_jit_endpoint_env = "QUICKNODE_LIL_JIT_ENDPOINT"
+enable_priority_fee_api = true
+
+[rpc_providers.routing]
+policy = "health_first"  # Options: "health_first", "latency_based", "cost_based", "environment_based", "round_robin"
+latency_threshold_ms = 100
+bundle_success_rate_threshold = 0.90
+track_bundle_metrics = true
+prefer_shredstream_for_mev = true
+# =============================================================================
+# PumpFun Backtesting Configuration
+# =============================================================================
+[backtesting]
+# Enable/disable backtesting features
+enabled = true
+data_retention_days = 30
+
+# Backtest execution parameters
+max_concurrent_backtests = 10
+default_initial_investment = 1000.0  # USD
+default_simulation_hours = 24
+default_time_interval = "5m"
+
+# Performance optimization
+enable_simd_vectorization = true
+chunk_size = 1024
+parallel_workers = 4
+cache_price_history = true
+cache_ttl_hours = 1
+
+# Data sources and quality
+[backtesting.data_sources]
+jupiter_price_api_enabled = true
+helius_metadata_enabled = true
+quicknode_realtime_enabled = true
+data_quality_threshold = 0.7
+min_data_points = 50
+max_data_gap_hours = 2
+
+# PumpFun token analysis filters
+[backtesting.pumpfun_filters]
+# Token screening thresholds
+min_market_cap_usd = 1000.0
+max_market_cap_usd = 100000.0
+min_liquidity_usd = 500.0
+min_volume_24h_usd = 10000.0
+max_age_hours = 168  # 1 week
+
+# Security and safety checks
+max_holder_concentration = 0.8    # 80% max holder concentration
+min_holders = 10
+max_creator_allocation = 0.2      # 20% max creator allocation
+honeypot_risk_threshold = 0.7     # High risk threshold
+
+# Social and community metrics
+min_social_mentions = 5
+min_social_sentiment = 0.3
+max_social_spam_score = 0.8
+min_telegram_members = 50
+min_twitter_followers = 100
+
+# Technical analysis criteria
+min_trading_volume_usd = 5000.0
+max_price_volatility = 0.5         # 50% max volatility
+min_price_stability = 0.7         # Price stability score
+trend_strength_threshold = 0.4    # Minimum trend strength
+momentum_threshold = 0.02         # 2% momentum threshold
+
+# Financial metrics
+min_revenue_24h_usd = 0.0
+max_supply_inflation = 0.1         # 10% max supply inflation
+burn_rate_threshold = 0.05         # 5% burn rate threshold
+
+# Risk management for backtesting
+[backtesting.risk_management]
+max_position_size_percent = 10.0   # 10% max position size
+max_portfolio_risk = 0.02          # 2% max portfolio risk
+max_drawdown_threshold = 0.15      # 15% max drawdown
+stop_loss_percentage = 0.05        # 5% stop loss
+take_profit_percentage = 0.10      # 10% take profit
+max_leverage = 1.0                 # No leverage by default
+
+# Execution simulation parameters
+[backtesting.execution]
+slippage_model = "linear"          # Options: "linear", "percentage", "volume_based"
+base_slippage_percentage = 0.002   # 0.2% base slippage
+commission_rate = 0.003            # 0.3% commission
+max_slippage_percentage = 0.02     # 2% max slippage
+min_trade_size_usd = 10.0
+max_trade_size_usd = 10000.0
+
+# Simulation timing parameters
+order_execution_delay_ms = 100     # 100ms execution delay
+block_confirmation_delay_ms = 400  # 400ms block delay
+network_congestion_factor = 1.1    # 10% congestion factor
+
+# Advanced backtesting features
+[backtesting.advanced]
+# Monte Carlo simulation
+enable_monte_carlo = true
+monte_carlo_simulations = 1000
+confidence_intervals = [0.95, 0.99]
+
+# Stress testing
+enable_stress_testing = true
+stress_scenarios = ["market_crash", "liquidity_crisis", "volatility_spike", "network_congestion"]
+stress_test_multiplier = 2.0
+
+# Sensitivity analysis
+enable_sensitivity_analysis = true
+sensitivity_parameters = ["slippage", "commission", "delay", "volatility"]
+
+# Walk-forward optimization
+enable_walk_forward = true
+walk_forward_windows = [168, 336, 720]  # 1 week, 2 weeks, 1 month in hours
+optimization_metric = "sharpe_ratio"
+
+# Backtest validation and quality
+[backtesting.validation]
+enable_cross_validation = true
+cross_validation_folds = 5
+out_of_sample_percentage = 0.2     # 20% out-of-sample
+min_backtest_period_days = 7
+max_backtest_period_days = 365
+
+# Statistical significance testing
+significance_level = 0.05          # 5% significance level
+min_trades_for_significance = 30
+bootstrap_samples = 1000
+
+# Performance benchmarking
+enable_benchmarking = true
+benchmark_strategies = ["buy_and_hold", "random_trading", "momentum_only", "mean_reversion_only"]
+risk_free_rate = 0.02              # 2% annual risk-free rate
+
+# Results storage and reporting
+[backtesting.results]
+enable_result_storage = true
+result_storage_format = "json"     # Options: "json", "parquet", "csv"
+detailed_trade_logs = true
+performance_metrics = ["total_return", "sharpe_ratio", "max_drawdown", "win_rate", "profit_factor"]
+
+# Report generation
+generate_html_reports = true
+generate_pdf_reports = false
+include_charts = true
+chart_resolution = "high"          # Options: "low", "medium", "high"
+
+# Alert thresholds for backtesting
+[backtesting.alerts]
+enable_performance_alerts = true
+performance_alert_threshold = 0.1  # 10% performance deviation
+enable_error_alerts = true
+max_error_rate = 0.05              # 5% max error rate
+enable_timeout_alerts = true
+max_timeout_rate = 0.02            # 2% max timeout rate
+
+# Integration with monitoring
+[backtesting.monitoring]
+prometheus_metrics_enabled = true
+metrics_port = 8002
+granularity_seconds = 60          # Metrics granularity
+custom_metrics = ["backtest_duration", "data_quality_score", "filter_pass_rate"]
+
+# Health checks
+health_check_interval_seconds = 30
+health_check_timeout_seconds = 5
+max_memory_usage_percent = 80
+max_cpu_usage_percent = 90
+
+# Historical data management
+[backtesting.historical_data]
+data_sources = ["jupiter", "coingecko", "defillama", "dexscreener"]
+update_interval_hours = 1
+historical_lookback_days = 365
+data_compression = true
+compression_ratio = 0.1             # 10% of original size
+
+# Data quality metrics
+enable_data_quality_monitoring = true
+data_quality_threshold = 0.8
+missing_data_tolerance = 0.05       # 5% missing data tolerance
+outlier_detection_enabled = true
+outlier_threshold_sigma = 3.0
+
+# Backtest scheduling and automation
+[backtesting.scheduling]
+enable_scheduled_backtests = true
+schedule_timezone = "UTC"
+run_interval_hours = 6             # Run every 6 hours
+batch_size = 50                    # Tokens per batch
+enable_parallel_batches = true
+max_parallel_batches = 4
+
+# Backtest prioritization
+prioritization_method = "market_cap"  # Options: "market_cap", "volume", "social_mentions", "random"
+priority_tokens = []               # Manual priority token list
+exclude_tokens = []                # Exclusion list
+
+# Development and testing
+[backtesting.development]
+enable_debug_mode = false
+debug_log_level = "DEBUG"
+verbose_output = false
+save_intermediate_results = false
+mock_external_apis = false
+
+# Test data and scenarios
+test_data_directory = "./test_data"
+test_scenarios_enabled = true
+integration_tests_enabled = true
+performance_tests_enabled = false

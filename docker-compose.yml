@@ -47,6 +47,8 @@ volumes:
     driver: local
   pgadmin_data:
     driver: local
+  sniper_bot_data:
+    driver: local
   # Redis data volume removed - using DragonflyDB Cloud instead
 
 services:
@@ -423,4 +425,127 @@ services:
     networks:
       trading-network:
         ipv4_address: 172.20.0.31
+
+  # =============================================================================
+  # PumpFun Sniper Bot for Backtesting
+  # =============================================================================
+  sniper-bot:
+    build:
+      context: .
+      dockerfile: rust-modules/Dockerfile.sniper-bot
+      target: ${BUILD_TARGET:-production}
+    container_name: trading-bot-sniper
+    <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    env_file:
+      - .env
+      - .env.docker
+    environment:
+      <<: *common-variables
+      # Environment
+      TRADING_ENV: ${TRADING_ENV:-development}
+      BOT_MODE: ${BOT_MODE:-backtest}
+
+      # Database connections
+      TIMESCALEDB_URL: postgresql://${TIMESCALEDB_USER:-trading_user}:${TIMESCALEDB_PASSWORD:-trading_password}@timescaledb:5432/${TIMESCALEDB_DBNAME:-trading_db}
+      REDIS_URL: ${REDIS_URL}
+
+      # API Keys (loaded from .env file)
+      HELIUS_API_KEY: ${HELIUS_API_KEY}
+      QUICKNODE_RPC_URL: ${QUICKNODE_RPC_URL}
+      PUMPPORTAL_API_KEY: ${PUMPPORTAL_API_KEY}
+      HONEYPOT_API_KEY: ${HONEYPOT_API_KEY}
+
+      # Wallet configuration (sniper-specific)
+      SNIPER_WALLET_PRIVATE_KEY: ${SNIPER_WALLET_PRIVATE_KEY}
+      SNIPER_WALLET_ADDRESS: ${SNIPER_WALLET_ADDRESS:-${WALLET_ADDRESS}}
+
+      # Sniper configuration
+      INITIAL_CAPITAL: ${SNIPER_INITIAL_CAPITAL:-1.0}
+      MAX_POSITION_SIZE: ${SNIPER_MAX_POSITION_SIZE:-0.05}
+      TP_THRESHOLD: ${TP_THRESHOLD:-1.5}
+      SL_THRESHOLD: ${SL_THRESHOLD:-0.8}
+      MIN_LP_BURN_RATE: ${MIN_LP_BURN_RATE:-90.0}
+      MIN_SOCIAL_MENTIONS: ${MIN_SOCIAL_MENTIONS:-10}
+      HONEYPOT_CHECK_ENABLED: ${HONEYPOT_CHECK_ENABLED:-true}
+
+      # Backtest configuration
+      BACKTEST_MODE: ${BACKTEST_MODE:-true}
+      BACKTEST_START_DATE: ${BACKTEST_START_DATE:-2024-01-01}
+      BACKTEST_END_DATE: ${BACKTEST_END_DATE:-2024-12-31}
+      BACKTEST_INITIAL_CAPITAL: ${BACKTEST_INITIAL_CAPITAL:-10.0}
+      BACKTEST_DATA_SOURCE: ${BACKTEST_DATA_SOURCE:-historical}
+
+      # RPC 2025 Features
+      ENABLE_SHREDSTREAM: ${HELIUS_ENABLE_SHREDSTREAM:-false}
+      ENABLE_LIL_JIT: ${QUICKNODE_LIL_JIT_ENABLED:-false}
+      PREFERRED_RPC_PROVIDER: ${RPC_PREFERRED_PROVIDER:-auto}
+      DYNAMIC_PRIORITY_FEES: ${PRIORITY_FEE_ESTIMATION_ENABLED:-true}
+
+      # Monitoring
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: json
+      METRICS_ENABLED: true
+
+      # Performance
+      MAX_CONCURRENT_TRADES: ${MAX_CONCURRENT_SNIPER_TRADES:-3}
+      TRADE_EXECUTION_TIMEOUT_MS: ${SNIPER_TRADE_TIMEOUT_MS:-5000}
+      POSITION_MONITORING_INTERVAL_MS: ${POSITION_MONITORING_INTERVAL_MS:-1000}
+
+      # Risk management
+      MAX_DAILY_TRADES: ${MAX_DAILY_TRADES:-50}
+      MAX_OPEN_POSITIONS: ${MAX_OPEN_POSITIONS:-5}
+      MIN_TRADE_INTERVAL_SECONDS: ${MIN_TRADE_INTERVAL_SECONDS:-30}
+
+    ports:
+      - "8084:8080"  # Sniper bot API and metrics
+      - "8085:8081"  # Sniper bot WebSocket for real-time updates
+
+    volumes:
+      - ./rust-modules/sniper-bot:/app:ro
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ./data:/app/data:ro
+      - ./secrets:/app/secrets:ro
+      - sniper_bot_data:/app/data/sniper
+
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.40
+
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+
+    # DragonflyDB Cloud connection - no local dependency needed
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+    # Sniper bot specific labels for monitoring
+    labels:
+      - "trading-bot.service=sniper-bot"
+      - "trading-bot.type=backtest"
+      - "trading-bot.monitoring=prometheus"
+      - "trading-bot.logs=grafana"
 

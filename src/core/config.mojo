@@ -6,6 +6,10 @@ from os import getenv, environ
 from json import loads
 from sys import exit
 from infisical_client import get_infisical_client
+try:
+    from tomllib import loads as toml_loads
+except ImportError:
+    from tomli import loads as toml_loads
 
 # =============================================================================
 # API Configuration
@@ -24,6 +28,26 @@ struct APIConfig:
     var jupiter_base_url: String
     var jupiter_quote_api: String
     var timeout_seconds: Float
+
+# =============================================================================
+# Wallet Configuration
+# =============================================================================
+
+@value
+struct WalletConfig:
+    """
+    Wallet configuration parameters
+    """
+    var address: String
+    var private_key_path: String
+
+    fn __init__(address: String = "", private_key_path: String = ""):
+        self.address = address
+        self.private_key_path = private_key_path
+
+# =============================================================================
+# QuickNode RPC endpoints
+# =============================================================================
 
 @value
 struct QuickNodeRPCs:
@@ -988,6 +1012,118 @@ struct StrategyAdaptationConfig:
         self.min_position_size_multiplier = min_position_size_multiplier
 
 # =============================================================================
+# RPC Providers Configuration (2025 Features)
+# =============================================================================
+
+@value
+struct RPCProvidersConfig:
+    """
+    Configuration for RPC provider features and routing
+    """
+    # Helius configuration
+    var helius_enable_shredstream: Bool
+    var helius_shredstream_endpoint: String
+    var helius_enable_priority_fee_api: Bool
+    var helius_enable_webhooks: Bool
+    var helius_webhook_types: List[String]
+    var helius_organic_score_enabled: Bool
+    var helius_tier: String
+
+    # QuickNode configuration
+    var quicknode_enable_lil_jit: Bool
+    var quicknode_lil_jit_endpoint: String
+    var quicknode_enable_priority_fee_api: Bool
+
+    # Routing configuration
+    var routing_policy: String
+    var routing_latency_threshold_ms: Int
+    var routing_bundle_success_rate_threshold: Float
+    var routing_track_bundle_metrics: Bool
+    var routing_prefer_shredstream_for_mev: Bool
+
+    fn __init__(
+        # Helius defaults
+        helius_enable_shredstream: Bool = True,
+        helius_shredstream_endpoint: String = "",
+        helius_enable_priority_fee_api: Bool = True,
+        helius_enable_webhooks: Bool = True,
+        helius_webhook_types: List[String] = ["token_transfers", "new_mints", "large_transactions"],
+        helius_organic_score_enabled: Bool = True,
+        helius_tier: String = "developer",
+
+        # QuickNode defaults
+        quicknode_enable_lil_jit: Bool = True,
+        quicknode_lil_jit_endpoint: String = "",
+        quicknode_enable_priority_fee_api: Bool = True,
+
+        # Routing defaults
+        routing_policy: String = "health_first",
+        routing_latency_threshold_ms: Int = 100,
+        routing_bundle_success_rate_threshold: Float = 0.90,
+        routing_track_bundle_metrics: Bool = True,
+        routing_prefer_shredstream_for_mev: Bool = True
+    ):
+        self.helius_enable_shredstream = helius_enable_shredstream
+        self.helius_shredstream_endpoint = helius_shredstream_endpoint
+        self.helius_enable_priority_fee_api = helius_enable_priority_fee_api
+        self.helius_enable_webhooks = helius_enable_webhooks
+        self.helius_webhook_types = helius_webhook_types
+        self.helius_organic_score_enabled = helius_organic_score_enabled
+        self.helius_tier = helius_tier
+
+        self.quicknode_enable_lil_jit = quicknode_enable_lil_jit
+        self.quicknode_lil_jit_endpoint = quicknode_lil_jit_endpoint
+        self.quicknode_enable_priority_fee_api = quicknode_enable_priority_fee_api
+
+        self.routing_policy = routing_policy
+        self.routing_latency_threshold_ms = routing_latency_threshold_ms
+        self.routing_bundle_success_rate_threshold = routing_bundle_success_rate_threshold
+        self.routing_track_bundle_metrics = routing_track_bundle_metrics
+        self.routing_prefer_shredstream_for_mev = routing_prefer_shredstream_for_mev
+
+# =============================================================================
+# MEV Configuration (2025 Features)
+# =============================================================================
+
+@value
+struct MEVConfig:
+    """
+    Configuration for Maximal Extractable Value features
+    """
+    var prefer_helius_shredstream: Bool
+    var bundle_submission_provider: String
+    var track_bundle_success_by_provider: Bool
+
+    # Jito configuration
+    var jito_enabled: Bool
+    var jito_endpoint: String
+    var jito_tip_lamports: Int
+    var jito_max_tip_lamports: Int
+    var min_profit_threshold_sol: Float
+
+    fn __init__(
+        prefer_helius_shredstream: Bool = True,
+        bundle_submission_provider: String = "auto",
+        track_bundle_success_by_provider: Bool = True,
+
+        # Jito defaults
+        jito_enabled: Bool = True,
+        jito_endpoint: String = "",
+        jito_tip_lamports: Int = 1000000,     # 0.001 SOL
+        jito_max_tip_lamports: Int = 10000000, # 0.01 SOL
+        min_profit_threshold_sol: Float = 0.01
+    ):
+        self.prefer_helius_shredstream = prefer_helius_shredstream
+        self.bundle_submission_provider = bundle_submission_provider
+        self.track_bundle_success_by_provider = track_bundle_success_by_provider
+
+        self.jito_enabled = jito_enabled
+        self.jito_endpoint = jito_endpoint
+        self.jito_tip_lamports = jito_tip_lamports
+        self.jito_max_tip_lamports = jito_max_tip_lamports
+        self.min_profit_threshold_sol = min_profit_threshold_sol
+
+# =============================================================================
 # Legacy Monitoring Configuration (for compatibility)
 # =============================================================================
 
@@ -1029,6 +1165,9 @@ struct Config:
     var whale: WhaleConfig
     var sniper_filters: SniperFilterConfig
     var features: FeaturesConfig
+    var rpc_providers: RPCProvidersConfig  # 2025 RPC features
+    var mev: MEVConfig                      # 2025 MEV features
+    var backtest: BacktestConfig           # PumpFun backtesting features
 
     # Environment-specific
     var trading_env: String
@@ -1085,19 +1224,25 @@ struct Config:
             )
 
         # Wallet Configuration (try Infisical first, fallback to env)
+        wallet_address = getenv("WALLET_ADDRESS", "")
+        wallet_private_key_path = getenv("WALLET_PRIVATE_KEY_PATH", "~/.config/solana/id.json")
+
         try:
             wallet_config = infisical.get_wallet_config()
         except e:
             print(f"⚠️  Failed to load wallet config from Infisical: {e}")
             # Fallback to environment variables
             wallet_config = WalletConfig(
-                address=getenv("WALLET_ADDRESS", ""),
-                private_key_path=getenv("WALLET_PRIVATE_KEY_PATH", "~/.config/solana/id.json")
+                address=wallet_address,
+                private_key_path=wallet_private_key_path
             )
 
         # API config already loaded from Infisical above
 
-        # Trading config already loaded from Infisical above
+        # Trading Configuration parameters
+        initial_capital = float(getenv("INITIAL_CAPITAL", "1.0"))
+        max_position_size = float(getenv("MAX_POSITION_SIZE", "0.1"))
+        min_position_size = float(getenv("MIN_POSITION_SIZE", "0.01"))
         max_drawdown = float(getenv("MAX_DRAWDOWN", "0.15"))
         daily_trade_limit = int(getenv("DAILY_TRADE_LIMIT", "100"))
         kelly_fraction = float(getenv("KELLY_FRACTION", "0.5"))
@@ -1324,9 +1469,58 @@ struct Config:
             enable_operational_reliability_monitor=enable_operational_reliability_monitor
         )
 
-        # Wallet configuration
-        wallet_address = getenv("WALLET_ADDRESS", "")
-        wallet_private_key_path = getenv("WALLET_PRIVATE_KEY_PATH", "")
+        # RPC Providers Configuration (2025 features)
+        rpc_providers_config = RPCProvidersConfig(
+            # Helius configuration
+            helius_enable_shredstream=getenv("HELIUS_ENABLE_SHREDSTREAM", "true").lower() == "true",
+            helius_shredstream_endpoint=getenv("HELIUS_SHREDSTREAM_ENDPOINT", ""),
+            helius_enable_priority_fee_api=getenv("HELIUS_ENABLE_PRIORITY_FEE_API", "true").lower() == "true",
+            helius_enable_webhooks=getenv("HELIUS_ENABLE_WEBHOOKS", "true").lower() == "true",
+            helius_webhook_types=getenv("HELIUS_WEBHOOK_TYPES", "token_transfers,new_mints,large_transactions").split(","),
+            helius_organic_score_enabled=getenv("HELIUS_ORGANIC_SCORE_ENABLED", "true").lower() == "true",
+            helius_tier=getenv("HELIUS_TIER", "developer"),
+
+            # QuickNode configuration
+            quicknode_enable_lil_jit=getenv("QUICKNODE_ENABLE_LIL_JIT", "true").lower() == "true",
+            quicknode_lil_jit_endpoint=getenv("QUICKNODE_LIL_JIT_ENDPOINT", ""),
+            quicknode_enable_priority_fee_api=getenv("QUICKNODE_ENABLE_PRIORITY_FEE_API", "true").lower() == "true",
+
+            # Routing configuration
+            routing_policy=getenv("RPC_ROUTING_POLICY", "health_first"),
+            routing_latency_threshold_ms=int(getenv("RPC_LATENCY_THRESHOLD_MS", "100")),
+            routing_bundle_success_rate_threshold=float(getenv("RPC_BUNDLE_SUCCESS_RATE_THRESHOLD", "0.90")),
+            routing_track_bundle_metrics=getenv("RPC_TRACK_BUNDLE_METRICS", "true").lower() == "true",
+            routing_prefer_shredstream_for_mev=getenv("RPC_PREFER_SHREDSTREAM_FOR_MEV", "true").lower() == "true"
+        )
+
+        # MEV Configuration (2025 features)
+        mev_config = MEVConfig(
+            prefer_helius_shredstream=getenv("MEV_PREFER_HELIUS_SHREDSTREAM", "true").lower() == "true",
+            bundle_submission_provider=getenv("MEV_BUNDLE_SUBMISSION_PROVIDER", "auto"),
+            track_bundle_success_by_provider=getenv("MEV_TRACK_BUNDLE_SUCCESS_BY_PROVIDER", "true").lower() == "true",
+
+            # Jito configuration
+            jito_enabled=getenv("JITO_ENABLED", "true").lower() == "true",
+            jito_endpoint=getenv("JITO_ENDPOINT", ""),
+            jito_tip_lamports=int(getenv("JITO_TIP_LAMPORTS", "1000000")),
+            jito_max_tip_lamports=int(getenv("JITO_MAX_TIP_LAMPORTS", "10000000")),
+            min_profit_threshold_sol=float(getenv("MIN_PROFIT_THRESHOLD_SOL", "0.01"))
+        )
+
+        # Backtest Configuration (PumpFun Sniper)
+        backtest_config = BacktestConfig(
+            enabled=getenv("BACKTEST_ENABLED", "true").lower() == "true",
+            data_retention_days=int(getenv("BACKTEST_DATA_RETENTION_DAYS", "30")),
+            max_concurrent_backtests=int(getenv("BACKTEST_MAX_CONCURRENT_BACKTESTS", "10")),
+            default_initial_investment=float(getenv("BACKTEST_DEFAULT_INITIAL_INVESTMENT", "1000.0")),
+            default_simulation_hours=int(getenv("BACKTEST_DEFAULT_SIMULATION_HOURS", "24")),
+            default_time_interval=getenv("BACKTEST_DEFAULT_TIME_INTERVAL", "5m"),
+            enable_simd_vectorization=getenv("BACKTEST_ENABLE_SIMD_VECTORIZATION", "true").lower() == "true",
+            chunk_size=int(getenv("BACKTEST_CHUNK_SIZE", "1024")),
+            parallel_workers=int(getenv("BACKTEST_PARALLEL_WORKERS", "4")),
+            cache_price_history=getenv("BACKTEST_CACHE_PRICE_HISTORY", "true").lower() == "true",
+            cache_ttl_hours=int(getenv("BACKTEST_CACHE_TTL_HOURS", "1"))
+        )
 
         return Config(
             api=api_config,
@@ -1346,19 +1540,101 @@ struct Config:
             whale=whale_config,
             sniper_filters=sniper_filter_config,
             features=features_config,
+            rpc_providers=rpc_providers_config,
+            mev=mev_config,
+            backtest=backtest_config,
             trading_env=trading_env,
-            wallet_address=wallet_config.address,
-            wallet_private_key_path=wallet_config.private_key_path
+            wallet_address=wallet_address,
+            wallet_private_key_path=wallet_private_key_path
         )
 
     @staticmethod
     fn load_from_file(file_path: String) -> Config:
         """
-        Load configuration from TOML/JSON file
+        Load configuration from TOML file with environment fallbacks
         """
-        # This would implement file-based configuration loading
-        # For now, fall back to environment variables
-        return Config.load_from_env()
+        try:
+            with open(file_path, 'r') as f:
+                if file_path.endswith('.json'):
+                    config_data = loads(f.read())
+                else:
+                    config_data = toml_loads(f.read())
+
+            print(f"📄 Loading configuration from file: {file_path}")
+
+            # Parse RPC providers configuration
+            rpc_providers_config = RPCProvidersConfig()
+            mev_config = MEVConfig()
+
+            # Parse [rpc_providers] section
+            if 'rpc_providers' in config_data:
+                rpc_section = config_data['rpc_providers']
+
+                # Parse [rpc_providers.helius]
+                if 'helius' in rpc_section:
+                    helius_config = rpc_section['helius']
+                    rpc_providers_config.helius_enable_shredstream = helius_config.get('enable_shredstream', getenv("HELIUS_ENABLE_SHREDSTREAM", "false").lower() == "true")
+                    rpc_providers_config.helius_shredstream_endpoint = helius_config.get('shredstream_endpoint', getenv("HELIUS_SHREDSTREAM_ENDPOINT", ""))
+                    rpc_providers_config.helius_enable_priority_fee_api = helius_config.get('enable_priority_fee_api', getenv("HELIUS_ENABLE_PRIORITY_FEE_API", "true").lower() == "true")
+                    rpc_providers_config.helius_enable_webhooks = helius_config.get('enable_webhooks', getenv("HELIUS_ENABLE_WEBHOOKS", "false").lower() == "true")
+                    rpc_providers_config.helius_webhook_types = helius_config.get('webhook_types', getenv("HELIUS_WEBHOOK_TYPES", "token_transfers,new_mints,large_transactions").split(","))
+                    rpc_providers_config.helius_organic_score_enabled = helius_config.get('organic_score_enabled', getenv("HELIUS_ORGANIC_SCORE_ENABLED", "true").lower() == "true")
+                    rpc_providers_config.helius_tier = helius_config.get('tier', getenv("HELIUS_TIER", "developer"))
+
+                # Parse [rpc_providers.quicknode]
+                if 'quicknode' in rpc_section:
+                    quicknode_config = rpc_section['quicknode']
+                    rpc_providers_config.quicknode_enable_lil_jit = quicknode_config.get('enable_lil_jit', getenv("QUICKNODE_ENABLE_LIL_JIT", "false").lower() == "true")
+                    rpc_providers_config.quicknode_lil_jit_endpoint = quicknode_config.get('lil_jit_endpoint', getenv("QUICKNODE_LIL_JIT_ENDPOINT", ""))
+                    rpc_providers_config.quicknode_enable_priority_fee_api = quicknode_config.get('enable_priority_fee_api', getenv("QUICKNODE_ENABLE_PRIORITY_FEE_API", "true").lower() == "true")
+
+                # Parse [rpc_providers.routing]
+                if 'routing' in rpc_section:
+                    routing_config = rpc_section['routing']
+                    rpc_providers_config.routing_policy = routing_config.get('policy', getenv("RPC_ROUTING_POLICY", "health_first"))
+                    rpc_providers_config.routing_latency_threshold_ms = routing_config.get('latency_threshold_ms', int(getenv("RPC_LATENCY_THRESHOLD_MS", "100")))
+                    rpc_providers_config.routing_bundle_success_rate_threshold = routing_config.get('bundle_success_rate_threshold', float(getenv("RPC_BUNDLE_SUCCESS_RATE_THRESHOLD", "0.90")))
+                    rpc_providers_config.routing_track_bundle_metrics = routing_config.get('track_bundle_metrics', getenv("RPC_TRACK_BUNDLE_METRICS", "true").lower() == "true")
+                    rpc_providers_config.routing_prefer_shredstream_for_mev = routing_config.get('prefer_shredstream_for_mev', getenv("RPC_PREFER_SHREDSTREAM_FOR_MEV", "true").lower() == "true")
+
+            # Parse [mev] section
+            if 'mev' in config_data:
+                mev_section = config_data['mev']
+                mev_config.prefer_helius_shredstream = mev_section.get('prefer_helius_shredstream', getenv("MEV_PREFER_HELIUS_SHREDSTREAM", "true").lower() == "true")
+                mev_config.bundle_submission_provider = mev_section.get('bundle_submission_provider', getenv("MEV_BUNDLE_SUBMISSION_PROVIDER", "auto"))
+                mev_config.track_bundle_success_by_provider = mev_section.get('track_bundle_success_by_provider', getenv("MEV_TRACK_BUNDLE_SUCCESS_BY_PROVIDER", "true").lower() == "true")
+
+                # Parse Jito configuration within MEV
+                if 'jito_enabled' in mev_section:
+                    mev_config.jito_enabled = mev_section.get('jito_enabled', getenv("JITO_ENABLED", "true").lower() == "true")
+                if 'jito_endpoint' in mev_section:
+                    mev_config.jito_endpoint = mev_section.get('jito_endpoint', getenv("JITO_ENDPOINT", ""))
+                if 'jito_tip_lamports' in mev_section:
+                    mev_config.jito_tip_lamports = mev_section.get('jito_tip_lamports', int(getenv("JITO_TIP_LAMPORTS", "1000000")))
+                if 'jito_max_tip_lamports' in mev_section:
+                    mev_config.jito_max_tip_lamports = mev_section.get('jito_max_tip_lamports', int(getenv("JITO_MAX_TIP_LAMPORTS", "10000000")))
+                if 'min_profit_threshold_sol' in mev_section:
+                    mev_config.min_profit_threshold_sol = mev_section.get('min_profit_threshold_sol', float(getenv("MIN_PROFIT_THRESHOLD_SOL", "0.01")))
+
+            print("✅ RPC/MEV configuration parsed from TOML")
+
+            # Load remaining configuration from environment (as fallback)
+            base_config = Config.load_from_env()
+
+            # Update RPC and MEV configs with parsed values
+            base_config.rpc_providers = rpc_providers_config
+            base_config.mev = mev_config
+
+            return base_config
+
+        except FileNotFoundError:
+            print(f"❌ Configuration file not found: {file_path}")
+            print("🔄 Loading from environment variables...")
+            return Config.load_from_env()
+        except Exception as e:
+            print(f"⚠️  Error parsing configuration file: {e}")
+            print("🔄 Loading from environment variables...")
+            return Config.load_from_env()
 
     fn validate(self) -> Bool:
         """
@@ -1482,7 +1758,107 @@ struct Config:
             print("❌ Base confidence must be between 0 and 1")
             return False
 
+        # Validate RPC providers configuration
+        if not self.validate_rpc_providers():
+            print("❌ RPC providers validation failed")
+            return False
+
+        # Validate MEV configuration
+        if not self.validate_mev_config():
+            print("❌ MEV configuration validation failed")
+            return False
+
         return True
+
+    fn validate_rpc_providers(self) -> Bool:
+        """
+        Validate RPC providers configuration values
+        """
+        try:
+            # Validate routing policy
+            valid_policies = ["health_first", "latency_based", "cost_based", "environment_based", "round_robin"]
+            if self.rpc_providers.routing_policy not in valid_policies:
+                print(f"❌ Invalid routing policy: {self.rpc_providers.routing_policy}")
+                print(f"   Valid options: {', '.join(valid_policies)}")
+                return False
+
+            # Validate routing latency threshold
+            if not (0 < self.rpc_providers.routing_latency_threshold_ms <= 2000):
+                print("❌ Routing latency threshold must be > 0 and ≤ 2000ms")
+                return False
+
+            # Validate bundle success rate threshold
+            if not (0.0 <= self.rpc_providers.routing_bundle_success_rate_threshold <= 1.0):
+                print("❌ Bundle success rate threshold must be between 0 and 1")
+                return False
+
+            # Validate Helius ShredStream configuration
+            if self.rpc_providers.helius_enable_shredstream:
+                if not self.rpc_providers.helius_shredstream_endpoint:
+                    print("❌ ShredStream endpoint required when enabled")
+                    return False
+                if not (self.rpc_providers.helius_shredstream_endpoint.startswith("ws://") or
+                       self.rpc_providers.helius_shredstream_endpoint.startswith("wss://")):
+                    print("❌ ShredStream endpoint must start with ws:// or wss://")
+                    return False
+
+            # Validate QuickNode Li'l JIT configuration
+            if self.rpc_providers.quicknode_enable_lil_jit:
+                if not self.rpc_providers.quicknode_lil_jit_endpoint:
+                    print("❌ Li'l JIT endpoint required when enabled")
+                    return False
+                if not (self.rpc_providers.quicknode_lil_jit_endpoint.startswith("https://")):
+                    print("❌ Li'l JIT endpoint must be an HTTPS URL")
+                    return False
+
+            # Validate Helius tier
+            valid_tiers = ["free", "developer", "pro", "enterprise"]
+            if self.rpc_providers.helius_tier not in valid_tiers:
+                print(f"❌ Invalid Helius tier: {self.rpc_providers.helius_tier}")
+                print(f"   Valid options: {', '.join(valid_tiers)}")
+                return False
+
+            # Log successful validation
+            print("✅ RPC providers configuration validation passed")
+            return True
+
+        except Exception as e:
+            print(f"⚠️  Error validating RPC providers: {e}")
+            return False
+
+    fn validate_mev_config(self) -> Bool:
+        """
+        Validate MEV configuration values
+        """
+        try:
+            # Validate bundle submission provider
+            valid_providers = ["helius", "quicknode", "auto"]
+            if self.mev.bundle_submission_provider not in valid_providers:
+                print(f"❌ Invalid bundle submission provider: {self.mev.bundle_submission_provider}")
+                print(f"   Valid options: {', '.join(valid_providers)}")
+                return False
+
+            # Validate Jito configuration
+            if self.mev.jito_enabled:
+                if self.mev.jito_tip_lamports < 0:
+                    print("❌ Jito tip lamports must be >= 0")
+                    return False
+
+                if self.mev.jito_max_tip_lamports < self.mev.jito_tip_lamports:
+                    print("❌ Jito max tip must be >= tip")
+                    return False
+
+                if self.mev.min_profit_threshold_sol < 0:
+                    print("❌ Minimum profit threshold must be >= 0")
+                    return False
+
+            # Log successful validation
+            print("✅ MEV configuration validation passed")
+            return True
+
+        except Exception as e:
+            print(f"⚠️  Error validating MEV configuration: {e}")
+            return False
 
     fn get_environment(self) -> String:
         """
@@ -1522,8 +1898,7 @@ struct Config:
         print(f"   Oversold Threshold: {self.strategy.oversold_threshold}")
         print(f"   Overbought Threshold: {self.strategy.overbought_threshold}")
         print(f"   Min Confluence Strength: {self.strategy.min_confluence_strength}")
-        print(f"   Database Enabled: {self.database.timescale_enabled}")
-        print(f"   Redis Enabled: {self.database.redis_enabled}")
+        print(f"   Database Enabled: {self.database.enabled}")
         print(f"   Alerts Enabled: {self.monitoring.enable_alerts}")
 
         # New configuration sections
@@ -1542,6 +1917,596 @@ struct Config:
         print(f"      Stop Loss: {self.strategy_thresholds.stop_loss_below_support:.0%}")
         print(f"      Exit: {self.strategy_thresholds.position_age_exit_hours:.1f}h")
         print(f"      Base Confidence: {self.strategy_thresholds.base_confidence:.0%}")
+
+# =============================================================================
+# Backtesting Configuration (PumpFun Sniper)
+# =============================================================================
+
+@value
+struct BacktestDataSourcesConfig:
+    """
+    Configuration for backtesting data sources
+    """
+    var jupiter_price_api_enabled: Bool
+    var helius_metadata_enabled: Bool
+    var quicknode_realtime_enabled: Bool
+    var data_quality_threshold: Float
+    var min_data_points: Int
+    var max_data_gap_hours: Int
+
+    fn __init__(
+        jupiter_price_api_enabled: Bool = True,
+        helius_metadata_enabled: Bool = True,
+        quicknode_realtime_enabled: Bool = True,
+        data_quality_threshold: Float = 0.7,
+        min_data_points: Int = 50,
+        max_data_gap_hours: Int = 2
+    ):
+        self.jupiter_price_api_enabled = jupiter_price_api_enabled
+        self.helius_metadata_enabled = helius_metadata_enabled
+        self.quicknode_realtime_enabled = quicknode_realtime_enabled
+        self.data_quality_threshold = data_quality_threshold
+        self.min_data_points = min_data_points
+        self.max_data_gap_hours = max_data_gap_hours
+
+
+@value
+struct BacktestPumpFunFiltersConfig:
+    """
+    Configuration for PumpFun token analysis filters in backtesting
+    """
+    # Token screening thresholds
+    var min_market_cap_usd: Float
+    var max_market_cap_usd: Float
+    var min_liquidity_usd: Float
+    var min_volume_24h_usd: Float
+    var max_age_hours: Int
+
+    # Security and safety checks
+    var max_holder_concentration: Float
+    var min_holders: Int
+    var max_creator_allocation: Float
+    var honeypot_risk_threshold: Float
+
+    # Social and community metrics
+    var min_social_mentions: Int
+    var min_social_sentiment: Float
+    var max_social_spam_score: Float
+    var min_telegram_members: Int
+    var min_twitter_followers: Int
+
+    # Technical analysis criteria
+    var min_trading_volume_usd: Float
+    var max_price_volatility: Float
+    var min_price_stability: Float
+    var trend_strength_threshold: Float
+    var momentum_threshold: Float
+
+    # Financial metrics
+    var min_revenue_24h_usd: Float
+    var max_supply_inflation: Float
+    var burn_rate_threshold: Float
+
+    fn __init__(
+        # Token screening thresholds
+        min_market_cap_usd: Float = 1000.0,
+        max_market_cap_usd: Float = 100000.0,
+        min_liquidity_usd: Float = 500.0,
+        min_volume_24h_usd: Float = 10000.0,
+        max_age_hours: Int = 168,
+
+        # Security and safety checks
+        max_holder_concentration: Float = 0.8,
+        min_holders: Int = 10,
+        max_creator_allocation: Float = 0.2,
+        honeypot_risk_threshold: Float = 0.7,
+
+        # Social and community metrics
+        min_social_mentions: Int = 5,
+        min_social_sentiment: Float = 0.3,
+        max_social_spam_score: Float = 0.8,
+        min_telegram_members: Int = 50,
+        min_twitter_followers: Int = 100,
+
+        # Technical analysis criteria
+        min_trading_volume_usd: Float = 5000.0,
+        max_price_volatility: Float = 0.5,
+        min_price_stability: Float = 0.7,
+        trend_strength_threshold: Float = 0.4,
+        momentum_threshold: Float = 0.02,
+
+        # Financial metrics
+        min_revenue_24h_usd: Float = 0.0,
+        max_supply_inflation: Float = 0.1,
+        burn_rate_threshold: Float = 0.05
+    ):
+        self.min_market_cap_usd = min_market_cap_usd
+        self.max_market_cap_usd = max_market_cap_usd
+        self.min_liquidity_usd = min_liquidity_usd
+        self.min_volume_24h_usd = min_volume_24h_usd
+        self.max_age_hours = max_age_hours
+
+        self.max_holder_concentration = max_holder_concentration
+        self.min_holders = min_holders
+        self.max_creator_allocation = max_creator_allocation
+        self.honeypot_risk_threshold = honeypot_risk_threshold
+
+        self.min_social_mentions = min_social_mentions
+        self.min_social_sentiment = min_social_sentiment
+        self.max_social_spam_score = max_social_spam_score
+        self.min_telegram_members = min_telegram_members
+        self.min_twitter_followers = min_twitter_followers
+
+        self.min_trading_volume_usd = min_trading_volume_usd
+        self.max_price_volatility = max_price_volatility
+        self.min_price_stability = min_price_stability
+        self.trend_strength_threshold = trend_strength_threshold
+        self.momentum_threshold = momentum_threshold
+
+        self.min_revenue_24h_usd = min_revenue_24h_usd
+        self.max_supply_inflation = max_supply_inflation
+        self.burn_rate_threshold = burn_rate_threshold
+
+
+@value
+struct BacktestRiskManagementConfig:
+    """
+    Risk management configuration for backtesting
+    """
+    var max_position_size_percent: Float
+    var max_portfolio_risk: Float
+    var max_drawdown_threshold: Float
+    var stop_loss_percentage: Float
+    var take_profit_percentage: Float
+    var max_leverage: Float
+
+    fn __init__(
+        max_position_size_percent: Float = 10.0,
+        max_portfolio_risk: Float = 0.02,
+        max_drawdown_threshold: Float = 0.15,
+        stop_loss_percentage: Float = 0.05,
+        take_profit_percentage: Float = 0.10,
+        max_leverage: Float = 1.0
+    ):
+        self.max_position_size_percent = max_position_size_percent
+        self.max_portfolio_risk = max_portfolio_risk
+        self.max_drawdown_threshold = max_drawdown_threshold
+        self.stop_loss_percentage = stop_loss_percentage
+        self.take_profit_percentage = take_profit_percentage
+        self.max_leverage = max_leverage
+
+
+@value
+struct BacktestExecutionConfig:
+    """
+    Execution simulation parameters for backtesting
+    """
+    var slippage_model: String
+    var base_slippage_percentage: Float
+    var commission_rate: Float
+    var max_slippage_percentage: Float
+    var min_trade_size_usd: Float
+    var max_trade_size_usd: Float
+
+    # Simulation timing parameters
+    var order_execution_delay_ms: Int
+    var block_confirmation_delay_ms: Int
+    var network_congestion_factor: Float
+
+    fn __init__(
+        slippage_model: String = "linear",
+        base_slippage_percentage: Float = 0.002,
+        commission_rate: Float = 0.003,
+        max_slippage_percentage: Float = 0.02,
+        min_trade_size_usd: Float = 10.0,
+        max_trade_size_usd: Float = 10000.0,
+        order_execution_delay_ms: Int = 100,
+        block_confirmation_delay_ms: Int = 400,
+        network_congestion_factor: Float = 1.1
+    ):
+        self.slippage_model = slippage_model
+        self.base_slippage_percentage = base_slippage_percentage
+        self.commission_rate = commission_rate
+        self.max_slippage_percentage = max_slippage_percentage
+        self.min_trade_size_usd = min_trade_size_usd
+        self.max_trade_size_usd = max_trade_size_usd
+        self.order_execution_delay_ms = order_execution_delay_ms
+        self.block_confirmation_delay_ms = block_confirmation_delay_ms
+        self.network_congestion_factor = network_congestion_factor
+
+
+@value
+struct BacktestAdvancedConfig:
+    """
+    Advanced backtesting features configuration
+    """
+    # Monte Carlo simulation
+    var enable_monte_carlo: Bool
+    var monte_carlo_simulations: Int
+    var confidence_intervals: List[Float]
+
+    # Stress testing
+    var enable_stress_testing: Bool
+    var stress_scenarios: List[String]
+    var stress_test_multiplier: Float
+
+    # Sensitivity analysis
+    var enable_sensitivity_analysis: Bool
+    var sensitivity_parameters: List[String]
+
+    # Walk-forward optimization
+    var enable_walk_forward: Bool
+    var walk_forward_windows: List[Int]
+    var optimization_metric: String
+
+    fn __init__(
+        enable_monte_carlo: Bool = True,
+        monte_carlo_simulations: Int = 1000,
+        confidence_intervals: List[Float] = [0.95, 0.99],
+        enable_stress_testing: Bool = True,
+        stress_scenarios: List[String] = ["market_crash", "liquidity_crisis", "volatility_spike", "network_congestion"],
+        stress_test_multiplier: Float = 2.0,
+        enable_sensitivity_analysis: Bool = True,
+        sensitivity_parameters: List[String] = ["slippage", "commission", "delay", "volatility"],
+        enable_walk_forward: Bool = True,
+        walk_forward_windows: List[Int] = [168, 336, 720],
+        optimization_metric: String = "sharpe_ratio"
+    ):
+        self.enable_monte_carlo = enable_monte_carlo
+        self.monte_carlo_simulations = monte_carlo_simulations
+        self.confidence_intervals = confidence_intervals
+        self.enable_stress_testing = enable_stress_testing
+        self.stress_scenarios = stress_scenarios
+        self.stress_test_multiplier = stress_test_multiplier
+        self.enable_sensitivity_analysis = enable_sensitivity_analysis
+        self.sensitivity_parameters = sensitivity_parameters
+        self.enable_walk_forward = enable_walk_forward
+        self.walk_forward_windows = walk_forward_windows
+        self.optimization_metric = optimization_metric
+
+
+@value
+struct BacktestValidationConfig:
+    """
+    Backtest validation and quality control configuration
+    """
+    var enable_cross_validation: Bool
+    var cross_validation_folds: Int
+    var out_of_sample_percentage: Float
+    var min_backtest_period_days: Int
+    var max_backtest_period_days: Int
+
+    # Statistical significance testing
+    var significance_level: Float
+    var min_trades_for_significance: Int
+    var bootstrap_samples: Int
+
+    # Performance benchmarking
+    var enable_benchmarking: Bool
+    var benchmark_strategies: List[String]
+    var risk_free_rate: Float
+
+    fn __init__(
+        enable_cross_validation: Bool = True,
+        cross_validation_folds: Int = 5,
+        out_of_sample_percentage: Float = 0.2,
+        min_backtest_period_days: Int = 7,
+        max_backtest_period_days: Int = 365,
+        significance_level: Float = 0.05,
+        min_trades_for_significance: Int = 30,
+        bootstrap_samples: Int = 1000,
+        enable_benchmarking: Bool = True,
+        benchmark_strategies: List[String] = ["buy_and_hold", "random_trading", "momentum_only", "mean_reversion_only"],
+        risk_free_rate: Float = 0.02
+    ):
+        self.enable_cross_validation = enable_cross_validation
+        self.cross_validation_folds = cross_validation_folds
+        self.out_of_sample_percentage = out_of_sample_percentage
+        self.min_backtest_period_days = min_backtest_period_days
+        self.max_backtest_period_days = max_backtest_period_days
+        self.significance_level = significance_level
+        self.min_trades_for_significance = min_trades_for_significance
+        self.bootstrap_samples = bootstrap_samples
+        self.enable_benchmarking = enable_benchmarking
+        self.benchmark_strategies = benchmark_strategies
+        self.risk_free_rate = risk_free_rate
+
+
+@value
+struct BacktestResultsConfig:
+    """
+    Results storage and reporting configuration
+    """
+    var enable_result_storage: Bool
+    var result_storage_format: String
+    var detailed_trade_logs: Bool
+    var performance_metrics: List[String]
+
+    # Report generation
+    var generate_html_reports: Bool
+    var generate_pdf_reports: Bool
+    var include_charts: Bool
+    var chart_resolution: String
+
+    fn __init__(
+        enable_result_storage: Bool = True,
+        result_storage_format: String = "json",
+        detailed_trade_logs: Bool = True,
+        performance_metrics: List[String] = ["total_return", "sharpe_ratio", "max_drawdown", "win_rate", "profit_factor"],
+        generate_html_reports: Bool = True,
+        generate_pdf_reports: Bool = False,
+        include_charts: Bool = True,
+        chart_resolution: String = "high"
+    ):
+        self.enable_result_storage = enable_result_storage
+        self.result_storage_format = result_storage_format
+        self.detailed_trade_logs = detailed_trade_logs
+        self.performance_metrics = performance_metrics
+        self.generate_html_reports = generate_html_reports
+        self.generate_pdf_reports = generate_pdf_reports
+        self.include_charts = include_charts
+        self.chart_resolution = chart_resolution
+
+
+@value
+struct BacktestAlertsConfig:
+    """
+    Alert thresholds for backtesting
+    """
+    var enable_performance_alerts: Bool
+    var performance_alert_threshold: Float
+    var enable_error_alerts: Bool
+    var max_error_rate: Float
+    var enable_timeout_alerts: Bool
+    var max_timeout_rate: Float
+
+    fn __init__(
+        enable_performance_alerts: Bool = True,
+        performance_alert_threshold: Float = 0.1,
+        enable_error_alerts: Bool = True,
+        max_error_rate: Float = 0.05,
+        enable_timeout_alerts: Bool = True,
+        max_timeout_rate: Float = 0.02
+    ):
+        self.enable_performance_alerts = enable_performance_alerts
+        self.performance_alert_threshold = performance_alert_threshold
+        self.enable_error_alerts = enable_error_alerts
+        self.max_error_rate = max_error_rate
+        self.enable_timeout_alerts = enable_timeout_alerts
+        self.max_timeout_rate = max_timeout_rate
+
+
+@value
+struct BacktestMonitoringConfig:
+    """
+    Integration with monitoring systems
+    """
+    var prometheus_metrics_enabled: Bool
+    var metrics_port: Int
+    var granularity_seconds: Int
+    var custom_metrics: List[String]
+
+    # Health checks
+    var health_check_interval_seconds: Int
+    var health_check_timeout_seconds: Int
+    var max_memory_usage_percent: Float
+    var max_cpu_usage_percent: Float
+
+    fn __init__(
+        prometheus_metrics_enabled: Bool = True,
+        metrics_port: Int = 8002,
+        granularity_seconds: Int = 60,
+        custom_metrics: List[String] = ["backtest_duration", "data_quality_score", "filter_pass_rate"],
+        health_check_interval_seconds: Int = 30,
+        health_check_timeout_seconds: Int = 5,
+        max_memory_usage_percent: Float = 80.0,
+        max_cpu_usage_percent: Float = 90.0
+    ):
+        self.prometheus_metrics_enabled = prometheus_metrics_enabled
+        self.metrics_port = metrics_port
+        self.granularity_seconds = granularity_seconds
+        self.custom_metrics = custom_metrics
+        self.health_check_interval_seconds = health_check_interval_seconds
+        self.health_check_timeout_seconds = health_check_timeout_seconds
+        self.max_memory_usage_percent = max_memory_usage_percent
+        self.max_cpu_usage_percent = max_cpu_usage_percent
+
+
+@value
+struct BacktestHistoricalDataConfig:
+    """
+    Historical data management configuration
+    """
+    var data_sources: List[String]
+    var update_interval_hours: Int
+    var historical_lookback_days: Int
+    var data_compression: Bool
+    var compression_ratio: Float
+
+    # Data quality metrics
+    var enable_data_quality_monitoring: Bool
+    var data_quality_threshold: Float
+    var missing_data_tolerance: Float
+    var outlier_detection_enabled: Bool
+    var outlier_threshold_sigma: Float
+
+    fn __init__(
+        data_sources: List[String] = ["jupiter", "coingecko", "defillama", "dexscreener"],
+        update_interval_hours: Int = 1,
+        historical_lookback_days: Int = 365,
+        data_compression: Bool = True,
+        compression_ratio: Float = 0.1,
+        enable_data_quality_monitoring: Bool = True,
+        data_quality_threshold: Float = 0.8,
+        missing_data_tolerance: Float = 0.05,
+        outlier_detection_enabled: Bool = True,
+        outlier_threshold_sigma: Float = 3.0
+    ):
+        self.data_sources = data_sources
+        self.update_interval_hours = update_interval_hours
+        self.historical_lookback_days = historical_lookback_days
+        self.data_compression = data_compression
+        self.compression_ratio = compression_ratio
+        self.enable_data_quality_monitoring = enable_data_quality_monitoring
+        self.data_quality_threshold = data_quality_threshold
+        self.missing_data_tolerance = missing_data_tolerance
+        self.outlier_detection_enabled = outlier_detection_enabled
+        self.outlier_threshold_sigma = outlier_threshold_sigma
+
+
+@value
+struct BacktestSchedulingConfig:
+    """
+    Backtest scheduling and automation configuration
+    """
+    var enable_scheduled_backtests: Bool
+    var schedule_timezone: String
+    var run_interval_hours: Int
+    var batch_size: Int
+    var enable_parallel_batches: Bool
+    var max_parallel_batches: Int
+
+    # Backtest prioritization
+    var prioritization_method: String
+    var priority_tokens: List[String]
+    var exclude_tokens: List[String]
+
+    fn __init__(
+        enable_scheduled_backtests: Bool = True,
+        schedule_timezone: String = "UTC",
+        run_interval_hours: Int = 6,
+        batch_size: Int = 50,
+        enable_parallel_batches: Bool = True,
+        max_parallel_batches: Int = 4,
+        prioritization_method: String = "market_cap",
+        priority_tokens: List[String] = [],
+        exclude_tokens: List[String] = []
+    ):
+        self.enable_scheduled_backtests = enable_scheduled_backtests
+        self.schedule_timezone = schedule_timezone
+        self.run_interval_hours = run_interval_hours
+        self.batch_size = batch_size
+        self.enable_parallel_batches = enable_parallel_batches
+        self.max_parallel_batches = max_parallel_batches
+        self.prioritization_method = prioritization_method
+        self.priority_tokens = priority_tokens
+        self.exclude_tokens = exclude_tokens
+
+
+@value
+struct BacktestDevelopmentConfig:
+    """
+    Development and testing configuration
+    """
+    var enable_debug_mode: Bool
+    var debug_log_level: String
+    var verbose_output: Bool
+    var save_intermediate_results: Bool
+    var mock_external_apis: Bool
+
+    # Test data and scenarios
+    var test_data_directory: String
+    var test_scenarios_enabled: Bool
+    var integration_tests_enabled: Bool
+    var performance_tests_enabled: Bool
+
+    fn __init__(
+        enable_debug_mode: Bool = False,
+        debug_log_level: String = "DEBUG",
+        verbose_output: Bool = False,
+        save_intermediate_results: Bool = False,
+        mock_external_apis: Bool = False,
+        test_data_directory: String = "./test_data",
+        test_scenarios_enabled: Bool = True,
+        integration_tests_enabled: Bool = True,
+        performance_tests_enabled: Bool = False
+    ):
+        self.enable_debug_mode = enable_debug_mode
+        self.debug_log_level = debug_log_level
+        self.verbose_output = verbose_output
+        self.save_intermediate_results = save_intermediate_results
+        self.mock_external_apis = mock_external_apis
+        self.test_data_directory = test_data_directory
+        self.test_scenarios_enabled = test_scenarios_enabled
+        self.integration_tests_enabled = integration_tests_enabled
+        self.performance_tests_enabled = performance_tests_enabled
+
+
+@value
+struct BacktestConfig:
+    """
+    Main backtesting configuration container
+    """
+    # Enable/disable backtesting features
+    var enabled: Bool
+    var data_retention_days: Int
+
+    # Backtest execution parameters
+    var max_concurrent_backtests: Int
+    var default_initial_investment: Float
+    var default_simulation_hours: Int
+    var default_time_interval: String
+
+    # Performance optimization
+    var enable_simd_vectorization: Bool
+    var chunk_size: Int
+    var parallel_workers: Int
+    var cache_price_history: Bool
+    var cache_ttl_hours: Int
+
+    # Sub-configurations
+    var data_sources: BacktestDataSourcesConfig
+    var pumpfun_filters: BacktestPumpFunFiltersConfig
+    var risk_management: BacktestRiskManagementConfig
+    var execution: BacktestExecutionConfig
+    var advanced: BacktestAdvancedConfig
+    var validation: BacktestValidationConfig
+    var results: BacktestResultsConfig
+    var alerts: BacktestAlertsConfig
+    var monitoring: BacktestMonitoringConfig
+    var historical_data: BacktestHistoricalDataConfig
+    var scheduling: BacktestSchedulingConfig
+    var development: BacktestDevelopmentConfig
+
+    fn __init__(
+        enabled: Bool = True,
+        data_retention_days: Int = 30,
+        max_concurrent_backtests: Int = 10,
+        default_initial_investment: Float = 1000.0,
+        default_simulation_hours: Int = 24,
+        default_time_interval: String = "5m",
+        enable_simd_vectorization: Bool = True,
+        chunk_size: Int = 1024,
+        parallel_workers: Int = 4,
+        cache_price_history: Bool = True,
+        cache_ttl_hours: Int = 1
+    ):
+        self.enabled = enabled
+        self.data_retention_days = data_retention_days
+        self.max_concurrent_backtests = max_concurrent_backtests
+        self.default_initial_investment = default_initial_investment
+        self.default_simulation_hours = default_simulation_hours
+        self.default_time_interval = default_time_interval
+        self.enable_simd_vectorization = enable_simd_vectorization
+        self.chunk_size = chunk_size
+        self.parallel_workers = parallel_workers
+        self.cache_price_history = cache_price_history
+        self.cache_ttl_hours = cache_ttl_hours
+
+        # Initialize sub-configurations with defaults
+        self.data_sources = BacktestDataSourcesConfig()
+        self.pumpfun_filters = BacktestPumpFunFiltersConfig()
+        self.risk_management = BacktestRiskManagementConfig()
+        self.execution = BacktestExecutionConfig()
+        self.advanced = BacktestAdvancedConfig()
+        self.validation = BacktestValidationConfig()
+        self.results = BacktestResultsConfig()
+        self.alerts = BacktestAlertsConfig()
+        self.monitoring = BacktestMonitoringConfig()
+        self.historical_data = BacktestHistoricalDataConfig()
+        self.scheduling = BacktestSchedulingConfig()
+        self.development = BacktestDevelopmentConfig()
+
 
 # =============================================================================
 # Configuration Loading Function

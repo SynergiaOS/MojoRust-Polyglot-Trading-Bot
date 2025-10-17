@@ -16,10 +16,12 @@ from .social_intelligence_engine import SocialIntelligenceEngine
 from .geyser_client import ProductionGeyserClient
 from .jupiter_price_api import JupiterPriceAPI
 from .health_api import HealthAPI
+from . import shredstream_bridge
 
 __all__ = [
     "SocialIntelligenceEngine",
     "ProductionGeyserClient",
     "JupiterPriceAPI",
-    "HealthAPI"
+    "HealthAPI",
+    "shredstream_bridge"
 ]

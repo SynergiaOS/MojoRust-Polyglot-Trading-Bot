@@ -1,13 +1,15 @@
-//! Mojo Trading Bot Rust Security Modules
+//! Mojo Trading Bot Rust Security & Arbitrage Modules
 //!
-//! This crate provides comprehensive security and cryptographic utilities
-//! for the high-performance algorithmic trading bot.
+//! This crate provides comprehensive security, cryptographic utilities, and
+//! advanced arbitrage capabilities for the high-performance algorithmic trading bot.
 //!
 //! ## Features
 //!
 //! - **Cryptography**: Keypair management, digital signatures, encryption
 //! - **Security**: Rate limiting, input validation, audit logging
 //! - **Solana Integration**: Transaction building, account management
+//! - **Arbitrage**: Multi-token arbitrage with provider-aware routing
+//! - **MEV Protection**: Jito bundle execution with dynamic fees
 //! - **FFI Interface**: Safe bindings for Mojo integration
 //!
 //! ## Architecture
@@ -17,6 +19,9 @@
 //! - [`crypto`]: Core cryptographic utilities
 //! - [`security`]: Security protection and monitoring
 //! - [`solana`]: Solana blockchain integration
+//! - [`arbitrage`]: Multi-token arbitrage detection and execution
+//! - [`jito_bundle_builder`]: MEV-protected bundle submission
+//! - [`rpc_router`]: Provider-aware RPC routing with health monitoring
 //! - [`ffi`]: Foreign Function Interface for Mojo
 
 #![warn(missing_docs)]
@@ -32,6 +37,11 @@ pub mod infisical_manager;
 pub mod portfolio;
 pub mod mock_geyser;
 
+// Multi-token arbitrage modules
+pub mod arbitrage;
+pub mod jito_bundle_builder;
+pub mod rpc_router;
+
 // Re-export main interfaces for convenience
 pub use crypto::CryptoEngine;
 pub use security::SecurityEngine;
@@ -39,6 +49,15 @@ pub use solana::SolanaEngine;
 pub use infisical_manager::{SecretsManager, ApiConfig, TradingConfig, WalletConfig, DatabaseConfig, MonitoringConfig};
 pub use data_consumer::{GeyserDataConsumer, EventFilters, FilteredEvent, FilteredEventType};
 pub use portfolio::{PortfolioManager, CapitalRequest, CapitalReservation, Strategy, Priority};
+
+// Re-export arbitrage interfaces
+pub use arbitrage::{
+    ArbitrageOpportunity, ArbitrageConfig, ArbitrageType,
+    FlashLoanDetector, CrossExchangeDetector, TriangularDetector,
+    ArbitrageExecutor, ArbitrageExecutionResult
+};
+pub use jito_bundle_builder::{JitoBundleBuilder, BundleConfig, BundleSubmissionResult};
+pub use rpc_router::{RPCRouter, ProviderConfig, RPCHealth};
 
 use anyhow::Result;
 
@@ -162,6 +181,8 @@ pub struct TradingBot {
     crypto_engine: CryptoEngine,
     security_engine: SecurityEngine,
     solana_engine: SolanaEngine,
+    arbitrage_executor: Option<ArbitrageExecutor>,
+    rpc_router: Option<RPCRouter>,
 }
 
 impl TradingBot {
@@ -178,6 +199,8 @@ impl TradingBot {
             crypto_engine,
             security_engine,
             solana_engine,
+            arbitrage_executor: None,
+            rpc_router: None,
         };
 
         bot.initialize()?;
@@ -219,17 +242,61 @@ impl TradingBot {
         &self.solana_engine
     }
 
+    /// Initialize arbitrage capabilities
+    pub fn initialize_arbitrage(&mut self, arbitrage_config: ArbitrageConfig) -> Result<()> {
+        // Initialize RPC router for provider management
+        let rpc_router = RPCRouter::new()?;
+
+        // Create arbitrage executor
+        let keypair = self.crypto_engine.keypair_manager().get_keypair()?;
+        let arbitrage_executor = ArbitrageExecutor::new(
+            arbitrage_config,
+            std::sync::Arc::new(rpc_router.clone()),
+            std::sync::Arc::new(keypair),
+        )?;
+
+        self.rpc_router = Some(rpc_router);
+        self.arbitrage_executor = Some(arbitrage_executor);
+
+        log::info!("Arbitrage capabilities initialized with provider routing");
+        Ok(())
+    }
+
+    /// Get arbitrage executor
+    pub fn arbitrage_executor(&self) -> Option<&ArbitrageExecutor> {
+        self.arbitrage_executor.as_ref()
+    }
+
+    /// Get RPC router
+    pub fn rpc_router(&self) -> Option<&RPCRouter> {
+        self.rpc_router.as_ref()
+    }
+
+    /// Execute arbitrage opportunity
+    pub async fn execute_arbitrage(&self, opportunity: &ArbitrageOpportunity) -> Result<ArbitrageExecutionResult> {
+        match &self.arbitrage_executor {
+            Some(executor) => executor.execute_opportunity(opportunity).await,
+            None => Err(anyhow::anyhow!("Arbitrage not initialized. Call initialize_arbitrage() first.")),
+        }
+    }
+
     /// Perform health check
     pub fn health_check(&self) -> Result<HealthStatus> {
         let crypto_healthy = self.crypto_engine.keypair_manager().get_keypair().is_ok();
         let security_healthy = self.security_engine.monitor().is_active();
         let solana_healthy = self.solana_engine.get_cluster_health()?.is_healthy;
+        let arbitrage_healthy = self.arbitrage_executor.is_some();
+        let rpc_router_healthy = self.rpc_router.as_ref()
+            .map(|router| router.get_provider_health().is_ok())
+            .unwrap_or(true); // If not initialized, consider it healthy
 
         Ok(HealthStatus {
-            overall_healthy: crypto_healthy && security_healthy && solana_healthy,
+            overall_healthy: crypto_healthy && security_healthy && solana_healthy && arbitrage_healthy && rpc_router_healthy,
             crypto_healthy,
             security_healthy,
             solana_healthy,
+            arbitrage_healthy,
+            rpc_router_healthy,
             uptime: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -252,11 +319,23 @@ impl TradingBot {
 
     /// Get performance metrics
     pub fn get_metrics(&self) -> Metrics {
+        let (total_providers, healthy_providers) = if let Some(router) = &self.rpc_router {
+            match router.get_provider_health() {
+                Ok(health_map) => (health_map.len(), health_map.values().filter(|h| h.is_healthy).count()),
+                Err(_) => (0, 0),
+            }
+        } else {
+            (0, 0)
+        };
+
         Metrics {
             security_score: self.config.security_level.score(),
             active_rate_limits: self.security_engine.rate_limiter().get_active_limits(),
             audit_log_size: self.security_engine.auditor().get_log_size(),
             threats_detected: self.security_engine.monitor().get_threat_count(),
+            arbitrage_enabled: self.arbitrage_executor.is_some(),
+            total_providers,
+            healthy_providers,
             last_check: std::time::SystemTime::now(),
         }
     }
@@ -275,6 +354,8 @@ pub struct HealthStatus {
     pub crypto_healthy: bool,
     pub security_healthy: bool,
     pub solana_healthy: bool,
+    pub arbitrage_healthy: bool,
+    pub rpc_router_healthy: bool,
     pub uptime: u64,
 }
 
@@ -285,6 +366,9 @@ pub struct Metrics {
     pub active_rate_limits: usize,
     pub audit_log_size: usize,
     pub threats_detected: u64,
+    pub arbitrage_enabled: bool,
+    pub total_providers: usize,
+    pub healthy_providers: usize,
     pub last_check: std::time::SystemTime,
 }
 

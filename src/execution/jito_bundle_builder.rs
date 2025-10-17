@@ -7,7 +7,7 @@
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH, Instant};
 use tokio::time::sleep;
 use log::{info, warn, error, debug};
 use solana_sdk::{
@@ -23,6 +23,8 @@ use reqwest::Client;
 use serde_json::Value;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bincode::serialize;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message, WebSocketStream};
+use futures::{StreamExt, SinkExt};
 
 /// Jito bundle types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +114,42 @@ pub struct BundleStatus {
     pub submitted_at: u64,
     pub confirmed_at: Option<u64>,
     pub slot: Option<u64>,
+    pub provider: String,
+}
+
+/// Bundle provider types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BundleProvider {
+    /// Standard Jito bundle submission
+    Jito,
+    /// Helius ShredStream (WebSocket)
+    HeliusShredStream,
+    /// QuickNode Lil' JIT (HTTP)
+    QuickNodeLilJit,
+}
+
+/// Provider-specific configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderConfig {
+    pub provider: BundleProvider,
+    pub endpoint: String,
+    pub enabled: bool,
+    pub priority_multiplier: f64, // Multiplier for base tip amounts
+    pub timeout_seconds: u64,
+    pub max_retries: u32,
+    pub success_rate_threshold: f64,
+}
+
+/// Bundle submission result with provider info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleSubmission {
+    pub bundle_id: String,
+    pub success: bool,
+    pub provider: BundleProvider,
+    pub signature: Option<String>,
+    pub submission_time_ms: u64,
+    pub error_message: Option<String>,
+    pub tip_used: u64,
 }
 
 /// MEV protection configuration
@@ -125,24 +163,46 @@ pub struct MEVProtectionConfig {
     commit_reveal: bool,
 }
 
-/// Bundle builder with Jito integration
+/// Bundle builder with Jito integration and provider-aware submission
 pub struct JitoBundleBuilder {
     client: Client,
     keypair: Keypair,
     rpc_url: String,
     jito_endpoints: Vec<String>,
+    helius_shredstream_endpoint: String,
+    quicknode_lil_jit_endpoint: String,
+    preferred_provider: String, // "helius", "quicknode", "auto", "jito"
+    provider_configs: HashMap<BundleProvider, ProviderConfig>,
     default_config: BundleConfig,
     mev_protection: MEVProtectionConfig,
     bundles_cache: HashMap<String, BundleTransaction>,
     pending_bundles: HashMap<String, BundleStatus>,
+    provider_statistics: HashMap<BundleProvider, ProviderStatistics>,
+}
+
+/// Provider-specific statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderStatistics {
+    pub provider: BundleProvider,
+    pub total_submissions: u64,
+    pub successful_submissions: u64,
+    pub failed_submissions: u64,
+    pub success_rate: f64,
+    pub average_latency_ms: f64,
+    pub average_tip_used: u64,
+    pub last_submission_time: Option<u64>,
+    pub last_success_time: Option<u64>,
 }
 
 impl JitoBundleBuilder {
-    /// Create new Jito bundle builder
+    /// Create new Jito bundle builder with provider support
     pub fn new(
         keypair: Keypair,
         rpc_url: String,
         jito_endpoints: Vec<String>,
+        helius_shredstream_endpoint: Option<String>,
+        quicknode_lil_jit_endpoint: Option<String>,
+        preferred_provider: Option<String>,
     ) -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
@@ -168,15 +228,74 @@ impl JitoBundleBuilder {
             commit_reveal: false,
         };
 
+        // Initialize provider configurations
+        let mut provider_configs = HashMap::new();
+
+        // Standard Jito configuration
+        provider_configs.insert(BundleProvider::Jito, ProviderConfig {
+            provider: BundleProvider::Jito,
+            endpoint: jito_endpoints.first().unwrap_or(&"https://mainnet.block-engine.jito.wtf".to_string()).clone(),
+            enabled: true,
+            priority_multiplier: 1.0,
+            timeout_seconds: 30,
+            max_retries: 3,
+            success_rate_threshold: 0.85,
+        });
+
+        // Helius ShredStream configuration
+        if let Some(helius_endpoint) = helius_shredstream_endpoint {
+            provider_configs.insert(BundleProvider::HeliusShredStream, ProviderConfig {
+                provider: BundleProvider::HeliusShredStream,
+                endpoint: helius_endpoint,
+                enabled: true,
+                priority_multiplier: 1.2, // Higher priority for ShredStream
+                timeout_seconds: 25,
+                max_retries: 2,
+                success_rate_threshold: 0.90,
+            });
+        }
+
+        // QuickNode Lil' JIT configuration
+        if let Some(quicknode_endpoint) = quicknode_lil_jit_endpoint {
+            provider_configs.insert(BundleProvider::QuickNodeLilJit, ProviderConfig {
+                provider: BundleProvider::QuickNodeLilJit,
+                endpoint: quicknode_endpoint,
+                enabled: true,
+                priority_multiplier: 1.1,
+                timeout_seconds: 35,
+                max_retries: 3,
+                success_rate_threshold: 0.88,
+            });
+        }
+
+        // Initialize provider statistics
+        let mut provider_statistics = HashMap::new();
+        provider_statistics.insert(BundleProvider::Jito, ProviderStatistics {
+            provider: BundleProvider::Jito,
+            total_submissions: 0,
+            successful_submissions: 0,
+            failed_submissions: 0,
+            success_rate: 0.0,
+            average_latency_ms: 0.0,
+            average_tip_used: 0,
+            last_submission_time: None,
+            last_success_time: None,
+        });
+
         Ok(Self {
             client,
             keypair,
             rpc_url,
             jito_endpoints,
+            helius_shredstream_endpoint: helius_shredstream_endpoint.unwrap_or_default(),
+            quicknode_lil_jit_endpoint: quicknode_lil_jit_endpoint.unwrap_or_default(),
+            preferred_provider: preferred_provider.unwrap_or("auto".to_string()),
+            provider_configs,
             default_config,
             mev_protection,
             bundles_cache: HashMap::new(),
             pending_bundles: HashMap::new(),
+            provider_statistics,
         })
     }
 
@@ -312,7 +431,7 @@ impl JitoBundleBuilder {
         Ok(tx)
     }
 
-    /// Submit bundle to Jito
+    /// Submit bundle with provider selection
     pub async fn submit_bundle(
         &mut self,
         bundle: Vec<BundleTransaction>,
@@ -322,25 +441,261 @@ impl JitoBundleBuilder {
 
         info!("Submitting bundle with {} transactions", bundle.len());
 
+        // Select optimal provider
+        let selected_provider = self.select_provider(&bundle_config.priority)?;
+
+        // Submit via selected provider
+        match selected_provider {
+            BundleProvider::HeliusShredStream => {
+                self.submit_via_shredstream(bundle, &bundle_config).await
+            }
+            BundleProvider::QuickNodeLilJit => {
+                self.submit_via_lil_jit(bundle, &bundle_config).await
+            }
+            BundleProvider::Jito => {
+                self.submit_via_standard_jito(bundle, &bundle_config).await
+            }
+        }
+    }
+
+    /// Select optimal provider based on priority and availability
+    fn select_provider(&self, priority: &BundlePriority) -> Result<BundleProvider> {
+        match self.preferred_provider.as_str() {
+            "helius" => {
+                if self.provider_configs.get(&BundleProvider::HeliusShredstream)
+                    .map_or(false, |c| c.enabled) {
+                    return Ok(BundleProvider::HeliusShredStream);
+                }
+            }
+            "quicknode" => {
+                if self.provider_configs.get(&BundleProvider::QuickNodeLilJit)
+                    .map_or(false, |c| c.enabled) {
+                    return Ok(BundleProvider::QuickNodeLilJit);
+                }
+            }
+            "jito" => {
+                return Ok(BundleProvider::Jito);
+            }
+            "auto" => {
+                // Auto selection based on priority
+                match priority {
+                    BundlePriority::Critical | BundlePriority::High => {
+                        // Prefer Helius ShredStream for critical bundles
+                        if self.provider_configs.get(&BundleProvider::HeliusShredstream)
+                            .map_or(false, |c| c.enabled && c.success_rate_threshold > 0.85) {
+                            return Ok(BundleProvider::HeliusShredStream);
+                        }
+                        // Fallback to QuickNode
+                        if self.provider_configs.get(&BundleProvider::QuickNodeLilJit)
+                            .map_or(false, |c| c.enabled && c.success_rate_threshold > 0.80) {
+                            return Ok(BundleProvider::QuickNodeLilJit);
+                        }
+                    }
+                    BundlePriority::Medium => {
+                        // Prefer QuickNode for medium priority
+                        if self.provider_configs.get(&BundleProvider::QuickNodeLilJit)
+                            .map_or(false, |c| c.enabled && c.success_rate_threshold > 0.80) {
+                            return Ok(BundleProvider::QuickNodeLilJit);
+                        }
+                        // Fallback to Helius
+                        if self.provider_configs.get(&BundleProvider::HeliusShredstream)
+                            .map_or(false, |c| c.enabled) {
+                            return Ok(BundleProvider::HeliusShredStream);
+                        }
+                    }
+                    BundlePriority::Low => {
+                        // Standard Jito for low priority
+                        return Ok(BundleProvider::Jito);
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // Default to Jito if no other provider is suitable
+        Ok(BundleProvider::Jito)
+    }
+
+    /// Submit bundle via Helius ShredStream (WebSocket)
+    async fn submit_via_shredstream(
+        &mut self,
+        bundle: Vec<BundleTransaction>,
+        config: &BundleConfig,
+    ) -> Result<BundleExecution> {
+        if self.helius_shredstream_endpoint.is_empty() {
+            return Err(anyhow!("Helius ShredStream endpoint not configured"));
+        }
+
+        info!("Submitting bundle via Helius ShredStream");
         let start_time = SystemTime::now();
         let bundle_id = self.generate_bundle_id();
 
-        // Prepare bundle data
-        let bundle_data = self.prepare_bundle_data(&bundle, &bundle_config)?;
+        let provider_config = self.provider_configs.get(&BundleProvider::HeliusShredstream)
+            .ok_or_else(|| anyhow!("Helius ShredStream not configured"))?;
 
-        // Submit to Jito endpoints
+        // Prepare bundle data
+        let bundle_data = self.prepare_bundle_data(&bundle, config)?;
+        let adjusted_tip = (config.tip_amount as f64 * provider_config.priority_multiplier) as u64;
+
         let mut last_error = None;
         let mut successful_submission = None;
 
-        for endpoint in &self.jito_endpoints {
-            match self.submit_to_endpoint(endpoint, &bundle_data, &bundle_config).await {
+        // Try to connect and submit via WebSocket
+        for attempt in 0..provider_config.max_retries {
+            match self.submit_to_shredstream_endpoint(&self.helius_shredstream_endpoint, &bundle_data, adjusted_tip).await {
                 Ok(signature) => {
-                    info!("Bundle submitted successfully to {}", endpoint);
+                    info!("Bundle submitted successfully via Helius ShredStream (attempt {})", attempt + 1);
                     successful_submission = Some(signature);
                     break;
                 }
                 Err(e) => {
-                    warn!("Failed to submit to {}: {}", endpoint, e);
+                    warn!("Helius ShredStream submission failed (attempt {}): {}", attempt + 1, e);
+                    last_error = Some(e);
+                    if attempt < provider_config.max_retries - 1 {
+                        sleep(Duration::from_millis(1000)).await;
+                    }
+                }
+            }
+        }
+
+        let execution_time = SystemTime::now()
+            .duration_since(start_time)
+            .unwrap_or(Duration::from_secs(0))
+            .as_millis() as u64;
+
+        // Update provider statistics
+        self.update_provider_statistics(BundleProvider::HeliusShredStream, successful_submission.is_some(), execution_time, adjusted_tip);
+
+        if let Some(signature) = successful_submission {
+            let results = self.wait_for_bundle_confirmation(&signature, config.timeout_seconds).await?;
+            Ok(BundleExecution {
+                bundle_id,
+                success: true,
+                transaction_results: results,
+                total_gas_used: results.iter().map(|r| r.gas_used).sum(),
+                total_cost: self.calculate_total_cost(&bundle, config) + adjusted_tip - config.tip_amount,
+                execution_time_ms: execution_time,
+                error_message: None,
+                bundle_signature: Some(signature),
+            })
+        } else {
+            Ok(BundleExecution {
+                bundle_id,
+                success: false,
+                transaction_results: Vec::new(),
+                total_gas_used: 0,
+                total_cost: 0,
+                execution_time_ms: execution_time,
+                error_message: last_error.map(|e| e.to_string()),
+                bundle_signature: None,
+            })
+        }
+    }
+
+    /// Submit bundle via QuickNode Lil' JIT (HTTP)
+    async fn submit_via_lil_jit(
+        &mut self,
+        bundle: Vec<BundleTransaction>,
+        config: &BundleConfig,
+    ) -> Result<BundleExecution> {
+        if self.quicknode_lil_jit_endpoint.is_empty() {
+            return Err(anyhow!("QuickNode Lil' JIT endpoint not configured"));
+        }
+
+        info!("Submitting bundle via QuickNode Lil' JIT");
+        let start_time = SystemTime::now();
+        let bundle_id = self.generate_bundle_id();
+
+        let provider_config = self.provider_configs.get(&BundleProvider::QuickNodeLilJit)
+            .ok_or_else(|| anyhow!("QuickNode Lil' JIT not configured"))?;
+
+        // Prepare bundle data
+        let bundle_data = self.prepare_bundle_data(&bundle, config)?;
+        let adjusted_tip = (config.tip_amount as f64 * provider_config.priority_multiplier) as u64;
+
+        let mut last_error = None;
+        let mut successful_submission = None;
+
+        // Try HTTP submission
+        for attempt in 0..provider_config.max_retries {
+            match self.submit_to_lil_jit_endpoint(&self.quicknode_lil_jit_endpoint, &bundle_data, adjusted_tip).await {
+                Ok(bundle_id) => {
+                    info!("Bundle submitted successfully via QuickNode Lil' JIT (attempt {})", attempt + 1);
+                    successful_submission = Some(bundle_id);
+                    break;
+                }
+                Err(e) => {
+                    warn!("QuickNode Lil' JIT submission failed (attempt {}): {}", attempt + 1, e);
+                    last_error = Some(e);
+                    if attempt < provider_config.max_retries - 1 {
+                        sleep(Duration::from_millis(1500)).await;
+                    }
+                }
+            }
+        }
+
+        let execution_time = SystemTime::now()
+            .duration_since(start_time)
+            .unwrap_or(Duration::from_secs(0))
+            .as_millis() as u64;
+
+        // Update provider statistics
+        self.update_provider_statistics(BundleProvider::QuickNodeLilJit, successful_submission.is_some(), execution_time, adjusted_tip);
+
+        if let Some(bundle_id) = successful_submission {
+            // Convert bundle_id to signature format for consistency
+            let signature = format!("bundle_{}", bundle_id);
+            let results = self.wait_for_bundle_confirmation(&signature, config.timeout_seconds).await?;
+            Ok(BundleExecution {
+                bundle_id,
+                success: true,
+                transaction_results: results,
+                total_gas_used: results.iter().map(|r| r.gas_used).sum(),
+                total_cost: self.calculate_total_cost(&bundle, config) + adjusted_tip - config.tip_amount,
+                execution_time_ms: execution_time,
+                error_message: None,
+                bundle_signature: Some(signature),
+            })
+        } else {
+            Ok(BundleExecution {
+                bundle_id,
+                success: false,
+                transaction_results: Vec::new(),
+                total_gas_used: 0,
+                total_cost: 0,
+                execution_time_ms: execution_time,
+                error_message: last_error.map(|e| e.to_string()),
+                bundle_signature: None,
+            })
+        }
+    }
+
+    /// Submit bundle via standard Jito (fallback)
+    async fn submit_via_standard_jito(
+        &mut self,
+        bundle: Vec<BundleTransaction>,
+        config: &BundleConfig,
+    ) -> Result<BundleExecution> {
+        info!("Submitting bundle via standard Jito");
+        let start_time = SystemTime::now();
+        let bundle_id = self.generate_bundle_id();
+
+        // Prepare bundle data
+        let bundle_data = self.prepare_bundle_data(&bundle, config)?;
+
+        // Submit to standard Jito endpoints
+        let mut last_error = None;
+        let mut successful_submission = None;
+
+        for endpoint in &self.jito_endpoints {
+            match self.submit_to_endpoint(endpoint, &bundle_data, config).await {
+                Ok(signature) => {
+                    info!("Bundle submitted successfully to {} (standard Jito)", endpoint);
+                    successful_submission = Some(signature);
+                    break;
+                }
+                Err(e) => {
+                    warn!("Standard Jito submission failed: {}", e);
                     last_error = Some(e);
                 }
             }
@@ -351,16 +706,17 @@ impl JitoBundleBuilder {
             .unwrap_or(Duration::from_secs(0))
             .as_millis() as u64;
 
-        if let Some(signature) = successful_submission {
-            // Wait for confirmation
-            let results = self.wait_for_bundle_confirmation(&signature, bundle_config.timeout_seconds).await?;
+        // Update provider statistics
+        self.update_provider_statistics(BundleProvider::Jito, successful_submission.is_some(), execution_time, config.tip_amount);
 
+        if let Some(signature) = successful_submission {
+            let results = self.wait_for_bundle_confirmation(&signature, config.timeout_seconds).await?;
             Ok(BundleExecution {
                 bundle_id,
                 success: true,
                 transaction_results: results,
                 total_gas_used: results.iter().map(|r| r.gas_used).sum(),
-                total_cost: self.calculate_total_cost(&bundle, &bundle_config),
+                total_cost: self.calculate_total_cost(&bundle, config),
                 execution_time_ms: execution_time,
                 error_message: None,
                 bundle_signature: Some(signature),
@@ -628,13 +984,238 @@ impl JitoBundleBuilder {
         info!("Updated MEV protection configuration");
     }
 
-    /// Get builder statistics
+    /// Submit bundle to Helius ShredStream endpoint via WebSocket
+    async fn submit_to_shredstream_endpoint(
+        &self,
+        endpoint: &str,
+        bundle_data: &[u8],
+        tip_amount: u64,
+    ) -> Result<String> {
+        let url = format!("{}/api/v1/bundles/submit", endpoint);
+
+        // Connect to WebSocket
+        let (ws_stream, _) = connect_async(&url).await
+            .map_err(|e| anyhow!("Failed to connect to Helius ShredStream: {}", e))?;
+
+        let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+
+        // Prepare bundle submission message
+        let submission_msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "submitBundle",
+            "params": {
+                "bundle": STANDARD.encode(bundle_data),
+                "tip": tip_amount,
+                "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis(),
+            }
+        });
+
+        // Send submission message
+        ws_sender.send(Message::Text(submission_msg.to_string())).await
+            .map_err(|e| anyhow!("Failed to send bundle to ShredStream: {}", e))?;
+
+        // Wait for response
+        let timeout = Duration::from_secs(10);
+        let start_time = Instant::now();
+
+        while start_time.elapsed() < timeout {
+            if let Some(msg) = ws_receiver.next().await {
+                match msg {
+                    Ok(Message::Text(text)) => {
+                        let response: Value = serde_json::from_str(&text)
+                            .map_err(|e| anyhow!("Failed to parse ShredStream response: {}", e))?;
+
+                        if let Some(result) = response.get("result") {
+                            let signature = result.get("bundleSignature")
+                                .and_then(|s| s.as_str())
+                                .ok_or_else(|| anyhow!("No bundle signature in ShredStream response"))?;
+                            return Ok(signature.to_string());
+                        } else if let Some(error) = response.get("error") {
+                            return Err(anyhow!("ShredStream error: {}", error));
+                        }
+                    }
+                    Ok(Message::Close(_)) => {
+                        return Err(anyhow!("ShredStream connection closed unexpectedly"));
+                    }
+                    Err(e) => {
+                        return Err(anyhow!("ShredStream WebSocket error: {}", e));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Err(anyhow!("ShredStream submission timeout"))
+    }
+
+    /// Submit bundle to QuickNode Lil' JIT endpoint via HTTP
+    async fn submit_to_lil_jit_endpoint(
+        &self,
+        endpoint: &str,
+        bundle_data: &[u8],
+        tip_amount: u64,
+    ) -> Result<String> {
+        let url = format!("{}/api/v1/jit/bundles", endpoint);
+
+        let params = serde_json::json!({
+            "bundle": STANDARD.encode(bundle_data),
+            "tip": tip_amount,
+            "priority": "high",
+            "skip_preflight": false,
+        });
+
+        let response = self.client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&params)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to submit to QuickNode Lil' JIT: {}", e))?;
+
+        if response.status().is_success() {
+            let result: Value = response.json().await
+                .map_err(|e| anyhow!("Failed to parse QuickNode response: {}", e))?;
+
+            let bundle_id = result.get("bundleId")
+                .and_then(|s| s.as_str())
+                .ok_or_else(|| anyhow!("No bundle ID in QuickNode response"))?
+                .to_string();
+
+            Ok(bundle_id)
+        } else {
+            let error_text = response.text().await
+                .map_err(|e| anyhow!("Failed to read QuickNode error: {}", e))?;
+            Err(anyhow!("QuickNode Lil' JIT submission failed: {}", error_text))
+        }
+    }
+
+    /// Update provider statistics after submission attempt
+    fn update_provider_statistics(
+        &mut self,
+        provider: BundleProvider,
+        success: bool,
+        execution_time_ms: u64,
+        tip_used: u64,
+    ) {
+        let stats = self.provider_statistics.entry(provider.clone()).or_insert_with(|| ProviderStatistics {
+            provider: provider.clone(),
+            total_submissions: 0,
+            successful_submissions: 0,
+            failed_submissions: 0,
+            success_rate: 0.0,
+            average_latency_ms: 0.0,
+            average_tip_used: 0,
+            last_submission_time: None,
+            last_success_time: None,
+        });
+
+        // Update counters
+        stats.total_submissions += 1;
+        if success {
+            stats.successful_submissions += 1;
+            stats.last_success_time = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+        } else {
+            stats.failed_submissions += 1;
+        }
+
+        // Update success rate
+        stats.success_rate = stats.successful_submissions as f64 / stats.total_submissions as f64;
+
+        // Update average latency (exponential moving average)
+        let alpha = 0.3; // Smoothing factor
+        stats.average_latency_ms = if stats.total_submissions == 1 {
+            execution_time_ms as f64
+        } else {
+            alpha * execution_time_ms as f64 + (1.0 - alpha) * stats.average_latency_ms
+        };
+
+        // Update average tip used (exponential moving average)
+        stats.average_tip_used = if stats.total_submissions == 1 {
+            tip_used
+        } else {
+            (alpha * tip_used as f64 + (1.0 - alpha) * stats.average_tip_used as f64) as u64
+        };
+
+        stats.last_submission_time = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+    }
+
+    /// Get builder statistics including provider-specific metrics
     pub fn get_statistics(&self) -> HashMap<String, u64> {
         let mut stats = HashMap::new();
         stats.insert("cached_bundles".to_string(), self.bundles_cache.len() as u64);
         stats.insert("pending_bundles".to_string(), self.pending_bundles.len() as u64);
         stats.insert("jito_endpoints".to_string(), self.jito_endpoints.len() as u64);
+
+        // Add provider statistics
+        for (provider, provider_stats) in &self.provider_statistics {
+            let prefix = format!("{:?}", provider).to_lowercase();
+            stats.insert(format!("{}_total_submissions", prefix), provider_stats.total_submissions);
+            stats.insert(format!("{}_successful_submissions", prefix), provider_stats.successful_submissions);
+            stats.insert(format!("{}_failed_submissions", prefix), provider_stats.failed_submissions);
+            stats.insert(format!("{}_success_rate_percent", prefix), (provider_stats.success_rate * 100.0) as u64);
+            stats.insert(format!("{}_average_latency_ms", prefix), provider_stats.average_latency_ms as u64);
+            stats.insert(format!("{}_average_tip_used", prefix), provider_stats.average_tip_used);
+        }
+
         stats
+    }
+
+    /// Get provider-specific statistics
+    pub fn get_provider_statistics(&self) -> HashMap<BundleProvider, ProviderStatistics> {
+        self.provider_statistics.clone()
+    }
+
+    /// Update provider configuration
+    pub fn update_provider_config(&mut self, provider: BundleProvider, config: ProviderConfig) {
+        self.provider_configs.insert(provider.clone(), config);
+        info!("Updated configuration for provider: {:?}", provider);
+    }
+
+    /// Enable/disable provider
+    pub fn set_provider_enabled(&mut self, provider: BundleProvider, enabled: bool) {
+        if let Some(config) = self.provider_configs.get_mut(&provider) {
+            config.enabled = enabled;
+            info!("{} provider: {:?}", if enabled { "Enabled" } else { "Disabled" }, provider);
+        }
+    }
+
+    /// Reset provider statistics
+    pub fn reset_provider_statistics(&mut self, provider: Option<BundleProvider>) {
+        if let Some(p) = provider {
+            if let Some(stats) = self.provider_statistics.get_mut(&p) {
+                *stats = ProviderStatistics {
+                    provider: p,
+                    total_submissions: 0,
+                    successful_submissions: 0,
+                    failed_submissions: 0,
+                    success_rate: 0.0,
+                    average_latency_ms: 0.0,
+                    average_tip_used: 0,
+                    last_submission_time: None,
+                    last_success_time: None,
+                };
+                info!("Reset statistics for provider: {:?}", p);
+            }
+        } else {
+            // Reset all providers
+            for (provider, _) in &self.provider_configs.clone() {
+                if let Some(stats) = self.provider_statistics.get_mut(&provider) {
+                    *stats = ProviderStatistics {
+                        provider: provider.clone(),
+                        total_submissions: 0,
+                        successful_submissions: 0,
+                        failed_submissions: 0,
+                        success_rate: 0.0,
+                        average_latency_ms: 0.0,
+                        average_tip_used: 0,
+                        last_submission_time: None,
+                        last_success_time: None,
+                    };
+                }
+            }
+            info!("Reset statistics for all providers");
+        }
     }
 }
 

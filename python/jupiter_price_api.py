@@ -914,6 +914,173 @@ class JupiterPriceAPI:
             logger.error(f"Failed to get price synchronously: {e}")
             return None
 
+    async def get_price_history(self, token_id: str, interval: str = "1m",
+                              from_timestamp: int = 0, to_timestamp: int = 0) -> List[Dict[str, Any]]:
+        """
+        Get historical price data from Jupiter Price History API
+
+        Args:
+            token_id: Token identifier (mint address or symbol)
+            interval: Time interval ("1m", "5m", "15m", "1h", "4h", "1d")
+            from_timestamp: Start time as Unix epoch seconds
+            to_timestamp: End time as Unix epoch seconds
+
+        Returns:
+            List of historical price data points with timestamps, prices, volumes, and liquidity
+        """
+        # Validate interval parameter
+        valid_intervals = ["1m", "5m", "15m", "1h", "4h", "1d"]
+        if interval not in valid_intervals:
+            logger.error(f"Invalid interval '{interval}'. Must be one of: {valid_intervals}")
+            return []
+
+        try:
+            # Set default timestamps if not provided
+            if from_timestamp == 0:
+                # Default to 30 days ago
+                from_timestamp = int((datetime.now() - timedelta(days=30)).timestamp())
+            if to_timestamp == 0:
+                # Default to current time
+                to_timestamp = int(datetime.now().timestamp())
+
+            # Validate date range
+            if from_timestamp >= to_timestamp:
+                logger.error("from_timestamp must be less than to_timestamp")
+                return []
+
+            # Build API URL for price history
+            url = f"https://price.jup.ag/v3/history"
+            params = {
+                "id": token_id,
+                "interval": interval,
+                "from": str(from_timestamp),
+                "to": str(to_timestamp)
+            }
+
+            # Make the request
+            start_time = time.time()
+            response = await self._make_request(url, params)
+            response_time_ms = (time.time() - start_time) * 1000
+
+            if not response.success:
+                logger.error(f"Failed to get price history for {token_id}: {response.error}")
+                return []
+
+            # Parse the response
+            data = response.data or []
+            price_history = []
+
+            for price_point in data:
+                # Validate required fields
+                if not all(key in price_point for key in ["timestamp", "price", "volume", "liquidity"]):
+                    continue
+
+                # Convert to consistent format
+                price_history.append({
+                    "timestamp": int(price_point["timestamp"]),
+                    "price": float(price_point["price"]),
+                    "volume": float(price_point["volume"]),
+                    "liquidity": float(price_point["liquidity"]),
+                    "interval": interval
+                })
+
+            logger.info(f"Retrieved {len(price_history)} price history points for {token_id} "
+                       f"(interval: {interval}, response time: {response_time_ms:.2f}ms)")
+
+            return price_history
+
+        except Exception as e:
+            logger.error(f"Failed to get price history for {token_id}: {e}")
+            return []
+
+    async def get_price_history_batch(self, token_ids: List[str], interval: str = "1m",
+                                     from_timestamp: int = 0, to_timestamp: int = 0) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get historical price data for multiple tokens concurrently
+
+        Args:
+            token_ids: List of token identifiers
+            interval: Time interval for price data
+            from_timestamp: Start time as Unix epoch seconds
+            to_timestamp: End time as Unix epoch seconds
+
+        Returns:
+            Dictionary mapping token_id to list of price history
+        """
+        if not token_ids:
+            return {}
+
+        # Limit concurrency to avoid rate limiting
+        max_concurrent = 5
+        results = {}
+
+        try:
+            # Process tokens in batches
+            for i in range(0, len(token_ids), max_concurrent):
+                batch = token_ids[i:i + max_concurrent]
+
+                # Create tasks for concurrent execution
+                tasks = [
+                    self.get_price_history(token_id, interval, from_timestamp, to_timestamp)
+                    for token_id in batch
+                ]
+
+                # Execute tasks concurrently
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Store successful results
+                for j, token_id in enumerate(batch):
+                    result = batch_results[j]
+                    if isinstance(result, list):
+                        results[token_id] = result
+                    else:
+                        logger.error(f"Failed to get price history for {token_id}: {result}")
+                        results[token_id] = []
+
+            logger.info(f"Retrieved price history for {len(results)}/{len(token_ids)} tokens")
+            return results
+
+        except Exception as e:
+            logger.error(f"Failed to get batch price history: {e}")
+            return {}
+
+    def get_price_history_sync(self, token_id: str, interval: str = "1m",
+                              from_timestamp: int = 0, to_timestamp: int = 0) -> List[Dict[str, Any]]:
+        """
+        Synchronous wrapper for get_price_history (for Mojo interop)
+
+        Args:
+            token_id: Token identifier (mint address or symbol)
+            interval: Time interval for price data
+            from_timestamp: Start time as Unix epoch seconds
+            to_timestamp: End time as Unix epoch seconds
+
+        Returns:
+            List of historical price data points
+        """
+        try:
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If loop is running, use thread pool
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            self.get_price_history(token_id, interval, from_timestamp, to_timestamp)
+                        )
+                        return future.result(timeout=120)  # 2 minute timeout for history data
+                else:
+                    # If loop is not running, run directly
+                    return asyncio.run(self.get_price_history(token_id, interval, from_timestamp, to_timestamp))
+            except RuntimeError:
+                # No event loop, create one
+                return asyncio.run(self.get_price_history(token_id, interval, from_timestamp, to_timestamp))
+        except Exception as e:
+            logger.error(f"Failed to get price history synchronously: {e}")
+            return []
+
 # Convenience functions for common operations
 async def get_token_price(token_mint: str) -> Optional[float]:
     """Get simple token price"""

@@ -65,6 +65,64 @@ support_distance = 0.15
 atr_multiplier = 1.5
 
 # =============================================================================
+# Multi-Token Flash Loan Arbitrage Configuration
+# =============================================================================
+[arbitrage]
+# Flash loan arbitrage settings
+enable_flash_loan = true
+max_flash_loan_amount_sol = 100.0
+
+# Tokens to monitor for arbitrage opportunities
+tokens_to_monitor = [
+    "So11111111111111111111111111111111111111112",  # SOL (Wrapped SOL)
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",  # USDT (Tether USD)
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC (USD Coin)
+    "3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im",  # WBTC (Wrapped Bitcoin)
+    "Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA",  # LINK (Chainlink)
+    "5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5",  # USDE (Ethena USDe)
+    "A1KLoBrKBZi9Su7dphQNUkyKApe5tx1uLVdjZ9mgnz3r",  # USDS (Sky Dollar)
+    "cbbtcZFNemZYe4orNZTnGveTZETdkbpNXY7KB4c2rTF",   # CBBTC (Coinbase Wrapped BTC)
+    "BTf6gkxMbBDfE1oY8gYCbMcZTxosS95dxKVmeJqyTNGw",  # SUSDE (Staked USDe)
+    "EewxydAPCCMs6V4obubWRzvf4wdfJ9sNJY8HbgQwgJ26"   # WLFI (World Liberty Financial)
+]
+
+# Token symbol mapping (for logging and display)
+token_symbols = {
+    "So11111111111111111111111111111111111111112" = "SOL",
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" = "USDT",
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" = "USDC",
+    "3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im" = "WBTC",
+    "Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA" = "LINK",
+    "5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5" = "USDE",
+    "A1KLoBrKBZi9Su7dphQNUkyKApe5tx1uLVdjZ9mgnz3r" = "USDS",
+    "cbbtcZFNemZYe4orNZTnGveTZETdkbpNXY7KB4c2rTF" = "CBBTC",
+    "BTf6gkxMbBDfE1oY8gYCbMcZTxosS95dxKVmeJqyTNGw" = "SUSDE",
+    "EewxydAPCCMs6V4obubWRzvf4wdfJ9sNJY8HbgQwgJ26" = "WLFI"
+}
+
+# Flash loan strategies
+enable_cross_exchange_arbitrage = true
+enable_triangular_arbitrage = true
+enable_liquidation_strategy = false  # Requires advanced monitoring
+
+# Strategy-specific settings
+cross_exchange_min_spread = 0.01     # 1% minimum spread
+triangular_min_profit = 0.005        # 0.5% minimum profit
+liquidation_min_reward = 0.05        # 5% minimum liquidation reward
+
+# Flash loan provider preferences
+preferred_provider = "auto"           # auto, solend, marginfi, mango
+solend_fee_rate = 0.0003              # 0.03% flash loan fee
+marginfi_fee_rate = 0.0005            # 0.05% flash loan fee
+mango_fee_rate = 0.0002               # 0.02% flash loan fee
+
+# Risk management
+max_arbitrage_position_size = 0.2     # 20% of portfolio max
+min_profit_threshold_sol = 0.01       # 0.01 SOL minimum profit
+max_slippage_arbitrage = 0.02         # 2% max slippage for arbitrage
+execution_timeout_seconds = 30        # 30 seconds max execution time
+
+# =============================================================================
 # Risk Management Configuration
 # =============================================================================
 [risk]
@@ -401,36 +459,8 @@ base_url = "https://api.dexscreener.com"
 api_key_env = "BIRDEYE_API_KEY"           # Birdeye API key
 base_url = "https://api.birdeye.so"
 
-# =============================================================================
-# Arbitrage Configuration
-# =============================================================================
-[arbitrage]
-enabled = true
-scan_interval_ms = 1000
-min_profit_threshold = 10.0
-max_gas_cost_sol = 0.01
-max_slippage_bps = 100
-engine_timeout_seconds = 30
-price_cache_ttl_seconds = 30
-max_concurrent_opportunities = 5
-
-# Monitored tokens and DEXes
-monitored_tokens = [
-    "So11111111111111111111111111111111111111112",  # SOL
-    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"   # USDC
-]
-
-monitored_dexes = [
-    "raydium",
-    "orca",
-    "serum"
-]
-
-# Arbitrage types
-enable_triangular = true
-enable_cross_dex = true
-enable_statistical = false
-enable_flash_loan = false
+# Legacy arbitrage configuration - replaced by enhanced multi-token flash loan arbitrage above
+# See [arbitrage] section above for comprehensive multi-token configuration
 
 # =============================================================================
 # Sniper Filters Configuration for PumpFun Memecoin Trading
@@ -497,18 +527,28 @@ default_buy_amount_sol = 0.05                 # Reduced from 0.1 to a safer defa
 [rpc_providers.helius]
 api_key_env = "HELIUS_API_KEY"
 primary_rpc_env = "HELIUS_RPC_URL"
-# Add other specific Helius endpoints if needed (e.g., for different regions)
+enable_shredstream = true
+shredstream_endpoint_env = "HELIUS_SHREDSTREAM_ENDPOINT"
+enable_priority_fee_api = true
+enable_webhooks = true
+webhook_types = ["token_transfers", "new_mints", "large_transactions", "account_changes"]
+organic_score_enabled = true
+tier = "developer"  # Options: "free", "developer", "pro", "enterprise"
 
 [rpc_providers.quicknode]
 primary_rpc_env = "QUICKNODE_PRIMARY_RPC"
 secondary_rpc_env = "QUICKNODE_SECONDARY_RPC"
 archive_rpc_env = "QUICKNODE_ARCHIVE_RPC"
+enable_lil_jit = true
+lil_jit_endpoint_env = "QUICKNODE_LIL_JIT_ENDPOINT"
+enable_priority_fee_api = true
 
 [rpc_providers.routing]
-strategy = "latency"  # Options: "latency", "failover", "round-robin"
-health_check_interval_seconds = 60
-latency_check_samples = 10
-failover_threshold = 3 # Number of consecutive failures before switching
+policy = "health_first"  # Options: "health_first", "latency_based", "cost_based", "environment_based", "round_robin"
+latency_threshold_ms = 100
+bundle_success_rate_threshold = 0.90
+track_bundle_metrics = true
+prefer_shredstream_for_mev = true
 
 # =============================================================================
 # Geyser Real-Time Data Streaming
@@ -577,6 +617,9 @@ jito_endpoint_env = "JITO_ENDPOINT"
 jito_tip_lamports_env = "JITO_TIP_LAMPORTS"
 jito_max_tip_lamports_env = "JITO_MAX_TIP_LAMPORTS"
 min_profit_threshold_sol = 0.01
+prefer_helius_shredstream = true
+bundle_submission_provider = "auto"  # Options: "helius", "quicknode", "auto"
+track_bundle_success_by_provider = true
 
 # =============================================================================
 # Parallel Processing Configuration

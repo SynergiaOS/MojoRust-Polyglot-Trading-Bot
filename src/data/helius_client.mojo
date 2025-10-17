@@ -25,13 +25,18 @@ struct HeliusClient:
     var http_session: PythonObject  # aiohttp session for connection pooling
     var cache: Dict[String, Any]     # Response cache
     var python_initialized: Bool
+    var _shredstream_enabled: Bool   # Feature flag for ShredStream
+    var _shredstream_endpoint: String  # ShredStream WebSocket endpoint
 
-    fn __init__(api_key: String, base_url: String = HELIUS_BASE_URL, timeout_seconds: Float = DEFAULT_TIMEOUT_SECONDS):
+    fn __init__(api_key: String, base_url: String = HELIUS_BASE_URL, timeout_seconds: Float = DEFAULT_TIMEOUT_SECONDS,
+                shredstream_enabled: Bool = False, shredstream_endpoint: String = ""):
         self.api_key = api_key
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
         self.logger = get_api_logger()
         self.python_initialized = False
+        self._shredstream_enabled = shredstream_enabled
+        self._shredstream_endpoint = shredstream_endpoint
 
         # Initialize aiohttp session for connection pooling
         try:
@@ -56,6 +61,12 @@ struct HeliusClient:
             self.python_initialized = False
 
         self.cache = {}
+
+        # Log ShredStream configuration
+        if self._shredstream_enabled:
+            self.logger.info(f"ShredStream enabled with endpoint: {self._shredstream_endpoint}")
+        else:
+            self.logger.info("ShredStream disabled")
 
     # URL helpers to avoid version conflicts
     fn v0_url(self, path: String) -> String:
@@ -1005,18 +1016,340 @@ struct HeliusClient:
             "timestamp": time()
         }
 
+    fn get_recent_priority_fees(self, percentile: Int = 50) -> Float:
+        """
+        Get recent priority fees from Helius API using percentile-based calculation
+
+        Args:
+            percentile: Priority fee percentile (0-100), defaults to 50th percentile
+
+        Returns:
+            Priority fee as Float lamports value
+        """
+        if not self.http_session:
+            return self._get_mock_priority_fee_percentile(percentile)
+
+        try:
+            # Check cache first (5-second cache for priority fees)
+            cache_key = f"priority_fees_percentile_{percentile}"
+            if cache_key in self.cache:
+                cached_time = self.cache[cache_key]["timestamp"]
+                if time() - cached_time < 5.0:
+                    return self.cache[cache_key]["data"]
+
+            # Construct API URL for priority fees with percentile parameter
+            url = f"{self.v0_url('/priority-fees')}?api-key={self.api_key}&percentile={percentile}"
+
+            # Make HTTP request via Python interop
+            asyncio = Python.import_module("asyncio")
+
+            async def fetch_priority_fees():
+                try:
+                    response = await self.http_session.get(url)
+                    if response.status == 200:
+                        data = await response.json()
+                        return self._parse_priority_fees_response_percentile(data, percentile)
+                    else:
+                        self.logger.error(f"Helius priority fees API error: {response.status}")
+                        return None
+                except Exception as e:
+                    self.logger.error(f"Priority fees HTTP request failed: {e}")
+                    return None
+
+            # Run async function
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, fetch_priority_fees())
+                    result = future.result(timeout=self.timeout_seconds)
+            else:
+                result = asyncio.run(fetch_priority_fees())
+
+            if result is not None:
+                # Cache the result
+                self.cache[cache_key] = {
+                    "data": result,
+                    "timestamp": time()
+                }
+                return result
+            else:
+                # Fallback to mock on failure
+                return self._get_mock_priority_fee_percentile(percentile)
+
+        except e:
+            self.logger.error(f"Real priority fees API call failed, using mock: {e}")
+            return self._get_mock_priority_fee_percentile(percentile)
+
+    fn _parse_priority_fees_response_percentile(self, data: PythonObject, percentile: Int) -> Float:
+        """
+        Parse Helius priority fees API response for percentile-based calculation
+
+        Args:
+            data: API response data
+            percentile: Requested percentile
+
+        Returns:
+            Priority fee as Float lamports value
+        """
+        try:
+            # Extract priority fee from response based on Helius API structure
+            if isinstance(data, dict):
+                # Try different possible response structures
+                if "data" in data and isinstance(data["data"], dict):
+                    priority_fee = data["data"].get("priority_fee")
+                    if priority_fee is not None:
+                        return Float(priority_fee)
+
+                # Try direct priority_fee field
+                priority_fee = data.get("priority_fee")
+                if priority_fee is not None:
+                    return Float(priority_fee)
+
+                # Try priorityFee field (camelCase)
+                priority_fee = data.get("priorityFee")
+                if priority_fee is not None:
+                    return Float(priority_fee)
+
+            # Fallback if parsing fails
+            return self._get_mock_priority_fee_percentile(percentile)
+
+        except e:
+            self.logger.error(f"Failed to parse priority fees response: {e}")
+            return self._get_mock_priority_fee_percentile(percentile)
+
+    fn _get_mock_priority_fee_percentile(self, percentile: Int) -> Float:
+        """
+        Generate mock priority fee based on percentile
+
+        Args:
+            percentile: Priority fee percentile (0-100)
+
+        Returns:
+            Mock priority fee as Float lamports
+        """
+        try:
+            # Base fee varies by percentile - higher percentiles get higher fees
+            percentile_multiplier = 0.5 + (percentile / 100.0) * 2.0  # 0.5x to 2.5x multiplier
+            base_fee = 800000  # 0.0008 SOL base fee
+            priority_fee = int(base_fee * percentile_multiplier)
+
+            # Ensure minimum fee
+            return Float(max(10000, priority_fee))  # Minimum 10,000 lamports
+
+        except e:
+            self.logger.error(f"Failed to generate mock priority fee for percentile {percentile}: {e}")
+            return Float(1000000)  # Fallback to 1M lamports (0.001 SOL)
+
+    fn _get_mock_priority_fees(self, urgency: String) -> Dict[String, Any]:
+        """
+        Generate mock priority fee data based on urgency
+
+        Args:
+            urgency: Transaction urgency level
+
+        Returns:
+            Mock priority fee data
+        """
+        urgency_multipliers = {
+            "low": 1.0,
+            "normal": 1.5,
+            "high": 2.0,
+            "critical": 3.0
+        }
+
+        multiplier = urgency_multipliers.get(urgency, 1.5)
+        base_fee = 1000000  # 0.001 SOL
+        priority_fee = int(base_fee * multiplier)
+
+        # Generate mock recent fees
+        recent_fees = []
+        for i in range(5):
+            fee_variation = priority_fee * (0.8 + (i * 0.1))
+            recent_fees.append({
+                "priority_fee": int(fee_variation),
+                "slot": 100 - i,
+                "timestamp": time() - (i * 60)
+            })
+
+        confidence_scores = {
+            "low": 0.7,
+            "normal": 0.8,
+            "high": 0.9,
+            "critical": 0.95
+        }
+
+        return {
+            "priority_fee": priority_fee,
+            "confidence": confidence_scores.get(urgency, 0.8),
+            "provider": "helius_mock",
+            "urgency": urgency,
+            "recent_fees": recent_fees,
+            "timestamp": time(),
+            "slot": 100
+        }
+
+    fn calculate_optimal_priority_fee(self, urgency: String) -> Int:
+        """
+        Calculate optimal priority fee using Helius percentile-based API with urgency multipliers
+
+        Args:
+            urgency: Transaction urgency level ("low", "medium", "high", "critical")
+
+        Returns:
+            Optimal priority fee as Int lamports value
+        """
+        try:
+            # Use the 50th percentile as base (median)
+            base_fee = self.get_recent_priority_fees(50)
+
+            # Apply urgency multipliers as specified in verification comment
+            urgency_multipliers = {
+                "low": 1.2,
+                "medium": 1.8,
+                "high": 2.5,
+                "critical": 4.0
+            }
+
+            multiplier = urgency_multipliers.get(urgency, 1.8)
+            optimal_fee = int(base_fee * multiplier)
+
+            # Enforce minimum of 10000 lamports
+            final_fee = max(10000, optimal_fee)
+
+            self.logger.info(f"Calculated optimal priority fee for {urgency} urgency",
+                           base_fee=base_fee,
+                           multiplier=multiplier,
+                           final_fee=final_fee)
+
+            return final_fee
+
+        except e:
+            self.logger.error(f"Failed to calculate optimal priority fee: {e}")
+            # Return fallback fee of 1M lamports (0.001 SOL)
+            return 1000000
+
     fn get_shredstream_data(self) -> Dict[String, Any]:
         """
-        Get ShredStream data (requires Helius Pro account)
+        Get ShredStream connection status and statistics
         """
-        # This would implement WebSocket connection to ShredStream
-        # For now, return mock status
+        try:
+            # Check if ShredStream is enabled
+            if not self._shredstream_enabled:
+                return {
+                    "stream_status": "disabled",
+                    "reason": "ShredStream not enabled in configuration",
+                    "timestamp": time()
+                }
+
+            # Import and check bridge status
+            try:
+                from python import shredstream_bridge
+            except ImportError:
+                return {
+                    "stream_status": "error",
+                    "reason": "ShredStream bridge not available",
+                    "timestamp": time()
+                }
+
+            # Get connection stats from bridge
+            stats = shredstream_bridge.get_connection_stats()
+
+            # Add additional metadata
+            result = {
+                "stream_status": "connected" if stats.get("connected", False) else "disconnected",
+                "endpoint": stats.get("endpoint", self._shredstream_endpoint),
+                "connected": stats.get("connected", False),
+                "subscription_active": stats.get("subscription_active", False),
+                "connection_time": stats.get("connection_time"),
+                "last_message_time": stats.get("last_message_time"),
+                "messages_received": stats.get("messages_received", 0),
+                "blocks_received": stats.get("blocks_received", 0),
+                "timestamp": time()
+            }
+
+            return result
+
+        except e:
+            self.logger.error(f"Failed to get ShredStream data: {e}")
+            return {
+                "stream_status": "error",
+                "reason": str(e),
+                "timestamp": time()
+            }
+
+    fn _get_mock_shredstream_data(self) -> Dict[String, Any]:
+        """
+        Generate mock ShredStream data
+
+        Returns:
+            Mock ShredStream status and data
+        """
         return {
             "stream_status": "available",
             "endpoint": "wss://shredstream.helius-rpc.com:10000/ws",
             "requires_pro_account": True,
-            "timestamp": time()
+            "connected": False,
+            "subscription_active": False,
+            "last_block_received": None,
+            "blocks_received": 0,
+            "timestamp": time(),
+            "note": "Mock data - implement real WebSocket connection"
         }
+
+    fn connect_shredstream(self, endpoint: String = "") -> Bool:
+        """
+        Connect to ShredStream WebSocket using Python bridge
+
+        Args:
+            endpoint: ShredStream WebSocket endpoint
+
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            # Check if ShredStream is enabled
+            if not self._shredstream_enabled:
+                self.logger.warning("ShredStream not enabled in configuration")
+                return False
+
+            # Use configured endpoint if none provided
+            if not endpoint:
+                endpoint = self._shredstream_endpoint
+
+            if not endpoint:
+                self.logger.error("No ShredStream endpoint configured")
+                return False
+
+            # Import and use the Python bridge
+            try:
+                from python import shredstream_bridge
+            except ImportError:
+                self.logger.error("Failed to import ShredStream bridge")
+                return False
+
+            # Attempt connection via bridge
+            success = shredstream_bridge.connect(endpoint)
+
+            if success:
+                self.logger.info(f"ShredStream connection established to {endpoint}")
+
+                # Attempt to subscribe to blocks
+                if shredstream_bridge.subscribe_to_blocks():
+                    self.logger.info("Subscribed to ShredStream block updates")
+                    # Start message listener
+                    shredstream_bridge.start_message_listener()
+                else:
+                    self.logger.warning("Failed to subscribe to ShredStream blocks")
+
+                return True
+            else:
+                self.logger.error(f"Failed to connect to ShredStream endpoint: {endpoint}")
+                return False
+
+        except e:
+            self.logger.error(f"ShredStream connection error: {e}")
+            return False
 
     fn close(inout self):
         """
