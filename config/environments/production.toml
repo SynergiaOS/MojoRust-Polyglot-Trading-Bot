@@ -1,0 +1,199 @@
+# MojoRust HFT Production Configuration
+# High-performance, production-ready settings
+
+[general]
+environment = "production"
+debug = false
+log_level = "info"
+
+[performance]
+# High-performance settings for HFT
+processing_threads = 16
+buffer_size = 50000
+max_memory_mb = 16384  # 16GB
+enable_zero_copy = true
+enable_simd = true
+lock_free_algorithms = true
+
+[data_pipeline]
+# Data processing configuration
+enable_persistence = true
+cache_ttl_seconds = 120
+max_concurrent_feeds = 50
+data_retention_hours = 72
+enable_compression = true
+
+[data_pipeline.feeds]
+# High-frequency data feeds
+[solana_geyser]
+enabled = true
+endpoint = "wss://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}"
+batch_size = 1000
+timeout_ms = 100
+
+[redis_cache]
+enabled = true
+host = "${DRAGONFLYDB_HOST}"
+port = "${DRAGONFLYDB_PORT}"
+password = "${DRAGONFLYDB_PASSWORD}"
+max_connections = 50
+connection_pool_size = 20
+
+[execution]
+# Execution engine configuration
+max_order_size_usd = 1000000.0  # $1M max order
+max_concurrent_orders = 200
+order_timeout_ms = 5000  # 5 second timeout
+enable_flash_loans = true
+enable_risk_management = true
+max_position_size_usd = 5000000.0  # $5M max position
+enable_circuit_breaker = true
+
+[execution.risk_management]
+# Strict risk controls for production
+max_daily_loss_usd = 100000.0  # $100k daily loss limit
+max_drawdown_percent = 10.0
+position_limit_per_symbol_usd = 500000.0
+leverage_limit = 3.0
+margin_call_threshold = 0.15
+emergency_stop_enabled = true
+
+[execution.flash_loans]
+# Flash loan configuration
+providers = ["solend", "marginfi", "jupiter"]
+max_loan_amount_usd = 1000000.0
+min_profit_threshold_usd = 100.0
+max_slippage_bps = 50
+max_execution_time_ms = 10000
+
+[execution.flash_loans.providers.solend]
+enabled = true
+max_loan_amount = 2000000.0
+fee_rate_bps = 3
+health_factor_threshold = 1.2
+
+[execution.flash_loans.providers.marginfi]
+enabled = true
+max_loan_amount = 1000000.0
+fee_rate_bps = 5
+health_factor_threshold = 1.15
+
+[execution.flash_loans.providers.jupiter]
+enabled = true
+max_loan_amount = 500000.0
+fee_rate_bps = 4
+aggregator_mode = true
+
+[strategies]
+# Trading strategy configuration
+enable_arbitrage = true
+enable_market_making = false  # Disable for initial production
+enable_statistical = true
+enable_ml = false  # ML strategies disabled initially
+
+[strategies.arbitrage]
+# Arbitrage strategy settings
+min_spread_bps = 25
+max_slippage_bps = 50
+min_liquidity_usd = 100000.0
+max_concurrent_arbitrages = 10
+confidence_threshold = 0.85
+
+[strategies.statistical]
+# Statistical arbitrage settings
+lookback_periods = [300, 900, 3600]  # 5min, 15min, 1hour
+z_score_threshold = 2.0
+min_correlation = 0.7
+max_positions = 20
+
+[monitoring]
+# Production monitoring
+enable_metrics = true
+enable_health_checks = true
+enable_alerts = true
+metrics_port = 9090
+health_port = 8080
+prometheus_retention_days = 30
+
+[monitoring.alerts]
+# Alert configuration
+discord_webhook = "${DISCORD_WEBHOOK_URL}"
+email_smtp = "${SMTP_CONFIG}"
+slack_webhook = "${SLACK_WEBHOOK_URL}"
+alert_thresholds = { loss_percent = 5.0, error_rate = 0.02, latency_ms = 1000 }
+
+[security]
+# Security configuration
+enable_audit_logging = true
+log_retention_days = 90
+enable_encryption = true
+require_multi_sig = true
+access_control_enabled = true
+
+[security.rate_limiting]
+# Rate limiting
+global_rps = 1000
+per_symbol_rps = 100
+burst_capacity = 100
+enable_backoff = true
+
+[networking]
+# Network configuration
+connection_pool_size = 100
+keep_alive_ms = 30000
+connect_timeout_ms = 5000
+read_timeout_ms = 10000
+write_timeout_ms = 5000
+
+[database]
+# Database configuration
+[database.timescaledb]
+host = "${TIMESCALEDB_HOST}"
+port = 5432
+database = "mojorust_production"
+username = "${TIMESCALEDB_USER}"
+password = "${TIMESCALEDB_PASSWORD}"
+max_connections = 20
+connection_timeout_ms = 5000
+
+[database.postgres]
+host = "${POSTGRES_HOST}"
+port = 5432
+database = "mojorust_config"
+username = "${POSTGRES_USER}"
+password = "${POSTGRES_PASSWORD}"
+max_connections = 10
+
+[api_endpoints]
+# External API configurations
+[api.helius]
+base_url = "https://api.helius.xyz"
+api_key = "${HELIUS_API_KEY}"
+rate_limit_rps = 100
+timeout_ms = 2000
+
+[api.jupiter]
+base_url = "https://quote-api.jup.ag"
+rate_limit_rps = 200
+timeout_ms = 1500
+
+[api.dexscreener]
+base_url = "https://api.dexscreener.com/latest/dex"
+rate_limit_rps = 300
+timeout_ms = 1000
+
+[deployment]
+# Deployment configuration
+replicas = 3
+resource_limits = { cpu = "8000m", memory = "16Gi" }
+auto_scaling = { min_replicas = 2, max_replicas = 10, target_cpu = 70 }
+health_check_interval_seconds = 30
+graceful_shutdown_seconds = 60
+
+[compliance]
+# Compliance configuration
+enable_trade_reporting = true
+reporting_interval_minutes = 5
+retain_trade_logs_days = 2555  # 7 years
+enable_position_limits = true
+max_notional_exposure_usd = 10000000.0  # $10M

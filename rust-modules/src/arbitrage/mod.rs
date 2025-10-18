@@ -645,4 +645,7 @@ pub mod triangular;
 pub mod cross_exchange;
 pub mod statistical;
 pub mod flash_loan;
+
+// Free flash loan support for community users
+pub mod flash_loan_free;
 pub mod execution;

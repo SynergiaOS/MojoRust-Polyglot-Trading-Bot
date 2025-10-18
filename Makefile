@@ -1,12 +1,7 @@
-# MojoRust Trading Bot Makefile
+# 🚀 MojoRust HFT Trading Bot - Professional Build System
+# High-frequency trading architecture with enterprise-grade tooling
 
-.PHONY: help install install-dev test test-fast test-coverage lint format clean build run docker-build docker-run \
-        monitoring-start monitoring-stop monitoring-restart monitoring-status monitoring-verify \
-        monitoring-health monitoring-import-dashboards monitoring-logs monitoring-backup \
-        monitoring-cleanup monitoring-test-alerts monitoring-update-config monitoring-check-ports \
-        cpu-diagnose cpu-optimize-vscode cpu-optimize-system cpu-monitor cpu-optimize-all \
-        start-monitoring stop-monitoring restart-monitoring status-monitoring verify-monitoring \
-        prometheus-targets grafana-dashboards import-dashboards logs-monitoring health-monitoring
+.PHONY: help build build-all build-rust build-mojo build-python clean test test-all test-rust test-mojo test-python lint format check security docs dev-setup run deploy monitoring-start monitoring-stop monitoring-status
 
 # Monitoring configuration variables
 PROMETHEUS_URL=http://localhost:9090

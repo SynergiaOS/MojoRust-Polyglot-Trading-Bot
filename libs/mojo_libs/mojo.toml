@@ -1,0 +1,42 @@
+[package]
+name = "mojorust-strategies"
+version = "0.1.0"
+description = "High-performance trading strategies in Mojo"
+authors = ["MojoRust HFT Team"]
+
+[dependencies]
+# Standard library
+tensor = "0.6.0"
+algorithm = "0.6.0"
+random = "0.6.0"
+time = "0.6.0"
+numeric = "0.6.0"
+collection = "0.6.0"
+memory = "0.6.0"
+os = "0.6.0"
+simd = "0.6.0"
+
+# Math and statistics
+math = "0.6.0"
+
+# Concurrency and parallelism
+process = "0.6.0"
+sync = "0.6.0"
+channel = "0.6.0"
+
+# Performance optimization
+benchmark = "0.6.0"
+
+# Configuration
+python = "0.6.0"
+
+# Custom strategy libraries
+# Add any custom Mojo libraries here
+
+[workspace]
+members = [
+    "arbitrage",
+    "market_making",
+    "statistical",
+    "ml"
+]

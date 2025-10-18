@@ -1,0 +1,69 @@
+[package]
+name = "mojorust-infrastructure"
+version = "0.1.0"
+edition = "2021"
+authors = ["MojoRust HFT Team"]
+description = "Infrastructure components for HFT trading system"
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Performance dependencies
+rayon = { workspace = true }
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+
+# Configuration
+config = { workspace = true }
+toml = { workspace = true }
+clap = { version = "4.4", features = ["derive"] }
+
+# Logging and tracing
+tracing-appender = "0.2"
+tracing-core = "0.1"
+slog = "2.9"
+slog-async = "2.8"
+slog-json = "2.6"
+
+# Metrics and monitoring
+prometheus = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = "0.13"
+
+# Health checks
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace"] }
+
+# Security
+ring = { workspace = true }
+argon2 = { workspace = true }
+
+# Database connections
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+redis = { workspace = true }
+
+# Time and scheduling
+chrono = { workspace = true }
+tokio-cron-scheduler = { workspace = true }
+
+# Serialization
+bincode = { workspace = true }
+prost = { workspace = true }
+
+[features]
+default = ["monitoring", "config-management"]
+monitoring = ["axum", "tower", "prometheus"]
+config-management = ["config", "clap"]
+distributed-tracing = ["tracing", "tracing-subscriber"]
+
+[dev-dependencies]
+tempfile = "3.8"
+mockall = { workspace = true }

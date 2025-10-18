@@ -1,0 +1,193 @@
+# Free Alternatives Configuration for MojoRust Trading Bot
+# This configuration replaces premium services with free/open-source alternatives
+
+[general]
+# Enable free alternatives across all modules
+enable_free_alternatives = true
+fallback_to_premium = false  # Don't attempt to use premium features
+
+# =============================================================================
+# Free Flash Loan Configuration
+# =============================================================================
+[flash_loans]
+enabled = true
+use_free_protocols_only = true
+provider_priority = ["solend", "marginfi", "jupiter"]
+
+[flash_loans.risk_management]
+max_concurrent_loans = 3
+min_profit_threshold_usd = 25.0
+max_slippage_tolerance = 0.03
+max_execution_time_seconds = 60
+community_safety_checks = true
+
+# =============================================================================
+# Free Universal Auth Configuration
+# =============================================================================
+[universal_auth]
+enabled = true
+use_free_implementation = true
+cache_ttl_seconds = 300
+auto_refresh_enabled = true
+community_features_enabled = true
+
+[universal_auth.credentials]
+# These should be set in your .env file
+# INFISICAL_CLIENT_ID=your_client_id
+# INFISICAL_CLIENT_SECRET=your_client_secret
+# INFISICAL_PROJECT_ID=your_project_id
+# INFISICAL_ENVIRONMENT=dev
+
+# =============================================================================
+# Free API Providers Configuration
+# =============================================================================
+[api_providers]
+# Use free tiers of popular APIs
+helius_tier = "free"  # 100k requests/day
+quicknode_tier = "free"  # 50k requests/day
+jupiter_tier = "free"  # No rate limits for swaps
+dexscreener_tier = "free"  # No rate limits
+
+[api_providers.rate_limits]
+helius_requests_per_minute = 70  # Stay within free tier
+quicknode_requests_per_minute = 40
+jupiter_requests_per_minute = 100
+dexscreener_requests_per_minute = 100
+
+# =============================================================================
+# Free Data Sources Configuration
+# =============================================================================
+[data_sources]
+# Use free data sources for market analysis
+use_community_data = true
+use_public_apis = true
+use_dragonflydb_cache = true
+
+[data_sources.dragonflydb]
+# You mentioned you have DragonflyDB Cloud for caching
+host = "df-unique-name.a.aivencloud.com"
+port = 12345
+password = "your-password"
+database = 0
+max_connections = 10
+
+[data_sources.community_apis]
+# Free community-provided APIs
+coingecko_api = "https://api.coingecko.com/api/v3"
+coinmarketcap_api = "https://api.coinmarketcap.com/v1"  # Free tier
+defillama_api = "https://api.llama.fi"  # DeFi data
+solana_public_rpc = "https://api.mainnet-beta.solana.com"
+
+# =============================================================================
+# Free Monitoring Configuration
+# =============================================================================
+[monitoring]
+# Use free monitoring stack
+use_grafana_cloud = false  # Use self-hosted instead
+use_prometheus_local = true
+use_alertmanager = true
+
+[monitoring.prometheus]
+port = 9090
+retention_days = 15  # Reduced for free storage
+scrape_interval_seconds = 15
+
+[monitoring.grafana]
+port = 3001
+admin_user = "admin"
+admin_password = "trading_admin"
+dashboards_path = "config/grafana/dashboards"
+
+# =============================================================================
+# Free Trading Strategy Configuration
+# =============================================================================
+[trading_strategies]
+# Conservative settings for free usage
+max_daily_trades = 50
+max_position_size_usd = 1000.0
+use_paper_trading_by_default = true
+
+[trading_strategies.filters]
+enable_confidence_scoring = true
+min_confidence_score = 0.7
+enable_spam_filtering = true
+spam_filter_threshold = 0.8
+
+# =============================================================================
+# Free Risk Management Configuration
+# =============================================================================
+[risk_management]
+# Enhanced risk controls for free usage
+max_drawdown_percentage = 10.0
+max_loss_per_trade_usd = 50.0
+circuit_breaker_enabled = true
+circuit_breaker_threshold = 0.15  # 15% loss triggers halt
+
+[risk_management.position_sizing]
+use_kelly_criterion = true
+kelly_fraction = 0.25  # Conservative 25% of Kelly
+min_position_size_usd = 10.0
+max_position_size_usd = 500.0
+
+# =============================================================================
+# Free Development Tools Configuration
+# =============================================================================
+[development]
+# Use free development and testing tools
+enable_local_testing = true
+use_mock_data_for_testing = true
+enable_comprehensive_logging = true
+
+[development.testing]
+test_environment = "local"
+use_testnet = true
+test_rpc_url = "https://api.devnet.solana.com"
+mock_balances_sol = 100.0
+mock_balances_usdc = 10000.0
+
+# =============================================================================
+# Community Features Configuration
+# =============================================================================
+[community]
+# Enable community-driven features
+share_anonymous_metrics = true
+participate_in_leaderboards = false
+enable_community_support = true
+
+[community.contributions]
+report_bugs_automatically = true
+share_performance_analytics = false
+contribute_to_pool = false
+
+# =============================================================================
+# Security Configuration (Free Version)
+# =============================================================================
+[security]
+# Enhanced security for free usage
+enable_audit_logging = true
+log_retention_days = 7
+enable_health_checks = true
+health_check_interval_seconds = 30
+
+[security.rate_limiting]
+enable_global_rate_limit = true
+requests_per_minute = 100
+burst_capacity = 20
+enable_backoff_on_failure = true
+
+# =============================================================================
+# Performance Configuration (Optimized for Free Usage)
+# =============================================================================
+[performance]
+# Optimize for free tier limitations
+enable_caching = true
+cache_ttl_seconds = 60
+max_concurrent_requests = 5
+request_timeout_seconds = 30
+
+[performance.optimizations]
+use_connection_pooling = true
+max_pool_size = 10
+enable_compression = true
+minimize_api_calls = true
+batch_requests_when_possible = true

@@ -1,0 +1,210 @@
+# MojoRust HFT Development Configuration
+# Optimized for development and testing
+
+[general]
+environment = "development"
+debug = true
+log_level = "debug"
+
+[performance]
+# Conservative settings for development
+processing_threads = 4
+buffer_size = 1000
+max_memory_mb = 2048  # 2GB
+enable_zero_copy = false
+enable_simd = false
+lock_free_algorithms = false
+
+[data_pipeline]
+# Development data pipeline
+enable_persistence = false  # Disable persistence for faster startup
+cache_ttl_seconds = 300
+max_concurrent_feeds = 5
+data_retention_hours = 1
+enable_compression = false
+
+[data_pipeline.feeds]
+# Development feeds
+[solana_geyser]
+enabled = false  # Disable real-time feeds in development
+endpoint = "wss://api.devnet.solana.com"
+batch_size = 100
+timeout_ms = 1000
+
+[redis_cache]
+enabled = false  # Use mock cache in development
+# host = "localhost"
+# port = 6379
+# password = ""
+max_connections = 5
+connection_pool_size = 2
+
+[execution]
+# Development execution settings
+max_order_size_usd = 1000.0  # $1k max order for safety
+max_concurrent_orders = 5
+order_timeout_ms = 30000  # 30 second timeout
+enable_flash_loans = false  # Disable in development
+enable_risk_management = true
+max_position_size_usd = 5000.0  # $5k max position
+enable_circuit_breaker = true
+
+[execution.risk_management]
+# Very conservative risk controls for development
+max_daily_loss_usd = 100.0  # $100 daily loss limit
+max_drawdown_percent = 5.0
+position_limit_per_symbol_usd = 1000.0
+leverage_limit = 1.0  # No leverage in development
+margin_call_threshold = 0.10
+emergency_stop_enabled = true
+
+[execution.mock_execution]
+# Mock execution for development
+enabled = true
+success_rate = 0.95  # 95% success rate
+latency_ms = [100, 500]  # Random latency between 100-500ms
+fill_rate = 0.90  # 90% fill rate
+
+[strategies]
+# Development strategy configuration
+enable_arbitrage = true
+enable_market_making = true
+enable_statistical = true
+enable_ml = false
+
+[strategies.arbitrage]
+# Development arbitrage settings
+min_spread_bps = 50  # Higher threshold for development
+max_slippage_bps = 100
+min_liquidity_usd = 10000.0  # Lower liquidity requirement
+max_concurrent_arbitrages = 2
+confidence_threshold = 0.70
+
+[strategies.market_making]
+# Development market making
+enabled = true
+spread_bps = 100
+inventory_limit_usd = 2000.0
+max_orders_per_side = 2
+quote_duration_seconds = 30
+
+[strategies.statistical]
+# Development statistical arbitrage
+lookback_periods = [60, 300]  # 1min, 5min only
+z_score_threshold = 1.5
+min_correlation = 0.6
+max_positions = 5
+
+[strategies.mock_data]
+# Mock market data for development
+enabled = true
+volatility = 0.02  # 2% daily volatility
+trend_strength = 0.1  # Weak trend
+noise_level = 0.8  # High noise
+update_interval_ms = 1000
+
+[monitoring]
+# Development monitoring
+enable_metrics = true
+enable_health_checks = true
+enable_alerts = false  # Disable alerts in development
+metrics_port = 9091  # Different port to avoid conflicts
+health_port = 8081
+prometheus_retention_days = 1
+
+[debug]
+# Debug settings
+enable_detailed_logging = true
+enable_performance_profiling = true
+enable_memory_profiling = true
+enable_request_tracing = true
+mock_external_apis = true
+
+[debug.mock_apis]
+# Mock external API responses
+helius_enabled = true
+jupiter_enabled = true
+dexscreener_enabled = true
+solana_rpc_enabled = true
+mock_latency_ms = [50, 200]
+mock_error_rate = 0.05
+
+[testing]
+# Testing configuration
+enable_test_mode = true
+test_data_path = "./tests/fixtures"
+mock_wallet_balance_sol = 100.0
+mock_wallet_balance_usdc = 10000.0
+enable_deterministic_random = true
+random_seed = 12345
+
+[security]
+# Relaxed security for development
+enable_audit_logging = false
+log_retention_days = 1
+enable_encryption = false
+require_multi_sig = false
+access_control_enabled = false
+
+[database]
+# Use in-memory databases for development
+[database.timescaledb]
+enabled = false
+# Use SQLite for development instead
+type = "sqlite"
+path = "./data/dev_timescaledb.sqlite"
+
+[database.postgres]
+enabled = false
+# Use SQLite for development instead
+type = "sqlite"
+path = "./data/dev_postgres.sqlite"
+
+[api_endpoints]
+# Development API configurations
+[api.helius]
+base_url = "http://localhost:8090/mock/helius"
+api_key = "mock_key"
+rate_limit_rps = 1000
+timeout_ms = 100
+mock_enabled = true
+
+[api.jupiter]
+base_url = "http://localhost:8090/mock/jupiter"
+rate_limit_rps = 1000
+timeout_ms = 100
+mock_enabled = true
+
+[api.dexscreener]
+base_url = "http://localhost:8090/mock/dexscreener"
+rate_limit_rps = 1000
+timeout_ms = 100
+mock_enabled = true
+
+[development_tools]
+# Development tools and utilities
+enable_hot_reload = true
+auto_restart_on_error = true
+enable_debug_console = true
+console_port = 8092
+enable_data_visualization = true
+viz_port = 8093
+
+[logging]
+# Development logging
+console_output = true
+file_output = true
+log_file = "./logs/development.log"
+max_file_size_mb = 100
+max_files = 3
+enable_colored_output = true
+enable_timestamps = true
+enable_source_location = true
+
+[compliance]
+# Compliance disabled in development
+enable_trade_reporting = false
+reporting_interval_minutes = 60
+retain_trade_logs_days = 7
+enable_position_limits = false
+max_notional_exposure_usd = 10000.0

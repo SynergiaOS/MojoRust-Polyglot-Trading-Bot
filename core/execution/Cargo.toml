@@ -1,0 +1,75 @@
+[package]
+name = "mojorust-execution"
+version = "0.1.0"
+edition = "2021"
+authors = ["MojoRust HFT Team"]
+description = "High-performance order execution engine for HFT trading"
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Performance dependencies
+rayon = { workspace = true }
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+
+# Solana dependencies
+solana-sdk = { workspace = true }
+solana-client = { workspace = true }
+solana-account-decoder = { workspace = true }
+anchor-lang = { workspace = true }
+anchor-client = { workspace = true }
+
+# Network dependencies
+reqwest = { workspace = true }
+tokio-tungstenite = "0.21"
+tonic = { workspace = true }
+
+# Security dependencies
+ring = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+ed25519-dalek = "2.0"
+
+# Time handling
+chrono = { workspace = true }
+tokio-cron-scheduler = { workspace = true }
+
+# Metrics and monitoring
+prometheus = { workspace = true }
+metrics = { workspace = true }
+
+# Async utilities
+futures = "0.3"
+futures-util = { workspace = true }
+async-trait = "0.1"
+
+# Configuration
+config = "0.14"
+toml = "0.8"
+
+# Error handling
+thiserror = "1.0"
+displaydoc = "0.2"
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+mockall = { workspace = true }
+tempfile = "3.8"
+
+[[bench]]
+name = "execution_speed"
+harness = false
+
+[[bench]]
+name = "risk_checks"
+harness = false

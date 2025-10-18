@@ -1,0 +1,63 @@
+# =============================================================================
+# Free Flash Loan Configuration
+# =============================================================================
+# These are free protocols that don't require premium subscriptions
+
+[flash_loans]
+enabled = false
+max_loan_amount_usd = 50000.0  # Conservative limit for free protocols
+provider_priority = ["solend", "marginfi", "jupiter"]
+auto_retry_failed_loans = true
+max_retry_attempts = 3
+
+# Free provider configurations
+[flash_loans.providers.solend]
+program_id = "So1endDq2Ykq1RnNWjdnB3s3B6r3qCvhdJvE7mJ9JvK"
+max_loan_amount = 1000000.0
+fee_rate = 0.0003  # 0.03%
+health_factor_threshold = 1.1
+api_endpoint = "https://api.solend.fi"
+supported_tokens = ["SOL", "USDC", "USDT", "WBTC"]
+
+[flash_loans.providers.marginfi]
+program_id = "MFv2hDwq5yeYimEzdGxM9o8iZeFdwgKhwbfNYJhCeG9"
+max_loan_amount = 500000.0
+fee_rate = 0.0005  # 0.05%
+health_factor_threshold = 1.05
+api_endpoint = "https://api.marginfi.com"
+supported_tokens = ["SOL", "USDC", "USDT", "USDE", "SUSDE"]
+
+[flash_loans.providers.jupiter]
+program_id = "JUP6LkbZbjS1j9wapLHYD4cTwJQDg4pQKPYMM1mF1F"
+max_loan_amount = 250000.0
+fee_rate = 0.0004  # 0.04%
+supported_tokens = ["SOL", "USDC", "USDT", "WBTC"]
+aggregator_only = true
+
+# Risk management for free protocols
+[flash_loans.risk_management]
+max_concurrent_loans = 3
+min_profit_threshold_usd = 25.0
+max_slippage_tolerance = 0.03
+max_execution_time_seconds = 60
+health_check_interval_seconds = 30
+
+# Monitoring and alerts
+[flash_loans.monitoring]
+enable_execution_logs = true
+alert_on_failure = true
+track_loan_performance = true
+profit_tracking_enabled = true
+
+# DEX integration for arbitrage routes
+[flash_loans.dex_integration]
+supported_dexes = ["raydium", "orca", "serum", "jupiter"]
+preferred_dex = "jupiter"
+max_route_hops = 3
+min_liquidity_usd = 50000.0
+
+# Community features
+[flash_loans.community]
+share_profitable_opportunities = false
+enable_public_leaderboard = false
+community_fund_enabled = false
