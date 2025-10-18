@@ -1,0 +1,49 @@
+[package]
+name = "hft-strategies"
+version = "0.1.0"
+edition = "2021"
+authors = ["MojoRust HFT Team"]
+description = "High-frequency trading strategies for Solana DEXes"
+
+[dependencies]
+# Core dependencies
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+tracing = { workspace = true }
+
+# Solana dependencies
+solana-sdk = { workspace = true }
+solana-client = { workspace = true }
+solana-account-decoder = { workspace = true }
+
+# Network and data dependencies
+reqwest = { workspace = true }
+redis = { workspace = true }
+
+# Performance dependencies
+rayon = { workspace = true }
+crossbeam = { workspace = true }
+dashmap = { workspace = true }
+
+# Utility dependencies
+chrono = { workspace = true }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = { workspace = true }
+criterion = { workspace = true }
+
+[features]
+default = ["full"]
+full = ["arbitrage", "mev", "sniper"]
+arbitrage = []
+mev = []
+sniper = []
+
+[[bench]]
+name = "strategy_benchmarks"
+harness = false
