@@ -1,0 +1,214 @@
+# 🔒 Chainguard Security Alerting Rules
+# Zero-CVE container image security monitoring and alerting
+
+groups:
+  - name: chainguard.security
+    rules:
+      # Critical vulnerability alerts
+      - alert: ChainguardCriticalVulnerability
+        expr: chainguard_vulnerabilities_total{severity="Critical"} > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: chainguard-security
+          category: vulnerability
+        annotations:
+          summary: "🚨 Critical vulnerability detected in Chainguard image"
+          description: "Image {{ $labels.image }} has {{ $value }} critical vulnerabilities and must be updated immediately."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#security-updates"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # High vulnerability alerts
+      - alert: ChainguardHighVulnerability
+        expr: chainguard_vulnerabilities_total{severity="High"} > 5
+        for: 15m
+        labels:
+          severity: warning
+          service: chainguard-security
+          category: vulnerability
+        annotations:
+          summary: "⚠️ High vulnerabilities detected in Chainguard image"
+          description: "Image {{ $labels.image }} has {{ $value }} high vulnerabilities. Consider updating soon."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#security-updates"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # Signature verification failures
+      - alert: ChainguardSignatureVerificationFailed
+        expr: chainguard_signature_verified == 0
+        for: 0m
+        labels:
+          severity: critical
+          service: chainguard-security
+          category: signature
+        annotations:
+          summary: "🔐 Chainguard image signature verification failed"
+          description: "Image {{ $labels.image }} signature verification failed. Image may be compromised or tampered with."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#verifying-images"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # Security score degradation
+      - alert: ChainguardSecurityScoreLow
+        expr: chainguard_security_score < 2
+        for: 5m
+        labels:
+          severity: warning
+          service: chainguard-security
+          category: security-score
+        annotations:
+          summary: "📉 Chainguard security score is low"
+          description: "Overall security score is {{ $value }}/3. Review vulnerability reports and update images."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#security"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # Image size alert (potential bloat)
+      - alert: ChainguardImageSizeTooLarge
+        expr: chainguard_image_size_bytes > 1073741824  # 1GB
+        for: 10m
+        labels:
+          severity: warning
+          service: chainguard-security
+          category: optimization
+        annotations:
+          summary: "📦 Chainguard image size is larger than expected"
+          description: "Image {{ $labels.image }} is {{ $value | humanizeBytes }}. Consider optimizing to maintain Chainguard benefits."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#optimizing-image-size"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # Startup performance degradation
+      - alert: ChainguardStartupTimeHigh
+        expr: chainguard_startup_time_seconds > 30
+        for: 5m
+        labels:
+          severity: warning
+          service: chainguard-security
+          category: performance
+        annotations:
+          summary: "⚡ Chainguard container startup time is high"
+          description: "Image {{ $labels.image }} takes {{ $value }}s to start. Expected <30s for Chainguard images."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#performance"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # SBOM generation failure
+      - alert: ChainguardSBOMGenerationFailed
+        expr: increase(chainguard_sbom_generation_failures_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: chainguard-security
+          category: compliance
+        annotations:
+          summary: "📋 SBOM generation failed for Chainguard image"
+          description: "Failed to generate Software Bill of Materials for {{ $labels.image }}. Check build process."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#sbom"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # Build failure alert
+      - alert: ChainguardBuildFailed
+        expr: increase(chainguard_build_failures_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: chainguard-security
+          category: build
+        annotations:
+          summary: "🔨 Chainguard image build failed"
+          description: "Build failed for {{ $labels.image }}. Review build logs and fix issues."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/getting-started/"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # Scan failure alert
+      - alert: ChainguardSecurityScanFailed
+        expr: increase(chainguard_scan_failures_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: chainguard-security
+          category: scanning
+        annotations:
+          summary: "🔍 Security scan failed for Chainguard image"
+          description: "Security scan failed for {{ $labels.image }}. Check scanner configuration and image availability."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#security-scanning"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # Image age alert (outdated base images)
+      - alert: ChainguardImageOutdated
+        expr: time() - chainguard_image_build_timestamp > 604800  # 7 days
+        for: 1h
+        labels:
+          severity: info
+          service: chainguard-security
+          category: maintenance
+        annotations:
+          summary: "📅 Chainguard image is older than 7 days"
+          description: "Image {{ $labels.image }} was built {{ $value | humanizeDuration }} ago. Consider rebuilding with latest base images."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#keeping-images-up-to-date"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      # Compliance alert (missing SBOM)
+      - alert: ChainguardMissingSBOM
+        expr: chainguard_sbom_packages_total == 0
+        for: 30m
+        labels:
+          severity: warning
+          service: chainguard-security
+          category: compliance
+        annotations:
+          summary: "📋 Missing SBOM for Chainguard image"
+          description: "No Software Bill of Materials available for {{ $labels.image }}. Generate SBOM for compliance."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#sbom"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+  - name: chainguard.performance
+    rules:
+      # Container resource usage alerts
+      - alert: ChainguardHighMemoryUsage
+        expr: container_memory_usage_bytes{image=~".*chainguard.*"} > 536870912  # 512MB
+        for: 10m
+        labels:
+          severity: warning
+          service: chainguard-performance
+          category: resources
+        annotations:
+          summary: "💾 High memory usage in Chainguard container"
+          description: "Container {{ $labels.name }} is using {{ $value | humanizeBytes }} of memory. Expected lower usage with Chainguard images."
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      - alert: ChainguardHighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total{image=~".*chainguard.*"}[5m]) > 0.8
+        for: 15m
+        labels:
+          severity: warning
+          service: chainguard-performance
+          category: resources
+        annotations:
+          summary: "⚡ High CPU usage in Chainguard container"
+          description: "Container {{ $labels.name }} is using {{ $value | humanizePercentage }} CPU. Investigate potential optimization opportunities."
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+  - name: chainguard.availability
+    rules:
+      # Container availability alerts
+      - alert: ChainguardContainerDown
+        expr: up{job=~".*chainguard.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: chainguard-availability
+          category: availability
+        annotations:
+          summary: "🔴 Chainguard container is down"
+          description: "Container {{ $labels.instance }} is not responding. Check container health and restart if needed."
+          runbook_url: "https://edu.chainguard.dev/chainguard/chainguard-images/overview/#troubleshooting"
+          dashboard_url: "http://localhost:3001/d/chainguard-security"
+
+      - alert: ChainguardContainerRestarting
+        expr: increase(container_start_time_seconds{image=~".*chainguard.*"}[10m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          service: chainguard-availability
+          category: availability
+        annotations:
+          summary: "🔄 Chainguard container restarting frequently"
+          description: "Container {{ $labels.name }} has restarted {{ $value }} times in the last 10 minutes. Check logs for issues."
+          dashboard_url: "http://localhost:3001/d/chainguard-security"

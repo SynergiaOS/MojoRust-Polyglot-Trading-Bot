@@ -4,13 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MojoRust is a high-performance algorithmic trading bot for Solana memecoin markets using a polyglot architecture:
+MojoRust is a sophisticated high-frequency algorithmic trading bot for Solana memecoin markets using a carefully designed polyglot architecture:
 
-- **Mojo** (🔥): Intelligence layer - computationally intensive tasks, algorithms, signal generation
-- **Rust** (🦀): Security layer - private keys, transaction signing, critical operations, high-performance data processing
-- **Python** (🐍): Orchestration layer - API clients, task scheduling, database interactions, main application loop
+- **Mojo** (🔥): **Intelligence Layer** - computationally intensive algorithms, signal generation, pattern recognition with C-level performance
+- **Rust** (🦀): **Security & Performance Layer** - private key management, transaction signing, Geyser data consumer, high-performance data processing with memory safety
+- **Python** (🐍): **Orchestration Layer** - API clients, task scheduling, database operations, webhook handling using asyncio, aiohttp, pandas, redis
 
-The bot includes comprehensive monitoring, risk management, and both manual and automated deployment capabilities.
+**Data Pipeline Architecture**: `Solana Geyser → Rust Data Consumer → Redis Pub/Sub → Python TaskPool → Mojo Analysis → Rust Execution`
+
+The bot features enterprise-grade monitoring, comprehensive risk management with circuit breakers, multi-stage filtering (90-95% rejection rate), and both manual and automated deployment capabilities.
 
 ## Development Commands
 

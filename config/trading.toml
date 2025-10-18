@@ -22,6 +22,45 @@ enable_connection_pool_monitoring = true
 enable_operational_reliability_monitor = true
 
 # =============================================================================
+# RPC Provider Configuration (2025 Features)
+# =============================================================================
+[rpc_providers]
+
+# Helius Configuration
+[rpc_providers.helius]
+endpoint = "https://rpc.helius.xyz/?api-key={api_key}"
+laserstream_endpoint = "grpc://helius-laserstream.helius-rpc.com:443"
+api_key = "${HELIUS_API_KEY}"
+priority_fee_api = "https://api.helius.xyz/v0/fees"
+use_laserstream = true
+latency_target_ms = 30
+filter_threshold = 0.99
+max_concurrent_requests = 10
+
+# QuickNode Configuration
+[rpc_providers.quicknode]
+endpoint = "https://{endpoint}.solana-mainnet.quiknode.pro/{api_key}"
+lil_jit_endpoint = "https://lil-jit.quicknode.com"
+priority_fee_api = "https://api.quicknode.com/v1/solana/priority-fees"
+api_key = "${QUICKNODE_API_KEY}"
+use_lil_jit = true
+urgency_level = "medium"  # low, medium, high, critical
+min_tip_lamports = 1000
+max_tip_lamports = 10000000
+request_timeout_ms = 5000
+
+# RPC Router Configuration
+[rpc_providers.router]
+primary_provider = "helius"      # helius, quicknode
+fallback_provider = "quicknode"
+health_check_interval_seconds = 30
+circuit_breaker_threshold = 5
+circuit_breaker_timeout_seconds = 300
+enable_load_balancing = true
+enable_failover = true
+max_retry_attempts = 3
+
+# =============================================================================
 # API Configuration
 # =============================================================================
 [api]
@@ -170,6 +209,70 @@ webhook_url_env = "DISCORD_WEBHOOK_URL"
 # Telegram
 telegram_bot_token_env = "TELEGRAM_BOT_TOKEN"
 telegram_chat_id_env = "TELEGRAM_CHAT_ID"
+
+# =============================================================================
+# Webhook Management Configuration (2025 Features)
+# =============================================================================
+[webhooks]
+
+# Webhook Manager Service
+[webhooks.manager]
+enabled = true
+host = "0.0.0.0"
+port = 8082
+use_async = true                     # Use Quart (async) instead of Flask (sync)
+
+# Redis Configuration for webhook event publishing
+[webhooks.redis]
+url_env = "REDIS_URL"
+channels = ["webhook_events:all", "webhook_events:helius", "webhook_events:quicknode"]
+publish_timeout_seconds = 5
+
+# Helius Webhook Configuration
+[webhooks.helius]
+enabled = true
+webhook_url_env = "WEBHOOK_URL"
+api_key_env = "HELIUS_LASERSTREAM_KEY"
+webhook_type = "enhanced"              # basic, enhanced, compressed
+transaction_types = ["TRANSFER", "SWAP", "CREATE_TOKEN"]
+account_addresses = []
+enable_das = true
+auth_header_env = "HELIUS_WEBHOOK_AUTH"
+
+# QuickNode Webhook Configuration
+[webhooks.quicknode]
+enabled = true
+webhook_url_env = "WEBHOOK_URL"
+api_key_env = "PRIORITY_FEE_API_KEY"
+network = "mainnet"
+event_types = ["bundle.submitted", "bundle.confirmed", "nft.mint"]
+description = "MojoRust trading bot webhook"
+
+# Webhook Processing Configuration
+[webhooks.processing]
+max_concurrent_requests = 50
+request_timeout_seconds = 10
+retry_attempts = 3
+retry_delay_seconds = 1
+enable_rate_limiting = true
+rate_limit_per_minute = 1000
+
+# Webhook Filtering
+[webhooks.filters]
+enable_urgency_filtering = true
+min_urgency_level = "low"             # low, medium, high, critical
+enable_content_filtering = true
+content_keywords = ["token", "bundle", "arbitrage", "snipe"]
+blacklisted_addresses = []
+max_message_size_bytes = 1048576      # 1MB
+
+# Webhook Statistics and Monitoring
+[webhooks.monitoring]
+enable_metrics = true
+metrics_endpoint = "/metrics"
+health_endpoint = "/health"
+stats_retention_hours = 24
+enable_performance_tracking = true
 
 # Alert cooldowns (seconds)
 error_alert_cooldown = 60              # Max 1 error alert per minute

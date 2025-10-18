@@ -1,0 +1,56 @@
+[package]
+name = "mojorust_e2e_tests"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "e2e_test_runner"
+path = "test_runner.rs"
+
+[dependencies]
+# Core dependencies
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.10"
+
+# Solana dependencies
+solana-sdk = "1.18"
+solana-client = "1.18"
+solana-transaction-status = "1.18"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Time and UUID
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# Async utilities
+futures = "0.3"
+async-trait = "0.1"
+
+# Testing utilities
+proptest = "1.0"
+tempfile = "3.0"
+
+# Configuration
+dotenvy = "0.15"
+
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = "0.5"
+
+[[bench]]
+name = "e2e_benchmarks"
+harness = false
+
+[features]
+default = ["simulation"]
+simulation = []
+paper_trading = []
+live_trading = []

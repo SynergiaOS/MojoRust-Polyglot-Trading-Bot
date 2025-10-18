@@ -1,174 +1,308 @@
-# Trading-specific alert rules for MojoRust Trading Bot
-# Monitors trading performance, execution, and risk metrics
-
 groups:
-  - name: trading_performance
+  - name: mojorust_trading_alerts
     rules:
-
-      # High Error Rate Alert
-      - alert: HighErrorRate
-        expr: rate(trading_bot_errors_total[5m]) > 0.1
+      # Critical Trading Alerts
+      - alert: TradingSuccessRateLow
+        expr: trading_success_rate < 80
         for: 2m
         labels:
           severity: critical
+          service: mojorust
           component: trading
         annotations:
-          summary: "High error rate detected in trading bot"
-          description: "Trading bot error rate is {{ $value | humanizePercentage }} (threshold: 10%)"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/high-error-rate"
+          summary: "Trading success rate is critically low"
+          description: "Trading success rate is {{ $value }}% for the last 2 minutes, which is below the 80% threshold."
 
-      # High API Latency Alert
-      - alert: HighLatency
-        expr: histogram_quantile(0.95, rate(trading_bot_api_latency_seconds_bucket[5m])) > 0.5
-        for: 5m
-        labels:
-          severity: warning
-          component: api
-        annotations:
-          summary: "High API latency detected"
-          description: "API latency p95 is {{ $value }}s (threshold: 0.5s)"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/high-latency"
-
-      # Circuit Breaker Triggered Alert
-      - alert: CircuitBreakerTriggered
-        expr: trading_bot_circuit_breaker_open == 1
+      - alert: HighTransactionFailureRate
+        expr: rate(trading_failed_transactions[5m]) / rate(trading_total_transactions[5m]) > 0.3
         for: 1m
         labels:
           severity: critical
-          component: risk
+          service: mojorust
+          component: trading
         annotations:
-          summary: "Circuit breaker triggered"
-          description: "Circuit breaker {{ $labels.breaker }} is open - trading halted"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/circuit-breaker"
+          summary: "High transaction failure rate detected"
+          description: "Transaction failure rate is {{ $value | humanizePercentage }} for the last 5 minutes."
 
-      # Low Portfolio Balance Alert
-      - alert: LowBalance
-        expr: trading_bot_portfolio_balance_sol < 0.1
+      - alert: NegativeProfitTrend
+        expr: rate(trading_profit_per_second_lamports[10m]) < -1000
         for: 5m
         labels:
           severity: warning
-          component: portfolio
+          service: mojorust
+          component: trading
         annotations:
-          summary: "Low portfolio balance"
-          description: "Portfolio balance is {{ $value }} SOL (threshold: 0.1 SOL)"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/low-balance"
+          summary: "Negative profit trend detected"
+          description: "Profit rate is {{ $value }} lamports/second for the last 10 minutes."
 
-      # High Drawdown Alert
-      - alert: HighDrawdown
-        expr: trading_bot_current_drawdown > 0.15
+      - alert: TransactionQueueBacklog
+        expr: trading_transaction_queue_depth > 50
+        for: 3m
+        labels:
+          severity: warning
+          service: mojorust
+          component: trading
+        annotations:
+          summary: "Transaction queue backlog detected"
+          description: "Transaction queue depth is {{ $value }} transactions."
+
+      # Arbitrage Alerts
+      - alert: LowArbitrageSuccessRate
+        expr: arbitrage_success_rate < 70
+        for: 5m
+        labels:
+          severity: warning
+          service: mojorust
+          component: arbitrage
+        annotations:
+          summary: "Arbitrage success rate is low"
+          description: "Arbitrage success rate is {{ $value }}% for the last 5 minutes."
+
+      - alert: HighArbitrageSlippage
+        expr: histogram_quantile(0.95, rate(arbitrage_slippage_percentage_bucket[5m])) > 3.0
+        for: 2m
+        labels:
+          severity: warning
+          service: mojorust
+          component: arbitrage
+        annotations:
+          summary: "High arbitrage slippage detected"
+          description: "95th percentile slippage is {{ $value }}% for the last 5 minutes."
+
+      - alert: NoArbitrageOpportunities
+        expr: increase(arbitrage_opportunities_detected_total[10m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+          service: mojorust
+          component: arbitrage
+        annotations:
+          summary: "No arbitrage opportunities detected"
+          description: "No arbitrage opportunities have been detected in the last 15 minutes."
+
+      # Flash Loan Alerts
+      - alert: FlashLoanSuccessRateLow
+        expr: flash_loan_success_rate < 75
+        for: 3m
+        labels:
+          severity: critical
+          service: mojorust
+          component: flash_loan
+        annotations:
+          summary: "Flash loan success rate is critically low"
+          description: "Flash loan success rate is {{ $value }}% for the last 3 minutes."
+
+      - alert: FlashLoanExecutionTimeout
+        expr: histogram_quantile(0.95, rate(flash_loan_execution_time_seconds_bucket[5m])) > 60
+        for: 2m
+        labels:
+          severity: warning
+          service: mojorust
+          component: flash_loan
+        annotations:
+          summary: "Flash loan execution timeouts detected"
+          description: "95th percentile flash loan execution time is {{ $value }} seconds."
+
+      - alert: FlashLoanProviderUnhealthy
+        expr: flash_loan_provider_health < 0.8
+        for: 1m
+        labels:
+          severity: warning
+          service: mojorust
+          component: flash_loan
+        annotations:
+          summary: "Flash loan provider health is degraded"
+          description: "Flash loan provider health is {{ $value | humanizePercentage }}."
+
+      # RPC Router Alerts
+      - alert: RPCSuccessRateLow
+        expr: rpc_success_rate < 90
         for: 2m
         labels:
           severity: critical
-          component: risk
+          service: mojorust
+          component: rpc_router
         annotations:
-          summary: "High drawdown detected"
-          description: "Current drawdown is {{ $value | humanizePercentage }} (threshold: 15%)"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/high-drawdown"
+          summary: "RPC success rate is critically low"
+          description: "RPC success rate is {{ $value }}% for the last 2 minutes."
 
-      # Low Win Rate Alert
-      - alert: LowWinRate
-        expr: trading_bot_win_rate < 0.4 and trading_bot_total_trades > 20
-        for: 30m
+      - alert: HighRPCLatency
+        expr: histogram_quantile(0.95, rate(rpc_request_duration_seconds_bucket[5m])) > 1.0
+        for: 2m
         labels:
           severity: warning
-          component: performance
+          service: mojorust
+          component: rpc_router
         annotations:
-          summary: "Low win rate detected"
-          description: "Win rate is {{ $value | humanizePercentage }} after {{ $labels.total_trades }} trades"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/low-win-rate"
+          summary: "High RPC latency detected"
+          description: "95th percentile RPC latency is {{ $value }} seconds."
 
-      # Consecutive Losses Alert
-      - alert: ConsecutiveLosses
-        expr: trading_bot_consecutive_losses >= 5
+      - alert: NoActiveRPCConnections
+        expr: rpc_active_connections == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: mojorust
+          component: rpc_router
+        annotations:
+          summary: "No active RPC connections"
+          description: "All RPC connections are down."
+
+      # Data Pipeline Alerts
+      - alert: DataPipelineStalled
+        expr: rate(data_events_processed_total[2m]) < 10
+        for: 3m
+        labels:
+          severity: critical
+          service: mojorust
+          component: data_pipeline
+        annotations:
+          summary: "Data pipeline appears stalled"
+          description: "Event processing rate is {{ $value }} events/second for the last 2 minutes."
+
+      - alert: HighRedisLag
+        expr: data_redis_lag_seconds > 5
         for: 1m
         labels:
           severity: warning
-          component: risk
+          service: mojorust
+          component: data_pipeline
         annotations:
-          summary: "Consecutive losses detected"
-          description: "{{ $value }} consecutive losses detected"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/consecutive-losses"
+          summary: "High Redis message lag detected"
+          description: "Redis message lag is {{ $value }} seconds."
 
-      # High Slippage Alert
-      - alert: HighSlippage
-        expr: trading_bot_avg_slippage > 0.03
+      - alert: LowFilterEfficiency
+        expr: data_filter_efficiency < 90
+        for: 5m
+        labels:
+          severity: warning
+          service: mojorust
+          component: data_pipeline
+        annotations:
+          summary: "Low filter efficiency detected"
+          description: "Filter efficiency is {{ $value }}% for the last 5 minutes."
+
+      # System Performance Alerts
+      - alert: HighMemoryUsage
+        expr: system_memory_usage_bytes / (1024 * 1024 * 1024) > 8
+        for: 5m
+        labels:
+          severity: warning
+          service: mojorust
+          component: system
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}GB."
+
+      - alert: HighCPUUsage
+        expr: system_cpu_usage_percentage > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: mojorust
+          component: system
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}%."
+
+      - alert: TooManyOpenFiles
+        expr: system_open_files > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: mojorust
+          component: system
+        annotations:
+          summary: "High number of open files"
+          description: "Open file count is {{ $value }}."
+
+      # Performance Alerts
+      - alert: HighEndToEndLatency
+        expr: histogram_quantile(0.95, rate(performance_end_to_end_latency_seconds_bucket[5m])) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: mojorust
+          component: performance
+        annotations:
+          summary: "High end-to-end latency detected"
+          description: "95th percentile end-to-end latency is {{ $value }} seconds."
+
+      - alert: LowThroughput
+        expr: performance_throughput_transactions_per_second < 0.1
         for: 10m
         labels:
           severity: warning
-          component: execution
+          service: mojorust
+          component: performance
         annotations:
-          summary: "High slippage detected"
-          description: "Average slippage is {{ $value | humanizePercentage }} (threshold: 3%)"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/high-slippage"
+          summary: "Low trading throughput detected"
+          description: "Trading throughput is {{ $value }} transactions/second."
 
-      # No Trading Activity Alert
-      - alert: NoTradingActivity
-        expr: time() - trading_bot_last_trade_timestamp > 3600 and trading_bot_monitoring_active == 1
-        for: 5m
-        labels:
-          severity: warning
-          component: trading
-        annotations:
-          summary: "No trading activity detected"
-          description: "No trades executed in the last hour despite monitoring being active"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/no-trading-activity"
-
-      # High Execution Time Alert
-      - alert: HighExecutionTime
-        expr: trading_bot_avg_execution_time > 2.0
-        for: 5m
-        labels:
-          severity: warning
-          component: execution
-        annotations:
-          summary: "High execution time detected"
-          description: "Average execution time is {{ $value }}s (threshold: 2s)"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/high-execution-time"
-
-      # Risk Limit Breach Alert
-      - alert: RiskLimitBreach
-        expr: trading_bot_risk_limit_utilization > 0.9
+      # Risk Management Alerts
+      - alert: HighDrawdown
+        expr: risk_drawdown_percentage > 15
         for: 1m
         labels:
           severity: critical
+          service: mojorust
           component: risk
         annotations:
-          summary: "Risk limit breach detected"
-          description: "Risk limit utilization is {{ $value | humanizePercentage }} (threshold: 90%)"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/risk-limit-breach"
+          summary: "High portfolio drawdown detected"
+          description: "Portfolio drawdown is {{ $value }}%."
 
-      # Position Size Alert
-      - alert: LargePositionSize
-        expr: trading_bot_max_position_size > trading_bot_portfolio_value_sol * 0.3
-        for: 1m
+      - alert: CircuitBreakerTripped
+        expr: increase(risk_circuit_breaker_trips_total[5m]) > 0
+        for: 0s
         labels:
-          severity: warning
+          severity: critical
+          service: mojorust
           component: risk
         annotations:
-          summary: "Large position size detected"
-          description: "Maximum position size ({{ $value }} SOL) exceeds 30% of portfolio value"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/large-position-size"
+          summary: "Circuit breaker has been tripped"
+          description: "Circuit breaker was tripped {{ $value }} times in the last 5 minutes."
 
-      # Strategy Performance Alert
-      - alert: PoorStrategyPerformance
-        expr: trading_bot_strategy_win_rate < 0.35 and trading_bot_strategy_total_trades > 10
-        for: 1h
+      - alert: StopLossActivated
+        expr: increase(risk_stop_loss_activations_total[1m]) > 0
+        for: 0s
         labels:
           severity: warning
-          component: performance
+          service: mojorust
+          component: risk
         annotations:
-          summary: "Poor strategy performance"
-          description: "Strategy {{ $labels.strategy }} win rate is {{ $value | humanizePercentage }} after {{ $labels.total_trades }} trades"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/poor-strategy-performance"
+          summary: "Stop loss has been activated"
+          description: "Stop loss was activated {{ $value }} times in the last minute."
 
-      # API Rate Limit Alert
-      - alert: APIRateLimit
-        expr: trading_bot_rate_limit_hits_total > 0
-        for: 5m
+      # Error and Retry Alerts
+      - alert: HighErrorRate
+        expr: error_rate > 10
+        for: 2m
         labels:
           severity: warning
-          component: api
+          service: mojorust
+          component: system
         annotations:
-          summary: "API rate limit reached"
-          description: "Rate limit hit for {{ $labels.api }} on endpoint {{ $labels.endpoint }}"
-          runbook_url: "https://github.com/your-org/mojorust/docs/alerts/api-rate-limit"
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }}% for the last 2 minutes."
+
+      - alert: HighTimeoutRate
+        expr: rate(timeout_count_total[5m]) / rate(error_count_total[5m]) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+          service: mojorust
+          component: system
+        annotations:
+          summary: "High timeout rate detected"
+          description: "Timeout rate is {{ $value | humanizePercentage }} of all errors for the last 5 minutes."
+
+      - alert: HighRetryRate
+        expr: rate(retry_count_total[5m]) / rate(trading_total_transactions[5m]) > 0.2
+        for: 3m
+        labels:
+          severity: warning
+          service: mojorust
+          component: system
+        annotations:
+          summary: "High retry rate detected"
+          description: "Retry rate is {{ $value | humanizePercentage }} for the last 5 minutes."

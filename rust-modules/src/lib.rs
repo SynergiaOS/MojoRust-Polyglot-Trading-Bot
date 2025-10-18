@@ -22,6 +22,8 @@
 //! - [`arbitrage`]: Multi-token arbitrage detection and execution
 //! - [`jito_bundle_builder`]: MEV-protected bundle submission
 //! - [`rpc_router`]: Provider-aware RPC routing with health monitoring
+//! - [`helius_laserstream`]: Ultra-low latency Helius LaserStream integration
+//! - [`data_consumer`]: Data consumption and filtering service
 //! - [`ffi`]: Foreign Function Interface for Mojo
 
 #![warn(missing_docs)]
@@ -41,6 +43,8 @@ pub mod mock_geyser;
 pub mod arbitrage;
 pub mod jito_bundle_builder;
 pub mod rpc_router;
+pub mod helius_laserstream;
+pub mod quicknode_liljit;
 
 // Re-export main interfaces for convenience
 pub use crypto::CryptoEngine;
@@ -58,6 +62,8 @@ pub use arbitrage::{
 };
 pub use jito_bundle_builder::{JitoBundleBuilder, BundleConfig, BundleSubmissionResult};
 pub use rpc_router::{RPCRouter, ProviderConfig, RPCHealth};
+pub use helius_laserstream::{HeliusLaserStreamClient, LaserStreamConfig, LaserStreamMetrics};
+pub use quicknode_liljit::{QuickNodeLilJitClient, LilJitConfig, LilJitStats};
 
 use anyhow::Result;
 

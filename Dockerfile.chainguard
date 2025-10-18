@@ -1,0 +1,65 @@
+# Chainguard-based Dockerfile for MojoRust Trading Bot
+# Multi-stage build with enhanced security and performance
+
+# Stage 1: Rust Builder
+FROM cgr.dev/chainguard/rust:latest AS rust-builder
+
+# Set working directory
+WORKDIR /usr/src
+
+# Copy Cargo configuration files
+COPY rust-modules/Cargo.toml rust-modules/Cargo.lock ./
+
+# Copy Rust source code
+COPY rust-modules/src ./src
+
+# Build Rust modules (FFI libraries needed by Mojo)
+RUN cargo build --release --target-dir /usr/src/target
+
+# Stage 2: Runtime
+FROM cgr.dev/chainguard/wolfi-base:latest AS runtime
+
+# Create app directory
+WORKDIR /app
+
+# Create lib directory for Rust FFI libraries
+RUN mkdir -p /app/lib
+
+# Copy compiled Rust libraries from builder stage
+COPY --from=rust-builder /usr/src/target/release/*.so /app/lib/
+
+# Copy configuration files
+COPY config/ ./config/
+
+# Copy local build Mojo binary (requires Modular auth)
+COPY trading-bot /app/trading-bot
+
+# Copy utility scripts
+COPY scripts/docker-entrypoint.sh /app/docker-entrypoint.sh
+
+# Set library path for Rust FFI
+ENV LD_LIBRARY_PATH=/app/lib
+ENV RUST_LOG=info
+ENV LOG_LEVEL=info
+ENV TRADING_ENV=production
+
+# Create non-root user for security
+RUN useradd -m -u trading && \
+    chown -R trading:trading /app && \
+    chmod +x /app/docker-entrypoint.sh /app/trading-bot
+
+# Switch to non-root user
+USER trading
+
+# Expose ports
+EXPOSE 9091 8082
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider=0 --output-document=- http://localhost:8082/health || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+
+# Default command - paper trading for safety
+CMD ["/app/trading-bot", "--mode=paper"]

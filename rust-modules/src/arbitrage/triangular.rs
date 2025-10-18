@@ -181,7 +181,7 @@ impl TriangularDetector {
             .timeout(Duration::from_secs(15))
             .build()?;
 
-        // Initialize supported tokens
+        // Initialize supported tokens - all 10 tokens for triangular arbitrage
         let mut supported_tokens = HashSet::new();
         supported_tokens.insert("So11111111111111111111111111111111111111112".to_string()); // SOL
         supported_tokens.insert("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string()); // USDC
@@ -189,6 +189,10 @@ impl TriangularDetector {
         supported_tokens.insert("3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im".to_string()); // WBTC
         supported_tokens.insert("Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA".to_string()); // LINK
         supported_tokens.insert("5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5".to_string()); // USDE
+        supported_tokens.insert("USDSes911MNNu1xA68HKmNafBvn1i9qEse7YhKqwDgHq".to_string()); // USDS
+        supported_tokens.insert("9n4nbM75fEuUiS8GWQhE4DqPyyGtRwNUJmrM3DHUyDy8".to_string()); // CBBTC
+        supported_tokens.insert("8hFgUeVwB6xFq7dUa8JW4sBQwJY9iHqKv9XGvKx9qZq".to_string()); // SUSDE
+        supported_tokens.insert("7vfCXTVGxZ5pZvKqzZTqFpMqHvqJvN5SLgXaR9Jv9JvK".to_string()); // WLFI
 
         // Initialize cycle detection engine
         let cycle_detector = CycleDetectionEngine {
@@ -703,36 +707,245 @@ impl TriangularDetector {
     // Mock pool fetching methods (would be replaced with real API calls)
     async fn fetch_orca_pools(&self) -> Result<Vec<TriangularPool>> {
         Ok(vec![
+            // SOL/USDC pool
             TriangularPool {
                 address: "orca_sol_usdc".to_string(),
                 dex_name: "Orca".to_string(),
                 token_a: "So11111111111111111111111111111111111111112".to_string(),
                 token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
-                reserve_a: 1000.0,
-                reserve_b: 100000.0,
+                reserve_a: 1500.0,
+                reserve_b: 337500.0,
                 fee_rate: 0.003,
-                volume_24h: 500000.0,
-                tvl: 100000.0,
+                volume_24h: 5000000.0,
+                tvl: 339000.0,
                 last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
                 price_impact_model: "constant_product".to_string(),
             },
-            // Add more pools as needed
+            // SOL/USDT pool
+            TriangularPool {
+                address: "orca_sol_usdt".to_string(),
+                dex_name: "Orca".to_string(),
+                token_a: "So11111111111111111111111111111111111111112".to_string(),
+                token_b: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(),
+                reserve_a: 800.0,
+                reserve_b: 179600.0,
+                fee_rate: 0.003,
+                volume_24h: 2500000.0,
+                tvl: 180400.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "constant_product".to_string(),
+            },
+            // USDC/USDT pool (small spread for arbitrage)
+            TriangularPool {
+                address: "orca_usdc_usdt".to_string(),
+                dex_name: "Orca".to_string(),
+                token_a: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                token_b: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(),
+                reserve_a: 1000000.0,
+                reserve_b: 998000.0, // Slight discount for USDT
+                fee_rate: 0.0004, // Low fee for stable pair
+                volume_24h: 10000000.0,
+                tvl: 1998000.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "stable_swap".to_string(),
+            },
+            // WBTC/USDC pool
+            TriangularPool {
+                address: "orca_wbtc_usdc".to_string(),
+                dex_name: "Orca".to_string(),
+                token_a: "3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 50.0,
+                reserve_b: 3250000.0,
+                fee_rate: 0.003,
+                volume_24h: 800000.0,
+                tvl: 3250050.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "constant_product".to_string(),
+            },
+            // LINK/USDC pool
+            TriangularPool {
+                address: "orca_link_usdc".to_string(),
+                dex_name: "Orca".to_string(),
+                token_a: "Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 2000.0,
+                reserve_b: 50000.0,
+                fee_rate: 0.003,
+                volume_24h: 600000.0,
+                tvl: 52000.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "constant_product".to_string(),
+            },
+            // USDE/USDC pool
+            TriangularPool {
+                address: "orca_usde_usdc".to_string(),
+                dex_name: "Orca".to_string(),
+                token_a: "5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 800000.0,
+                reserve_b: 798400.0, // Slight discount for USDE
+                fee_rate: 0.0001, // Very low fee for stable pair
+                volume_24h: 4000000.0,
+                tvl: 1598400.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "stable_swap".to_string(),
+            },
         ])
     }
 
     async fn fetch_raydium_pools(&self) -> Result<Vec<TriangularPool>> {
-        // Similar mock implementation for Raydium
-        Ok(vec![])
+        Ok(vec![
+            // SOL/USDC pool (slightly different price for arbitrage)
+            TriangularPool {
+                address: "raydium_sol_usdc".to_string(),
+                dex_name: "Raydium".to_string(),
+                token_a: "So11111111111111111111111111111111111111112".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 1400.0,
+                reserve_b: 317800.0, // Slightly better price: $227 vs $225
+                fee_rate: 0.0025,
+                volume_24h: 4500000.0,
+                tvl: 319200.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "constant_product".to_string(),
+            },
+            // SOL/USDT pool (different price for triangular arbitrage)
+            TriangularPool {
+                address: "raydium_sol_usdt".to_string(),
+                dex_name: "Raydium".to_string(),
+                token_a: "So11111111111111111111111111111111111111112".to_string(),
+                token_b: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(),
+                reserve_a: 900.0,
+                reserve_b: 204300.0, // Different price: $227 vs $224.5
+                fee_rate: 0.0025,
+                volume_24h: 2300000.0,
+                tvl: 205200.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "constant_product".to_string(),
+            },
+            // USDC/USDT pool (different spread)
+            TriangularPool {
+                address: "raydium_usdc_usdt".to_string(),
+                dex_name: "Raydium".to_string(),
+                token_a: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                token_b: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(),
+                reserve_a: 900000.0,
+                reserve_b: 904500.0, // USDT at premium vs Orca
+                fee_rate: 0.0025,
+                volume_24h: 8000000.0,
+                tvl: 1804500.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "constant_product".to_string(),
+            },
+            // WBTC/USDC pool (different price)
+            TriangularPool {
+                address: "raydium_wbtc_usdc".to_string(),
+                dex_name: "Raydium".to_string(),
+                token_a: "3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 45.0,
+                reserve_b: 2961000.0, // $65,800 vs $65,000
+                fee_rate: 0.0025,
+                volume_24h: 750000.0,
+                tvl: 2961045.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "constant_product".to_string(),
+            },
+            // LINK/USDC pool
+            TriangularPool {
+                address: "raydium_link_usdc".to_string(),
+                dex_name: "Raydium".to_string(),
+                token_a: "Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 1800.0,
+                reserve_b: 46800.0, // $26 vs $25
+                fee_rate: 0.0025,
+                volume_24h: 550000.0,
+                tvl: 48600.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "constant_product".to_string(),
+            },
+            // Additional pools for new tokens
+            TriangularPool {
+                address: "raydium_usds_usdc".to_string(),
+                dex_name: "Raydium".to_string(),
+                token_a: "USDSes911MNNu1xA68HKmNafBvn1i9qEse7YhKqwDgHq".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 600000.0,
+                reserve_b: 599400.0, // USDS at slight discount
+                fee_rate: 0.0005,
+                volume_24h: 3000000.0,
+                tvl: 1199400.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "stable_swap".to_string(),
+            },
+        ])
     }
 
     async fn fetch_serum_pools(&self) -> Result<Vec<TriangularPool>> {
-        // Similar mock implementation for Serum
-        Ok(vec![])
+        Ok(vec![
+            // SOL/USDC (Serum DEX)
+            TriangularPool {
+                address: "serum_sol_usdc".to_string(),
+                dex_name: "Serum".to_string(),
+                token_a: "So11111111111111111111111111111111111111112".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 600.0,
+                reserve_b: 135600.0, // $226 price
+                fee_rate: 0.0022,
+                volume_24h: 2000000.0,
+                tvl: 136200.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "order_book".to_string(),
+            },
+            // Additional pools for triangular opportunities
+            TriangularPool {
+                address: "serum_wbtc_usdc".to_string(),
+                dex_name: "Serum".to_string(),
+                token_a: "3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 20.0,
+                reserve_b: 1316000.0, // $65,800 price
+                fee_rate: 0.0022,
+                volume_24h: 400000.0,
+                tvl: 1316020.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "order_book".to_string(),
+            },
+        ])
     }
 
     async fn fetch_jupiter_pools(&self) -> Result<Vec<TriangularPool>> {
-        // Similar mock implementation for Jupiter
-        Ok(vec![])
+        Ok(vec![
+            // Jupiter aggregated pools for best rates
+            TriangularPool {
+                address: "jupiter_sol_usdc".to_string(),
+                dex_name: "Jupiter".to_string(),
+                token_a: "So11111111111111111111111111111111111111112".to_string(),
+                token_b: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                reserve_a: 3000.0,
+                reserve_b: 681000.0, // Best aggregated rate: $227
+                fee_rate: 0.0025, // Average fee across routes
+                volume_24h: 10000000.0,
+                tvl: 684000.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "aggregated".to_string(),
+            },
+            TriangularPool {
+                address: "jupiter_usdc_usdt".to_string(),
+                dex_name: "Jupiter".to_string(),
+                token_a: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                token_b: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(),
+                reserve_a: 2000000.0,
+                reserve_b: 2004000.0, // Near 1:1 with small premium for USDT
+                fee_rate: 0.0015,
+                volume_24h: 15000000.0,
+                tvl: 4004000.0,
+                last_updated: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+                price_impact_model: "aggregated".to_string(),
+            },
+        ])
     }
 
     /// Get supported tokens
@@ -778,7 +991,7 @@ mod tests {
         assert!(detector.is_ok());
         let detector = detector.unwrap();
         assert!(!detector.supported_tokens.is_empty());
-        assert_eq!(detector.supported_tokens.len(), 6); // SOL, USDC, USDT, WBTC, LINK, USDE
+        assert_eq!(detector.supported_tokens.len(), 10); // All 10 supported tokens
     }
 
     #[tokio::test]

@@ -1,0 +1,29 @@
+# Chainguard-based Dockerfile for Python Geyser Client
+# Multi-stage build for C extension compilation and minimal runtime
+
+# Stage 1: Builder with development tools
+FROM cgr.dev/chainguard/python:3.11-dev AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python packages with C extensions
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Stage 2: Minimal runtime
+FROM cgr.dev/chainguard/python:3.11
+
+# Set working directory
+WORKDIR /app
+
+# Copy installed packages from builder stage
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+
+# Copy Python source code
+COPY python/geyser_client.py .
+
+# Default command
+CMD ["python", "geyser_client.py"]

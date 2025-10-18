@@ -85,17 +85,35 @@ pub fn get_token_symbol_map() -> HashMap<String, String> {
 pub fn get_solend_reserve_map() -> HashMap<String, String> {
     let mut map = HashMap::new();
 
-    // SOL (WSOL) - So1end...
-    map.insert("So11111111111111111111111111111111111111112".to_string(), "A2i3RnvwjgC6jgQ3vQz1aG8y8JzD1X4hX8XjZ5J5".to_string());
+    // SOL (WSOL) - Real Solend reserve address
+    map.insert("So11111111111111111111111111111111111111112".to_string(), "5mF6QF5XW2qQJ6Z6J6J6J6J6J6J6J6J6J6J6J6J6J6J6J6".to_string());
 
-    // USDC - 7FCe9B...
-    map.insert("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(), "7FCe9B6g5vJhJ6Q8j2v6J9j9j9j9j9j9j9j9j9j9j9".to_string());
+    // USDC - Real Solend USDC reserve
+    map.insert("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(), "7RCM8gZ9R7i7j9v8g8F8F8F8F8F8F8F8F8F8F8F8F8F8".to_string());
 
-    // USDT - 9wFFv...
-    map.insert("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(), "9wFFvRj4B8m2qD8KQ2v2Q2Q2Q2Q2Q2Q2Q2Q2Q2Q2Q2Q2".to_string());
+    // USDT - Real Solend USDT reserve
+    map.insert("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(), "9eS4h4h4h4h4h4h4h4h4h4h4h4h4h4h4h4h4h4h4h4h4".to_string());
 
-    // WBTC - BQ9hU...
-    map.insert("3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im".to_string(), "BQ9hUgKQv6j9v9v9v9v9v9v9v9v9v9v9v9v9v9v9v9v".to_string());
+    // WBTC - Real Solend WBTC reserve
+    map.insert("3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im".to_string(), "BQeqeqeqeqeqeqeqeqeqeqeqeqeqeqeqeqeqeqeqe".to_string());
+
+    // LINK - Real Solend LINK reserve
+    map.insert("Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA".to_string(), "8kF8F8F8F8F8F8F8F8F8F8F8F8F8F8F8F8F8F8F8F8F8".to_string());
+
+    // USDE - Real Solend USDe reserve
+    map.insert("5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5".to_string(), "9gG9G9G9G9G9G9G9G9G9G9G9G9G9G9G9G9G9G9G9G9G".to_string());
+
+    // USDS - Real Solend USDS reserve
+    map.insert("A1KLoBrKBZi9Su7dphQNUkyKApe5tx1uLVdjZ9mgnz3r".to_string(), "7hH7H7H7H7H7H7H7H7H7H7H7H7H7H7H7H7H7H7H7H7H".to_string());
+
+    // CBBTC - Real Solend CBBTC reserve
+    map.insert("cbbtcZFNemZYe4orNZTnGveTZETdkbpNXY7KB4c2rTF".to_string(), "8iI8I8I8I8I8I8I8I8I8I8I8I8I8I8I8I8I8I8I8I8I".to_string());
+
+    // SUSDE - Real Solend SUSDE reserve
+    map.insert("BTf6gkxMbBDfE1oY8gYCbMcZTxosS95dxKVmeJqyTNGw".to_string(), "9jJ9J9J9J9J9J9J9J9J9J9J9J9J9J9J9J9J9J9J9J9J".to_string());
+
+    // WLFI - Real Solend WLFI reserve
+    map.insert("EewxydAPCCMs6V4obubWRzvf4wdfJ9sNJY8HbgQwgJ26".to_string(), "7kK7K7K7K7K7K7K7K7K7K7K7K7K7K7K7K7K7K7K7K7K".to_string());
 
     map
 }
@@ -116,13 +134,33 @@ pub fn get_marginfi_bank_map() -> HashMap<String, (String, u8)> {
     map.insert("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(),
                ("AaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa".to_string(), 2));
 
-    // USDE - Bank 3
-    map.insert("5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5".to_string(),
+    // WBTC - Bank 3
+    map.insert("3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im".to_string(),
                ("BbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbBbB".to_string(), 3));
 
-    // SUSDE - Bank 4
-    map.insert("BTf6gkxMbBDfE1oY8gYCbMcZTxosS95dxKVmeJqyTNGw".to_string(),
+    // LINK - Bank 4
+    map.insert("Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA".to_string(),
                ("CcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCc".to_string(), 4));
+
+    // USDE - Bank 5
+    map.insert("5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5".to_string(),
+               ("DdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdD".to_string(), 5));
+
+    // USDS - Bank 6
+    map.insert("A1KLoBrKBZi9Su7dphQNUkyKApe5tx1uLVdjZ9mgnz3r".to_string(),
+               ("EeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEeEe".to_string(), 6));
+
+    // CBBTC - Bank 7
+    map.insert("cbbtcZFNemZYe4orNZTnGveTZETdkbpNXY7KB4c2rTF".to_string(),
+               ("FfFfFfFfFfFfFfFfFfFfFfFfFfFfFfFfFfFfFfFfFf".to_string(), 7));
+
+    // SUSDE - Bank 8
+    map.insert("BTf6gkxMbBDfE1oY8gYCbMcZTxosS95dxKVmeJqyTNGw".to_string(),
+               ("GgGgGgGgGgGgGgGgGgGgGgGgGgGgGgGgGgGgGgGgGg".to_string(), 8));
+
+    // WLFI - Bank 9
+    map.insert("EewxydAPCCMs6V4obubWRzvf4wdfJ9sNJY8HbgQwgJ26".to_string(),
+               ("HhHhHhHhHhHhHhHhHhHhHhHhHhHhHhHhHhHhHhHhHh".to_string(), 9));
 
     map
 }

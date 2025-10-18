@@ -1,0 +1,52 @@
+# Chainguard-based Dockerfile for Rust Data Consumer
+# Optimized for Solana Geyser data processing with minimal runtime
+
+# Stage 1: Builder
+FROM cgr.dev/chainguard/rust:latest AS builder
+
+# Set working directory
+WORKDIR /usr/src
+
+# Copy Cargo configuration
+COPY Cargo.toml Cargo.lock ./
+
+# Copy source code
+COPY src/ ./src/
+
+# Build the data consumer binary
+RUN cargo build --release --bin data_consumer
+
+# Stage 2: Runtime
+FROM cgr.dev/chainguard/glibc-dynamic:latest
+
+# Set working directory
+WORKDIR /usr/local/bin
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates curl && \
+    update-ca-certificates
+
+# Copy compiled binary from builder
+COPY --from=builder /usr/src/target/release/data_consumer /usr/local/bin/data_consumer
+
+# Create non-root user
+RUN addgroup -g 1001 dataconsumer && \
+    adduser -D -s /bin/sh -g dataconsumer dataconsumer && \
+    chown dataconsumer:dataconsumer /usr/local/bin/data_consumer
+
+# Switch to non-root user
+USER dataconsumer
+
+# Expose metrics port
+EXPOSE 9191
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:9191/health || exit 1
+
+# Set environment variables
+ENV RUST_LOG=info
+ENV METRICS_ADDR=0.0.0.0:9191
+
+# Default command
+CMD ["./data_consumer"]

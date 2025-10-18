@@ -1118,6 +1118,304 @@ struct QuickNodeClient:
             "note": "Mock Lil' JIT result - implement real API call"
         }
 
+    fn check_lil_jit_status(self, bundle_id: String) -> Dict[String, Any]:
+        """
+        Check the status of a Lil' JIT bundle submission
+
+        Args:
+            bundle_id: Bundle ID from Lil' JIT submission
+
+        Returns:
+            Bundle status information
+        """
+        if not self.http_session:
+            return self._get_mock_lil_jit_status(bundle_id)
+
+        try:
+            # Check cache first (10-second cache for status checks)
+            cache_key = f"lil_jit_status_{bundle_id}"
+            if cache_key in self.cache:
+                cached_time = self.cache[cache_key]["timestamp"]
+                if time() - cached_time < 10.0:
+                    return self.cache[cache_key]["data"]
+
+            # Try real status check
+            status_data = self._check_lil_jit_status_real(bundle_id)
+            if status_data:
+                # Cache the result
+                self.cache[cache_key] = {
+                    "data": status_data,
+                    "timestamp": time()
+                }
+                return status_data
+            else:
+                return self._get_mock_lil_jit_status(bundle_id)
+
+        except e:
+            print(f"Lil' JIT status check failed, using mock: {e}")
+            return self._get_mock_lil_jit_status(bundle_id)
+
+    fn _check_lil_jit_status_real(self, bundle_id: String) -> Dict[String, Any]:
+        """
+        Real QuickNode Lil' JIT status check implementation
+
+        Args:
+            bundle_id: Bundle ID to check
+
+        Returns:
+            Bundle status from QuickNode
+        """
+        try:
+            python = Python()
+            asyncio = python.import("asyncio")
+
+            async def _check_status():
+                # Build JSON-RPC request for bundle status
+                request_id = self.request_id += 1
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "getBundleStatus",
+                    "params": [bundle_id]
+                }
+
+                # Try current RPC, then fallback to others
+                for attempt in range(len([self.rpc_urls.primary, self.rpc_urls.secondary, self.rpc_urls.archive])):
+                    rpc_url = self.get_current_rpc_url()
+                    try:
+                        async with self.http_session.post(rpc_url, json=payload) as response:
+                            if response.status == 200:
+                                result = await response.json()
+                                if "result" in result:
+                                    return self._parse_lil_jit_status_response(result["result"], bundle_id)
+                                elif "error" in result:
+                                    error_msg = result["error"].get("message", "Unknown error")
+                                    print(f"⚠️  Lil' JIT status RPC error: {error_msg}")
+                            elif response.status == 429:
+                                # Rate limited, try next RPC
+                                self.switch_rpc()
+                                await asyncio.sleep(0.1)
+                                continue
+                    except:
+                        self.switch_rpc()
+                        continue
+
+                return None  # All RPCs failed
+
+            # Run async function
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, _check_status)
+                    result = future.result(timeout=self.timeout_seconds)
+            else:
+                result = asyncio.run(_check_status())
+
+            return result
+
+        except e:
+            print(f"QuickNode Lil' JIT status check failed: {e}")
+            return None
+
+    fn _parse_lil_jit_status_response(self, status_data: Any, bundle_id: String) -> Dict[String, Any]:
+        """
+        Parse QuickNode Lil' JIT status response
+
+        Args:
+            status_data: Raw status data from QuickNode
+            bundle_id: Bundle ID being checked
+
+        Returns:
+            Parsed bundle status
+        """
+        try:
+            if isinstance(status_data, dict):
+                return {
+                    "bundle_id": bundle_id,
+                    "status": status_data.get("status", "unknown"),
+                    "confirmation_status": status_data.get("confirmationStatus", "pending"),
+                    "slot": status_data.get("slot", 0),
+                    "transactions": status_data.get("transactions", []),
+                    "error": status_data.get("error"),
+                    "provider": "quicknode",
+                    "method": "lil_jit",
+                    "timestamp": time()
+                }
+            else:
+                return self._get_mock_lil_jit_status(bundle_id)
+
+        except e:
+            print(f"Failed to parse Lil' JIT status response: {e}")
+            return self._get_mock_lil_jit_status(bundle_id)
+
+    fn _get_mock_lil_jit_status(self, bundle_id: String) -> Dict[String, Any]:
+        """
+        Generate mock Lil' JIT bundle status
+
+        Args:
+            bundle_id: Bundle ID to check
+
+        Returns:
+            Mock bundle status
+        """
+        import random
+        random.seed(hash(bundle_id) if bundle_id else 42)
+
+        # Simulate different status outcomes
+        status_options = ["pending", "confirmed", "finalized", "failed"]
+        weights = [0.3, 0.4, 0.25, 0.05]  # 5% failure rate
+
+        status = random.choices(status_options, weights=weights)[0]
+
+        return {
+            "bundle_id": bundle_id,
+            "status": status,
+            "confirmation_status": status,
+            "slot": 105 + random.randint(0, 10),
+            "transactions": [f"tx_{i}_{bundle_id}" for i in range(random.randint(1, 5))],
+            "error": None if status != "failed" else "Bundle processing failed",
+            "provider": "quicknode_mock",
+            "method": "lil_jit",
+            "timestamp": time(),
+            "note": "Mock Lil' JIT status - implement real API call"
+        }
+
+    fn get_lil_jit_stats(self) -> Dict[String, Any]:
+        """
+        Get Lil' JIT service statistics and performance metrics
+
+        Returns:
+            Lil' JIT performance statistics
+        """
+        if not self.http_session:
+            return self._get_mock_lil_jit_stats()
+
+        try:
+            # Try real stats retrieval
+            stats_data = self._get_lil_jit_stats_real()
+            if stats_data:
+                return stats_data
+            else:
+                return self._get_mock_lil_jit_stats()
+
+        except e:
+            print(f"Lil' JIT stats retrieval failed, using mock: {e}")
+            return self._get_mock_lil_jit_stats()
+
+    fn _get_lil_jit_stats_real(self) -> Dict[String, Any]:
+        """
+        Real QuickNode Lil' JIT stats implementation
+
+        Returns:
+            Lil' JIT statistics from QuickNode
+        """
+        try:
+            python = Python()
+            asyncio = python.import("asyncio")
+
+            async def _fetch_stats():
+                # Build JSON-RPC request for Lil' JIT stats
+                request_id = self.request_id += 1
+                payload = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "getLilJitStats",
+                    "params": []
+                }
+
+                # Try current RPC, then fallback to others
+                for attempt in range(len([self.rpc_urls.primary, self.rpc_urls.secondary, self.rpc_urls.archive])):
+                    rpc_url = self.get_current_rpc_url()
+                    try:
+                        async with self.http_session.post(rpc_url, json=payload) as response:
+                            if response.status == 200:
+                                result = await response.json()
+                                if "result" in result:
+                                    return self._parse_lil_jit_stats_response(result["result"])
+                                elif "error" in result:
+                                    error_msg = result["error"].get("message", "Unknown error")
+                                    print(f"⚠️  Lil' JIT stats RPC error: {error_msg}")
+                            elif response.status == 429:
+                                # Rate limited, try next RPC
+                                self.switch_rpc()
+                                await asyncio.sleep(0.1)
+                                continue
+                    except:
+                        self.switch_rpc()
+                        continue
+
+                return None  # All RPCs failed
+
+            # Run async function
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, _fetch_stats)
+                    result = future.result(timeout=self.timeout_seconds)
+            else:
+                result = asyncio.run(_fetch_stats())
+
+            return result
+
+        except e:
+            print(f"QuickNode Lil' JIT stats retrieval failed: {e}")
+            return None
+
+    fn _parse_lil_jit_stats_response(self, stats_data: Any) -> Dict[String, Any]:
+        """
+        Parse QuickNode Lil' JIT stats response
+
+        Args:
+            stats_data: Raw stats data from QuickNode
+
+        Returns:
+            Parsed Lil' JIT statistics
+        """
+        try:
+            if isinstance(stats_data, dict):
+                return {
+                    "bundles_submitted": stats_data.get("bundlesSubmitted", 0),
+                    "bundles_processed": stats_data.get("bundlesProcessed", 0),
+                    "success_rate": stats_data.get("successRate", 0.0),
+                    "average_latency_ms": stats_data.get("averageLatencyMs", 0.0),
+                    "current_throughput": stats_data.get("currentThroughput", 0.0),
+                    "service_status": stats_data.get("serviceStatus", "active"),
+                    "provider": "quicknode",
+                    "method": "lil_jit",
+                    "timestamp": time()
+                }
+            else:
+                return self._get_mock_lil_jit_stats()
+
+        except e:
+            print(f"Failed to parse Lil' JIT stats response: {e}")
+            return self._get_mock_lil_jit_stats()
+
+    fn _get_mock_lil_jit_stats(self) -> Dict[String, Any]:
+        """
+        Generate mock Lil' JIT statistics
+
+        Returns:
+            Mock Lil' JIT performance statistics
+        """
+        import random
+        random.seed(42)  # For consistent mock data
+
+        return {
+            "bundles_submitted": random.randint(1000, 5000),
+            "bundles_processed": random.randint(950, 4900),
+            "success_rate": 0.92 + (random.random() * 0.06),  # 92-98%
+            "average_latency_ms": 12.5 + (random.random() * 7.5),  # 12.5-20ms
+            "current_throughput": 45.0 + (random.random() * 15.0),  # 45-60 bundles/min
+            "service_status": "active",
+            "provider": "quicknode_mock",
+            "method": "lil_jit",
+            "timestamp": time(),
+            "note": "Mock Lil' JIT stats - implement real API call"
+        }
+
     fn close(inout self):
         """
         Close the HTTP session and clean up resources.

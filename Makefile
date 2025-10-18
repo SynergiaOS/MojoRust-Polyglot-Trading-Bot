@@ -1,7 +1,7 @@
 # 🚀 MojoRust HFT Trading Bot - Professional Build System
 # High-frequency trading architecture with enterprise-grade tooling
 
-.PHONY: help build build-all build-rust build-mojo build-python clean test test-all test-rust test-mojo test-python lint format check security docs dev-setup run deploy monitoring-start monitoring-stop monitoring-status
+.PHONY: help build build-all build-rust build-mojo build-python clean test test-all test-rust test-mojo test-python lint format check security docs dev-setup run deploy monitoring-start monitoring-stop monitoring-status docker-build-chainguard docker-push-chainguard chainguard-verify chainguard-deploy chainguard-test
 
 # Monitoring configuration variables
 PROMETHEUS_URL=http://localhost:9090
@@ -55,6 +55,13 @@ help:
 	@echo "  cpu-optimize-system      - Apply system-level CPU optimizations"
 	@echo "  cpu-monitor              - Start continuous CPU monitoring"
 	@echo "  cpu-optimize-all         - Run complete CPU optimization suite"
+	@echo ""
+	@echo "Chainguard Security targets:"
+	@echo "  docker-build-chainguard  - Build Chainguard-optimized images"
+	@echo "  docker-push-chainguard   - Push Chainguard images to registry"
+	@echo "  chainguard-verify        - Verify Chainguard image signatures"
+	@echo "  chainguard-deploy        - Deploy with Chainguard images"
+	@echo "  chainguard-test          - Test Chainguard deployment"
 
 # Installation
 install:
@@ -444,3 +451,108 @@ cpu-report:
 	@./scripts/diagnose_cpu_usage.sh --json > reports/cpu_report_$$(date +%Y%m%d_%H%M%S).json
 	@echo "✅ CPU optimization report generated in reports/"
 	@echo "📊 View the latest report: reports/cpu_report_$$(date +%Y%m%d_%H%M%S).json"
+
+# =============================================================================
+# Chainguard Security Integration
+# =============================================================================
+
+# Build Chainguard-optimized images
+docker-build-chainguard:
+	@echo "🔒 Building Chainguard-optimized images..."
+	./scripts/build_chainguard.sh --all
+	@echo "✅ Chainguard images built successfully!"
+	@echo "📊 Image sizes:"
+	@docker images | grep chainguard | head -5
+
+# Push Chainguard images to registry
+docker-push-chainguard:
+	@echo "📤 Pushing Chainguard images to registry..."
+	./scripts/build_chainguard.sh --push
+	@echo "✅ Chainguard images pushed successfully!"
+
+# Verify Chainguard image signatures
+chainguard-verify:
+	@echo "🔐 Verifying Chainguard image signatures..."
+	./scripts/build_chainguard.sh --verify-only
+	@echo "✅ Chainguard image signatures verified!"
+
+# Deploy with Chainguard images
+chainguard-deploy:
+	@echo "🚀 Deploying with Chainguard images..."
+	./scripts/deploy_chainguard.sh --local
+	@echo "✅ Chainguard deployment completed!"
+	@echo "📊 Monitor at: http://localhost:3001 (admin/trading_admin)"
+
+# Test Chainguard deployment
+chainguard-test:
+	@echo "🧪 Testing Chainguard deployment..."
+	./scripts/deploy_chainguard.sh --test
+	@echo "✅ Chainguard deployment tested!"
+
+# Generate Chainguard security report
+chainguard-report:
+	@echo "📋 Generating Chainguard security report..."
+	@mkdir -p reports/security
+	./scripts/build_chainguard.sh --report > reports/security/chainguard_report_$$(date +%Y%m%d_%H%M%S).json
+	@echo "✅ Chainguard security report generated!"
+	@echo "📊 View report: reports/security/chainguard_report_$$(date +%Y%m%d_%H%M%S).json"
+
+# Compare image sizes (standard vs Chainguard)
+chainguard-compare:
+	@echo "📊 Comparing image sizes (standard vs Chainguard)..."
+	@echo "Standard Images:"
+	@docker images | grep -E "trading-bot|data-consumer|geyser" | grep -v chainguard || echo "  No standard images found"
+	@echo ""
+	@echo "Chainguard Images:"
+	@docker images | grep chainguard || echo "  No Chainguard images found"
+	@echo ""
+	@echo "Size reduction report:"
+	@./scripts/build_chainguard.sh --compare || echo "  Run 'make docker-build-chainguard' first"
+
+# Full Chainguard pipeline (build + verify + deploy + test)
+chainguard-pipeline: docker-build-chainguard chainguard-verify chainguard-deploy chainguard-test
+	@echo ""
+	@echo "🎉 Complete Chainguard pipeline finished!"
+	@echo "🔒 All images built with zero-CVE security"
+	@echo "📊 Monitor deployment at: http://localhost:3001"
+	@echo "📋 View security report with: make chainguard-report"
+
+# Quick Chainguard deployment (for development)
+chainguard-dev:
+	@echo "⚡ Quick Chainguard development deployment..."
+	./scripts/deploy_chainguard.sh --dev
+	@echo "✅ Chainguard dev environment ready!"
+	@echo "🔍 Test with: make chainguard-test"
+
+# Rollback to standard images
+chainguard-rollback:
+	@echo "⏪ Rolling back to standard Docker images..."
+	docker-compose down
+	docker-compose up -d
+	@echo "✅ Rolled back to standard images"
+	@echo "📊 Monitor at: http://localhost:3001"
+
+# Security scan of Chainguard images
+chainguard-scan:
+	@echo "🔍 Scanning Chainguard images for vulnerabilities..."
+	./scripts/build_chainguard.sh --scan
+	@echo "✅ Security scan completed!"
+
+# Cosign verification test
+chainguard-test-cosign:
+	@echo "🔐 Testing Cosign verification..."
+	./scripts/build_chainguard.sh --test-cosign
+	@echo "✅ Cosign verification test completed!"
+
+# SBOM generation test
+chainguard-test-sbom:
+	@echo "📋 Testing SBOM generation..."
+	./scripts/build_chainguard.sh --test-sbom
+	@echo "✅ SBOM generation test completed!"
+
+# Complete Chainguard validation
+chainguard-validate: chainguard-verify chainguard-scan chainguard-test-cosign chainguard-test-sbom
+	@echo ""
+	@echo "🎉 Chainguard validation completed!"
+	@echo "🔒 All security checks passed"
+	@echo "📋 View full report with: make chainguard-report"
