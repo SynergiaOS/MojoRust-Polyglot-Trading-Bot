@@ -254,11 +254,46 @@ parse_filter_breakdown() {
     }' "$log_file" > "$breakdown_file"
 
     # Parse breakdown data
-    local instant_count=$(grep "Instant Filter:" "$breakdown_file" | grep -oP '\d+(?=\s*\()' | awk '{sum+=$1} END {print sum}' || echo "0")
-    local aggressive_count=$(grep "Aggressive Filter:" "$breakdown_file" | grep -oP '\d+(?=\s*\()' | awk '{sum+=$1} END {print sum}' || echo "0")
-    local micro_count=$(grep "Micro Filter:" "$breakdown_file" | grep -oP '\d+(?=\s*\()' | awk '{sum+=$1} END {print sum}' || echo "0")
-    local cooldown_count=$(grep "Cooldown:" "$breakdown_file" | grep -oP '\d+(?=\s*\()' | awk '{sum+=$1} END {print sum}' || echo "0")
-    local volume_quality_count=$(grep "Volume Quality:" "$breakdown_file" | grep -oP '\d+(?=\s*\()' | awk '{sum+=$1} END {print sum}' || echo "0")
+    # Use robust AWK parsing instead of fragile grep-awk chains
+    local counts=$(awk '
+    BEGIN {
+        instant = 0; aggressive = 0; micro = 0; cooldown = 0; volume_quality = 0; errors = 0
+    }
+    /Instant Filter:/ {
+        if (match($0, /\(([0-9]+)/, arr)) instant += arr[1]
+        else errors++
+    }
+    /Aggressive Filter:/ {
+        if (match($0, /\(([0-9]+)/, arr)) aggressive += arr[1]
+        else errors++
+    }
+    /Micro Filter:/ {
+        if (match($0, /\(([0-9]+)/, arr)) micro += arr[1]
+        else errors++
+    }
+    /Cooldown:/ {
+        if (match($0, /\(([0-9]+)/, arr)) cooldown += arr[1]
+        else errors++
+    }
+    /Volume Quality:/ {
+        if (match($0, /\(([0-9]+)/, arr)) volume_quality += arr[1]
+        else errors++
+    }
+    END {
+        print instant, aggressive, micro, cooldown, volume_quality, errors
+    }
+    ' "$breakdown_file")
+
+    local instant_count=$(echo "$counts" | cut -d' ' -f1)
+    local aggressive_count=$(echo "$counts" | cut -d' ' -f2)
+    local micro_count=$(echo "$counts" | cut -d' ' -f3)
+    local cooldown_count=$(echo "$counts" | cut -d' ' -f4)
+    local volume_quality_count=$(echo "$counts" | cut -d' ' -f5)
+    local parsing_errors=$(echo "$counts" | cut -d' ' -f6)
+
+    if [[ $parsing_errors -gt 0 ]]; then
+        echo "WARNING: Found $parsing_errors parsing errors in filter log" >&2
+    fi
 
     local total_signals=$((instant_count + aggressive_count + micro_count + cooldown_count + volume_quality_count))
 
