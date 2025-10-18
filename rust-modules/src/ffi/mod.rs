@@ -1161,6 +1161,335 @@ pub extern "C" fn portfolio_manager_get_open_positions_count(
     }
 }
 
+// ========================================================================
+// STATISTICAL ARBITRAGE FFI FUNCTIONS
+// ========================================================================
+
+/// Test cointegration between two price series using Engle-Granger method
+///
+/// # Arguments
+/// * `prices_a` - Pointer to price array for token A
+/// * `prices_b` - Pointer to price array for token B
+/// * `len` - Length of price arrays (must be equal)
+/// * `out_hedge_ratio` - Pointer to store hedge ratio output
+/// * `out_p_value` - Pointer to store p-value output
+///
+/// # Returns
+/// * `FfiResult::Success` on success
+/// * `FfiResult::Error(message)` on failure
+///
+/// # Safety
+/// All pointers must be valid and point to allocated memory.
+/// Arrays must have equal length and contain at least 20 elements.
+#[no_mangle]
+pub extern "C" fn stat_arb_test_cointegration(
+    prices_a: *const f64,
+    prices_b: *const f64,
+    len: usize,
+    out_hedge_ratio: *mut f64,
+    out_p_value: *mut f64,
+) -> FfiResult {
+    unsafe {
+        // Validate inputs
+        if prices_a.is_null() || prices_b.is_null() || out_hedge_ratio.is_null() || out_p_value.is_null() {
+            return FfiResult::Error("Null pointer passed to stat_arb_test_cointegration".into());
+        }
+
+        if len < 20 {
+            return FfiResult::Error("Insufficient data points for cointegration test".into());
+        }
+
+        // Create slices from raw pointers
+        let slice_a = std::slice::from_raw_parts(prices_a, len);
+        let slice_b = std::slice::from_raw_parts(prices_b, len);
+
+        // Import statistical module and test cointegration
+        match crate::arbitrage::statistical::test_cointegration(slice_a, slice_b) {
+            Ok((hedge_ratio, p_value)) => {
+                *out_hedge_ratio = hedge_ratio;
+                *out_p_value = p_value;
+                FfiResult::Success
+            }
+            Err(e) => FfiResult::Error(format!("Cointegration test failed: {}", e).into()),
+        }
+    }
+}
+
+/// Calculate spread between two price series with hedge ratio
+///
+/// # Arguments
+/// * `prices_a` - Pointer to price array for token A
+/// * `prices_b` - Pointer to price array for token B
+/// * `hedge_ratio` - Hedge ratio for spread calculation
+/// * `len` - Length of price arrays
+/// * `out_spread` - Pointer to store spread output array
+///
+/// # Returns
+/// * `FfiResult::Success` on success
+/// * `FfiResult::Error(message)` on failure
+///
+/// # Safety
+/// All pointers must be valid and point to allocated memory.
+/// `out_spread` must have capacity for at least `len` elements.
+#[no_mangle]
+pub extern "C" fn stat_arb_calculate_spread(
+    prices_a: *const f64,
+    prices_b: *const f64,
+    hedge_ratio: f64,
+    len: usize,
+    out_spread: *mut f64,
+) -> FfiResult {
+    unsafe {
+        // Validate inputs
+        if prices_a.is_null() || prices_b.is_null() || out_spread.is_null() {
+            return FfiResult::Error("Null pointer passed to stat_arb_calculate_spread".into());
+        }
+
+        if len == 0 {
+            return FfiResult::Error("Empty arrays passed to stat_arb_calculate_spread".into());
+        }
+
+        // Create slices from raw pointers
+        let slice_a = std::slice::from_raw_parts(prices_a, len);
+        let slice_b = std::slice::from_raw_parts(prices_b, len);
+        let out_slice = std::slice::from_raw_parts_mut(out_spread, len);
+
+        // Calculate spread: spread = price_a - hedge_ratio * price_b
+        for i in 0..len {
+            out_slice[i] = slice_a[i] - hedge_ratio * slice_b[i];
+        }
+
+        FfiResult::Success
+    }
+}
+
+/// Calculate z-scores for spread series using SIMD optimization
+///
+/// # Arguments
+/// * `spread` - Pointer to spread array
+/// * `len` - Length of spread array
+/// * `mean` - Mean of the spread series
+/// * `std_dev` - Standard deviation of the spread series
+/// * `out_z_scores` - Pointer to store z-scores output array
+///
+/// # Returns
+/// * `FfiResult::Success` on success
+/// * `FjiResult::Error(message)` on failure
+///
+/// # Safety
+/// All pointers must be valid and point to allocated memory.
+/// `out_z_scores` must have capacity for at least `len` elements.
+/// `std_dev` must be non-zero.
+#[no_mangle]
+pub extern "C" fn stat_arb_calculate_z_scores_batch(
+    spread: *const f64,
+    len: usize,
+    mean: f64,
+    std_dev: f64,
+    out_z_scores: *mut f64,
+) -> FfiResult {
+    unsafe {
+        // Validate inputs
+        if spread.is_null() || out_z_scores.is_null() {
+            return FfiResult::InvalidInput;
+        }
+
+        if len == 0 {
+            return FfiResult::InvalidInput;
+        }
+
+        if std_dev == 0.0 {
+            return FfiResult::InvalidInput;
+        }
+
+        // Create slices from raw pointers
+        let spread_slice = std::slice::from_raw_parts(spread, len);
+        let out_slice = std::slice::from_raw_parts_mut(out_z_scores, len);
+
+        // Call SIMD-optimized z-score calculation
+        crate::ffi::simd::calculate_z_scores_into(spread_slice, mean, std_dev, out_slice);
+
+        FfiResult::Success
+    }
+}
+
+/// Calculate Hurst exponent for mean reversion analysis
+///
+/// # Arguments
+/// * `series` - Pointer to time series data
+/// * `len` - Length of the series
+/// * `out_hurst` - Pointer to store Hurst exponent output
+///
+/// # Returns
+/// * `FfiResult::Success` on success
+/// * `FfiResult::Error(message)` on failure
+///
+/// # Safety
+/// All pointers must be valid and point to allocated memory.
+/// Series must have at least 20 elements for meaningful results.
+#[no_mangle]
+pub extern "C" fn stat_arb_calculate_hurst_exponent(
+    series: *const f64,
+    len: usize,
+    out_hurst: *mut f64,
+) -> FfiResult {
+    unsafe {
+        // Validate inputs
+        if series.is_null() || out_hurst.is_null() {
+            return FfiResult::Error("Null pointer passed to stat_arb_calculate_hurst_exponent".into());
+        }
+
+        if len < 20 {
+            *out_hurst = 0.5; // Default to random walk
+            return FfiResult::Success;
+        }
+
+        // Create slice from raw pointer
+        let slice = std::slice::from_raw_parts(series, len);
+
+        // Import statistical module and calculate Hurst exponent
+        match crate::arbitrage::statistical::calculate_hurst_exponent(slice) {
+            Ok(hurst_exponent) => {
+                *out_hurst = hurst_exponent;
+                FfiResult::Success
+            }
+            Err(e) => FfiResult::Error(format!("Hurst exponent calculation failed: {}", e).into()),
+        }
+    }
+}
+
+/// Calculate half-life of mean reversion
+///
+/// # Arguments
+/// * `series` - Pointer to spread series data
+/// * `len` - Length of the series
+/// * `out_half_life` - Pointer to store half-life output (in hours)
+///
+/// # Returns
+/// * `FfiResult::Success` on success
+/// * `FfiResult::Error(message)` on failure
+///
+/// # Safety
+/// All pointers must be valid and point to allocated memory.
+/// Series must have at least 10 elements for meaningful results.
+#[no_mangle]
+pub extern "C" fn stat_arb_calculate_half_life(
+    series: *const f64,
+    len: usize,
+    out_half_life: *mut f64,
+) -> FfiResult {
+    unsafe {
+        // Validate inputs
+        if series.is_null() || out_half_life.is_null() {
+            return FfiResult::Error("Null pointer passed to stat_arb_calculate_half_life".into());
+        }
+
+        if len < 10 {
+            *out_half_life = 12.0; // Default 12 hours
+            return FfiResult::Success;
+        }
+
+        // Create slice from raw pointer
+        let slice = std::slice::from_raw_parts(series, len);
+
+        // Import statistical module and calculate half-life
+        match crate::arbitrage::statistical::calculate_half_life(slice) {
+            Ok(half_life) => {
+                *out_half_life = half_life;
+                FfiResult::Success
+            }
+            Err(e) => FfiResult::Error(format!("Half-life calculation failed: {}", e).into()),
+        }
+    }
+}
+
+/// Calculate mean of a numeric series (standalone helper for FFI)
+///
+/// # Arguments
+/// * `series` - Pointer to numeric series
+/// * `len` - Length of the series
+/// * `out_mean` - Pointer to store mean output
+///
+/// # Returns
+/// * `FfiResult::Success` on success
+/// * `FfiResult::Error(message)` on failure
+///
+/// # Safety
+/// All pointers must be valid and point to allocated memory.
+/// Series must have at least 1 element.
+#[no_mangle]
+pub extern "C" fn stat_arb_calculate_mean(
+    series: *const f64,
+    len: usize,
+    out_mean: *mut f64,
+) -> FfiResult {
+    unsafe {
+        // Validate inputs
+        if series.is_null() || out_mean.is_null() {
+            return FfiResult::Error("Null pointer passed to stat_arb_calculate_mean".into());
+        }
+
+        if len == 0 {
+            return FfiResult::Error("Empty array passed to stat_arb_calculate_mean".into());
+        }
+
+        // Create slice from raw pointer
+        let slice = std::slice::from_raw_parts(series, len);
+
+        // Calculate mean
+        let sum: f64 = slice.iter().sum();
+        *out_mean = sum / len as f64;
+
+        FfiResult::Success
+    }
+}
+
+/// Calculate standard deviation of a numeric series (standalone helper for FFI)
+///
+/// # Arguments
+/// * `series` - Pointer to numeric series
+/// * `len` - Length of the series
+/// * `mean` - Mean of the series (pre-calculated)
+/// * `out_std` - Pointer to store standard deviation output
+///
+/// # Returns
+/// * `FfiResult::Success` on success
+/// * `FfiResult::Error(message)` on failure
+///
+/// # Safety
+/// All pointers must be valid and point to allocated memory.
+/// Series must have at least 2 elements for meaningful standard deviation.
+#[no_mangle]
+pub extern "C" fn stat_arb_calculate_std(
+    series: *const f64,
+    len: usize,
+    mean: f64,
+    out_std: *mut f64,
+) -> FfiResult {
+    unsafe {
+        // Validate inputs
+        if series.is_null() || out_std.is_null() {
+            return FfiResult::Error("Null pointer passed to stat_arb_calculate_std".into());
+        }
+
+        if len < 2 {
+            return FfiResult::Error("Insufficient data for standard deviation".into());
+        }
+
+        // Create slice from raw pointer
+        let slice = std::slice::from_raw_parts(series, len);
+
+        // Calculate variance and standard deviation
+        let variance: f64 = slice.iter()
+            .map(|x| (x - mean).powi(2))
+            .sum::<f64>() / (len - 1) as f64;
+
+        *out_std = variance.sqrt();
+
+        FfiResult::Success
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

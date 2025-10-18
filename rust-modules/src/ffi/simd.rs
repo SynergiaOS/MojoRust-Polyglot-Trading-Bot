@@ -5,6 +5,7 @@
 // Provides 10-20% speedup for numerical operations with AVX2 support
 
 use std::arch::x86_64::*;
+use std::iter::zip;
 
 /// Check if SIMD is available at runtime
 pub fn is_simd_available() -> bool {
@@ -245,6 +246,64 @@ pub fn calculate_z_scores_simd(prices: &[f64], mean: f64, std_dev: f64) -> Vec<f
     results
 }
 
+/// Calculate z-scores and write directly into output slice using SIMD
+///
+/// # Arguments
+/// * `prices` - Input prices array
+/// * `mean` - Mean value for z-score calculation
+/// * `std_dev` - Standard deviation for z-score calculation
+/// * `out` - Output slice to write z-scores into
+///
+/// # Safety
+/// `out` must have the same length as `prices`
+#[inline(always)]
+pub fn calculate_z_scores_into(prices: &[f64], mean: f64, std_dev: f64, out: &mut [f64]) {
+    assert_eq!(prices.len(), out.len(), "Input and output slices must have same length");
+
+    if std_dev == 0.0 {
+        out.fill(0.0);
+        return;
+    }
+
+    let n = prices.len();
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    unsafe {
+        let mean_vec = _mm256_set1_pd(mean);
+        let std_dev_vec = _mm256_set1_pd(std_dev);
+
+        let chunks = prices.chunks_exact(4);
+        let remainder = chunks.remainder();
+        let out_chunks = out.chunks_exact_mut(4);
+        let out_remainder = out_chunks.remainder();
+
+        for (price_chunk, out_chunk) in zip(chunks, out_chunks) {
+            let prices_vec = _mm256_loadu_pd(price_chunk.as_ptr());
+
+            // Calculate (price - mean) / std_dev
+            let diff = _mm256_sub_pd(prices_vec, mean_vec);
+            let z_scores = _mm256_div_pd(diff, std_dev_vec);
+
+            _mm256_storeu_pd(out_chunk.as_mut_ptr(), z_scores);
+        }
+
+        // Handle remaining elements
+        for (i, &price) in remainder.iter().enumerate() {
+            let z_score = (price - mean) / std_dev;
+            out_remainder[i] = z_score;
+        }
+    }
+
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+    {
+        // Scalar fallback
+        for (i, &price) in prices.iter().enumerate() {
+            let z_score = (price - mean) / std_dev;
+            out[i] = z_score;
+        }
+    }
+}
+
 /// Calculate moving average using SIMD for trend analysis
 /// Input: prices array and window size
 /// Output: vector of moving averages
@@ -371,6 +430,126 @@ pub fn calculate_price_impact_simd(old_prices: &[f64], new_prices: &[f64]) -> Ve
             } else {
                 results.push(0.0);
             }
+        }
+    }
+
+    results
+}
+
+/// Calculate spread between two price series using SIMD optimization
+///
+/// # Arguments
+/// * `prices_a` - First price series
+/// * `prices_b` - Second price series
+/// * `hedge_ratio` - Hedge ratio for spread calculation
+///
+/// # Returns
+/// * `Vec<f64>` - Calculated spread values
+///
+/// # Safety
+/// Input arrays must have the same length
+#[no_mangle]
+pub extern "C" fn calculate_spread_simd(
+    prices_a: *const f64,
+    prices_b: *const f64,
+    len: usize,
+    hedge_ratio: f64,
+    out_spread: *mut f64,
+) -> i32 {
+    if prices_a.is_null() || prices_b.is_null() || out_spread.is_null() {
+        return 1; // Error: null pointer
+    }
+
+    if len == 0 {
+        return 2; // Error: empty arrays
+    }
+
+    let prices_a = unsafe { std::slice::from_raw_parts(prices_a, len) };
+    let prices_b = unsafe { std::slice::from_raw_parts(prices_b, len) };
+    let out_spread = unsafe { std::slice::from_raw_parts_mut(out_spread, len) };
+
+    // SIMD optimization for spread calculation
+    let chunks_4 = (len / 4) * 4;
+
+    // Process 4 elements at a time using SIMD
+    for i in (0..chunks_4).step_by(4) {
+        let a_vec = unsafe { _mm256_loadu_pd(prices_a.as_ptr().add(i) as *const f64) };
+        let b_vec = unsafe { _mm256_loadu_pd(prices_b.as_ptr().add(i) as *const f64) };
+        let hedge_vec = unsafe { _mm256_set1_pd(hedge_ratio) };
+
+        // Calculate spread: prices_b - hedge_ratio * prices_a
+        let mul_vec = unsafe { _mm256_mul_pd(a_vec, hedge_vec) };
+        let spread_vec = unsafe { _mm256_sub_pd(b_vec, mul_vec) };
+
+        unsafe { _mm256_storeu_pd(out_spread.as_mut_ptr().add(i) as *mut f64, spread_vec) };
+    }
+
+    // Handle remaining elements
+    for i in chunks_4..len {
+        out_spread[i] = prices_b[i] - hedge_ratio * prices_a[i];
+    }
+
+    0 // Success
+}
+
+/// Calculate spread between two price series using AVX2 SIMD
+///
+/// # Arguments
+/// * `prices_a` - First price series
+/// * `prices_b` - Second price series
+/// * `hedge_ratio` - Hedge ratio for spread calculation
+///
+/// # Returns
+/// * `Vec<f64>` - Calculated spread values (prices_b - hedge_ratio * prices_a)
+///
+/// # Performance
+/// Uses AVX2 for 4-wide parallel processing with scalar fallback
+#[inline(always)]
+pub fn calculate_spread_simd(prices_a: &[f64], prices_b: &[f64], hedge_ratio: f64) -> Vec<f64> {
+    if prices_a.len() != prices_b.len() {
+        return Vec::new();
+    }
+
+    let n = prices_a.len();
+    let mut results = Vec::with_capacity(n);
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    unsafe {
+        let hedge_vec = _mm256_set1_pd(hedge_ratio);
+
+        let chunks_a = prices_a.chunks_exact(4);
+        let chunks_b = prices_b.chunks_exact(4);
+        let remainder_a = chunks_a.remainder();
+        let remainder_b = chunks_b.remainder();
+
+        // Process 4 elements at a time using SIMD
+        for (chunk_a, chunk_b) in zip(chunks_a, chunks_b) {
+            let a_vec = _mm256_loadu_pd(chunk_a.as_ptr());
+            let b_vec = _mm256_loadu_pd(chunk_b.as_ptr());
+
+            // Calculate spread: prices_b - hedge_ratio * prices_a
+            let multiplied = _mm256_mul_pd(a_vec, hedge_vec);
+            let spread = _mm256_sub_pd(b_vec, multiplied);
+
+            // Store results
+            let mut temp = [0.0f64; 4];
+            _mm256_storeu_pd(temp.as_mut_ptr(), spread);
+            results.extend_from_slice(&temp);
+        }
+
+        // Handle remaining elements with scalar operations
+        for (i, (&price_a, &price_b)) in remainder_a.iter().zip(remainder_b.iter()).enumerate() {
+            let spread = price_b - hedge_ratio * price_a;
+            results.push(spread);
+        }
+    }
+
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+    {
+        // Scalar fallback for non-AVX2 systems
+        for (&price_a, &price_b) in prices_a.iter().zip(prices_b.iter()) {
+            let spread = price_b - hedge_ratio * price_a;
+            results.push(spread);
         }
     }
 

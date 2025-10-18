@@ -1,0 +1,291 @@
+groups:
+  - name: jupiter_trading_alerts
+    rules:
+      # Pipeline Health Alerts
+      - alert: JupiterPipelineDown
+        expr: jupiter_pipeline_status == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: jupiter
+          component: pipeline
+        annotations:
+          summary: "Jupiter trading pipeline is down"
+          description: "Jupiter trading pipeline has been down for more than 1 minute. Check the pipeline logs and restart if necessary."
+
+      - alert: JupiterRedisConnectionLost
+        expr: jupiter_redis_connection_status == 0
+        for: 30s
+        labels:
+          severity: warning
+          service: jupiter
+          component: redis
+        annotations:
+          summary: "Jupiter lost Redis connection"
+          description: "Jupiter trading pipeline cannot connect to Redis. Check Redis service and network connectivity."
+
+      # Price Monitoring Alerts
+      - alert: JupiterPriceUpdatesStopped
+        expr: rate(jupiter_price_update_rate[5m]) == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: jupiter
+          component: price_monitoring
+        annotations:
+          summary: "Jupiter price updates have stopped"
+          description: "No price updates have been recorded for 2 minutes. Check Jupiter API connectivity and rate limits."
+
+      - alert: JupiterPriceUpdateRateLow
+        expr: jupiter_price_update_rate < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: jupiter
+          component: price_monitoring
+        annotations:
+          summary: "Jupiter price update rate is low"
+          description: "Price update rate is {{ $value }} updates/sec, which is below expected levels. Check API performance and network."
+
+      # Swap Execution Alerts
+      - alert: JupiterSwapSuccessRateLow
+        expr: jupiter_swap_success_rate < 80
+        for: 10m
+        labels:
+          severity: warning
+          service: jupiter
+          component: swap_execution
+        annotations:
+          summary: "Jupiter swap success rate is low"
+          description: "Swap success rate is {{ $value }}%, below the 80% threshold. Check transaction failures and network conditions."
+
+      - alert: JupiterSwapExecutionTimeHigh
+        expr: rate(jupiter_swap_execution_time_seconds_sum[5m]) / rate(jupiter_swap_execution_time_seconds_count[5m]) > 30
+        for: 5m
+        labels:
+          severity: warning
+          service: jupiter
+          component: swap_execution
+        annotations:
+          summary: "Jupiter swap execution time is high"
+          description: "Average swap execution time is {{ $value }} seconds, which is above the 30-second threshold."
+
+      # Arbitrage Alerts
+      - alert: JupiterHighProfitArbitrageOpportunities
+        expr: jupiter_arbitrage_opportunities{profit_tier="high"} > 5
+        for: 1m
+        labels:
+          severity: info
+          service: jupiter
+          component: arbitrage
+        annotations:
+          summary: "High number of high-profit arbitrage opportunities"
+          description: "{{ $value }} high-profit arbitrage opportunities detected. Consider reviewing and executing profitable trades."
+
+      - alert: JupiterNoArbitrageOpportunities
+        expr: sum(jupiter_arbitrage_opportunities) == 0
+        for: 30m
+        labels:
+          severity: warning
+          service: jupiter
+          component: arbitrage
+        annotations:
+          summary: "No arbitrage opportunities detected"
+          description: "No arbitrage opportunities have been detected for 30 minutes. Check market conditions and algorithm performance."
+
+      # Jito Bundle Alerts
+      - alert: JupiterJitoSuccessRateLow
+        expr: jupiter_jito_bundle_success_rate < 70
+        for: 15m
+        labels:
+          severity: warning
+          service: jupiter
+          component: jito_bundles
+        annotations:
+          summary: "Jito bundle success rate is low"
+          description: "Jito bundle success rate is {{ $value }}%, below the 70% threshold. Check bundle configuration and network conditions."
+
+      - alert: JupiterJitoBundlesNotSubmitting
+        expr: increase(jupiter_jito_bundles_total[10m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+          service: jupiter
+          component: jito_bundles
+        annotations:
+          summary: "No Jito bundles submitted recently"
+          description: "No Jito bundles have been submitted in the last 10 minutes. Check bundle generation and submission logic."
+
+      # API Error Alerts
+      - alert: JupiterHighAPIErrorRate
+        expr: rate(jupiter_api_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: jupiter
+          component: api
+        annotations:
+          summary: "High Jupiter API error rate"
+          description: "Jupiter API error rate is {{ $value }} errors/sec. Check API authentication, rate limits, and network connectivity."
+
+      - alert: JupiterPriceAPIErrors
+        expr: increase(jupiter_api_errors_total{api_type="price"}[5m]) > 10
+        for: 3m
+        labels:
+          severity: warning
+          service: jupiter
+          component: price_api
+        annotations:
+          summary: "High Jupiter Price API error rate"
+          description: "Jupiter Price API errors: {{ $value }} in the last 5 minutes. Check API key and rate limits."
+
+      - alert: JupiterSwapAPIErrors
+        expr: increase(jupiter_api_errors_total{api_type="swap"}[5m]) > 10
+        for: 3m
+        labels:
+          severity: warning
+          service: jupiter
+          component: swap_api
+        annotations:
+          summary: "High Jupiter Swap API error rate"
+          description: "Jupiter Swap API errors: {{ $value }} in the last 5 minutes. Check API key and request parameters."
+
+      # Rate Limit Alerts
+      - alert: JupiterRateLimitHit
+        expr: increase(jupiter_rate_limit_hits_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: jupiter
+          component: rate_limiting
+        annotations:
+          summary: "Jupiter API rate limit hit"
+          description: "Jupiter API rate limit has been hit. Consider reducing request frequency or upgrading API plan."
+
+      - alert: JupiterLowRateLimitRemaining
+        expr: jupiter_rate_limit_remaining < 10
+        for: 2m
+        labels:
+          severity: warning
+          service: jupiter
+          component: rate_limiting
+        annotations:
+          summary: "Low Jupiter API rate limit remaining"
+          description: "Only {{ $value }} API calls remaining in current rate limit window. Throttle requests to avoid being rate limited."
+
+      # Performance Alerts
+      - alert: JupiterHighExecutionErrors
+        expr: increase(jupiter_execution_errors_total[5m]) > 5
+        for: 3m
+        labels:
+          severity: warning
+          service: jupiter
+          component: execution
+        annotations:
+          summary: "High Jupiter execution error rate"
+          description: "Jupiter execution errors: {{ $value }} in the last 5 minutes. Check transaction parameters and network conditions."
+
+      - alert: JupiterHighPriorityFees
+        expr: increase(jupiter_priority_fees_paid_total[5m]) / increase(jupiter_swap_executions_total[5m]) > 100000
+        for: 10m
+        labels:
+          severity: warning
+          service: jupiter
+          component: priority_fees
+        annotations:
+          summary: "High priority fees being paid"
+          description: "Average priority fee per swap is {{ $value }} lamports, which is unusually high. Consider adjusting fee strategy."
+
+      # Volume and Trading Alerts
+      - alert: JupiterHighSwapVolume
+        expr: increase(jupiter_swap_volume_usd[1h]) > 100000
+        for: 5m
+        labels:
+          severity: info
+          service: jupiter
+          component: volume
+        annotations:
+          summary: "High Jupiter swap volume detected"
+          description: "Swap volume in the last hour: ${{ $value }}. High trading activity detected."
+
+      - alert: JupiterNoSwapActivity
+        expr: increase(jupiter_swap_executions_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+          service: jupiter
+          component: trading_activity
+        annotations:
+          summary: "No Jupiter swap activity"
+          description: "No swap executions have occurred in the last 30 minutes. Check trading strategy and market conditions."
+
+      # Data Quality Alerts
+      - alert: JupiterStalePriceData
+        expr: time() - jupiter_price_update_timestamp > 300
+        for: 5m
+        labels:
+          severity: warning
+          service: jupiter
+          component: data_quality
+        annotations:
+          summary: "Stale Jupiter price data detected"
+          description: "Price data for {{ .Labels.token_symbol }} is {{ $value }} seconds old. Check API connectivity and data pipeline."
+
+      - alert: JupiterLowCachedItems
+        expr: jupiter_pipeline_cached_prices < 5
+        for: 10m
+        labels:
+          severity: warning
+          service: jupiter
+          component: data_quality
+        annotations:
+          summary: "Low number of cached prices"
+          description: "Only {{ $value }} prices cached in pipeline. Expected at least 5 tokens. Check price monitoring."
+
+      # Resource Usage Alerts
+      - alert: JupiterHighMemoryUsage
+        expr: (jupiter_pipeline_cached_prices + jupiter_pipeline_cached_quotes) > 10000
+        for: 15m
+        labels:
+          severity: warning
+          service: jupiter
+          component: resources
+        annotations:
+          summary: "High Jupiter memory usage"
+          description: "Total cached items: {{ $value }}. Consider implementing more aggressive cleanup policies."
+
+  - name: jupiter_trading_info
+    rules:
+      # Informational Alerts
+      - alert: JupiterArbitrageOpportunityDetected
+        expr: sum(jupiter_arbitrage_opportunities{profit_tier="high"}) > 0
+        for: 0s
+        labels:
+          severity: info
+          service: jupiter
+          component: arbitrage
+        annotations:
+          summary: "High-profit arbitrage opportunity detected"
+          description: "{{ $value }} high-profit arbitrage opportunities currently available. Review for potential execution."
+
+      - alert: JupiterSuccessfulJitoBundle
+        expr: increase(jupiter_jito_bundles_total{status="success"}[5m]) > 0
+        for: 0s
+        labels:
+          severity: info
+          service: jupiter
+          component: jito_bundles
+        annotations:
+          summary: "Jito bundle successfully submitted"
+          description: "{{ $value }} Jito bundles successfully submitted in the last 5 minutes."
+
+      - alert: JupiterHighVolumeSwap
+        expr: increase(jupiter_swap_volume_usd[5m]) > 10000
+        for: 0s
+        labels:
+          severity: info
+          service: jupiter
+          component: volume
+        annotations:
+          summary: "High volume Jupiter swap executed"
+          description: "Swap volume in the last 5 minutes: ${{ $value }}."

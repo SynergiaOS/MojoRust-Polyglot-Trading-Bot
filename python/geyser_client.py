@@ -30,6 +30,9 @@ from datetime import datetime, timezone
 import weakref
 import signal
 import sys
+import requests
+import base64
+from solana.publickey import PublicKey
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1006,11 +1009,488 @@ async def create_geyser_client_from_env() -> ProductionGeyserClient:
     return client
 
 # ============================================================================
+# Jupiter API Integration
+# ============================================================================
+
+class JupiterPriceClient:
+    """
+    Jupiter Price API V3 (Beta) client for real-time token pricing
+    Integrates with the production Geyser client for enhanced trading
+    """
+
+    def __init__(self):
+        self.price_api_url = "https://price.jup.ag/v6/price"
+        self.swap_api_url = "https://quote-api.jup.ag/v6"
+        self.session = None
+        self.rate_limiter = {"last_request": 0, "requests_count": 0}
+
+    async def _create_session(self):
+        """Create aiohttp session with rate limiting"""
+        self.session = aiohttp.ClientSession()
+        # Set reasonable timeouts
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+        self.session.timeout = timeout
+
+    async def _check_rate_limit(self):
+        """Check and enforce rate limiting (100 requests/minute for free tier)"""
+        current_time = time.time()
+        self.rate_limiter["requests_count"] = 0
+        if current_time - self.rate_limiter["last_request"] > 60:
+            self.rate_limiter["last_request"] = current_time
+            self.rate_limiter["request_count"] = 0
+        if self.rate_limiter["requests_count"] >= 100:
+            sleep_time = 60 - (current_time - self.rate_limiter["last_request"])
+            if sleep_time > 0:
+                logger.warning(f"Jupiter API rate limit reached, sleeping for {sleep_time:.1f}s")
+                await asyncio.sleep(sleep_time)
+                self.rate_limiter["request_count"] = 0
+        self.rate_limiter["requests_count"] += 1
+
+    async def get_token_price(
+        self,
+        token_mint: str,
+        vs_token: str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC default
+        include_liquidity: bool = False
+    ) -> Optional[float]:
+        """
+        Get token price from Jupiter Price API V3
+
+        Args:
+            token_mint: Token mint address
+            vs_token: Base token mint address (default: USDC)
+            include_liquidity: Include liquidity information
+
+        Returns:
+            Token price in base token or None if unavailable
+        """
+        await self._check_rate_limit()
+        await self._create_session()
+
+        try:
+            params = {
+                "ids": token_mint,
+                "vsToken": vs_token,
+            }
+            if include_liquidity:
+                params["includeLiquidity"] = "true"
+
+            response = await self.session.get(
+                self.price_api_url,
+                params=params,
+                headers={
+                    "User-Agent": "MojoRust-Production/1.0",
+                    "Accept": "application/json"
+                }
+            )
+
+            if response.status == 200:
+                data = response.json()
+                token_data = data.get("data", {}).get(token_mint)
+
+                if token_data and token_data.get("reliable"):
+                    price = token_data.get("price")
+                    logger.debug(f"Jupiter price for {token_mint[:8]}...: ${price} USDC")
+                    return price
+                else:
+                    logger.warning(f"Token {token_mint[:8]}... marked as unreliable by Jupiter")
+                    return None
+            else:
+                logger.error(f"Jupiter API error: HTTP {response.status}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error fetching Jupiter price: {e}")
+            return None
+        finally:
+            if self.session:
+                await self.session.close()
+                self.session = None
+
+    async def get_multiple_prices(
+        self,
+        token_mints: List[str],
+        vs_token: str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        max_batch_size: int = 100
+    ) -> Dict[str, Optional[float]]:
+        """
+        Get prices for multiple tokens in batches
+
+        Args:
+            token_mints: List of token mint addresses
+            vs_token: Base token mint address
+            max_batch_size: Maximum tokens per request
+
+        Returns:
+            Dictionary mapping token mints to prices
+        """
+        prices = {}
+
+        # Process in batches
+        for i in range(0, len(token_mints), max_batch_size):
+            batch = token_mints[i:i + max_batch_size]
+            batch_prices = await self.get_batch_prices(batch, vs_token)
+            prices.update(batch_prices)
+
+        return prices
+
+    async def get_batch_prices(
+        self,
+        token_mints: List[str],
+        vs_token: str
+    ) -> Dict[str, Optional[float]]:
+        """Get prices for a batch of tokens"""
+        await self._check_rate_limit()
+        await self._create_session()
+
+        try:
+            params = {
+                "ids": ",".join(token_mints),
+                "vsToken": vs_token,
+            }
+
+            response = await self.session.get(
+                self.price_api_url,
+                params=params,
+                headers={
+                    "User-Agent": "MojoRust-Production/1.0",
+                    "Accept": "application/json"
+                }
+            )
+
+            if response.status == 200:
+                data = response.json()
+                prices = {}
+
+                for token_mint in token_mints:
+                    token_data = data.get("data", {}).get(token_mint)
+                    if token_data and token_data.get("reliable"):
+                        prices[token_mint] = token_data.get("price")
+
+                return prices
+            else:
+                logger.error(f"Jupiter batch API error: HTTP {response.status}")
+                return {}
+
+        except Exception as e:
+            logger.error(f"Error fetching Jupiter batch prices: {e}")
+            return {}
+        finally:
+            if self.session:
+                await self.session.close()
+                self.session = None
+
+    async def get_quote(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount: int,
+        slippage_bps: int = 50,
+        dexes: Optional[List[str]] = None,
+        only_direct_routes: bool = False
+    ) -> Optional[Dict]:
+        """
+        Get swap quote from Jupiter Swap API V6
+
+        Args:
+            input_mint: Input token mint address
+            output_mint: Output token mint address
+            amount: Amount in lamports
+            slippage_bps: Slippage basis points
+            dexes: List of DEXes to include/exclude
+            only_direct_routes: Only use direct routes
+
+        Returns:
+            Quote response or None if unavailable
+        """
+        await self._check_rate_limit()
+        await self._create_session()
+
+        try:
+            params = {
+                "inputMint": input_mint,
+                "outputMint": output_mint,
+                "amount": str(amount),
+                "slippageBps": slippage_bps,
+            }
+
+            if dexes:
+                params["dexes"] = ",".join(dexes)
+
+            if only_direct_routes:
+                params["onlyDirectRoutes"] = "true"
+
+            response = await self.session.post(
+                self.swap_api_url,
+                json=params,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "MojoRust-Production/1.0",
+                    "Accept": "application/json"
+                }
+            )
+
+            if response.status == 200:
+                return response.json()
+            else:
+                logger.error(f"Jupiter quote API error: HTTP {response.status}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error fetching Jupiter quote: {e}")
+            return None
+        finally:
+            if self.session:
+                await self.session.close()
+                self.session = None
+
+    async def get_swap_transaction(
+        self,
+        quote_response: Dict,
+        user_public_key: str,
+        wrap_and_unwrap_sol: bool = True,
+        compute_unit_price_micro_lamports: int = 100000,
+        as_legacy_transaction: bool = False
+    ) -> Optional[bytes]:
+        """
+        Get serialized transaction for swap
+
+        Args:
+            quote_response: Quote response from /quote endpoint
+            user_public_key: User's public key
+            wrap_and_unwrap_sol: Whether to wrap/unwrap SOL
+            compute_unit_price_micro_lamports: Priority fee in micro-lamports
+            as_legacy_transaction: Use legacy transaction format
+
+        Returns:
+            Serialized unsigned transaction bytes
+        """
+        await self._create_session()
+
+        try:
+            payload = {
+                "quoteResponse": quote_response,
+                "userPublicKey": user_public_key,
+                "wrapAndUnwrapSol": wrap_and_unwrap_sol,
+                "computeUnitPriceMicroLamports": compute_unit_price_micro_lamports,
+                "asLegacyTransaction": as_legacy_transaction,
+            }
+
+            response = await self.session.post(
+                self.swap_api_url,
+                json=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "MojoRust-Production/1.0",
+                    "Accept": "application/json"
+                }
+            )
+
+            if response.status == 200:
+                data = response.json()
+                tx_base64 = data.get("swapTransaction")
+                if tx_base64:
+                    return base64.b64decode(tx_base64)
+                else:
+                    logger.error("No transaction data in Jupiter response")
+                    return None
+            else:
+                logger.error(f"Jupiter swap API error: HTTP {response.status}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error fetching Jupiter swap transaction: {e}")
+            return None
+        finally:
+            if self.session:
+                await self.session.close()
+                self.session = None
+
+    async def publish_price_to_redis(self, redis_client, price_data: Dict[str, Any]) -> None:
+        """Publish Jupiter price data to Redis channels"""
+        try:
+            import json
+            from datetime import datetime
+
+            timestamp = datetime.now().isoformat()
+
+            # Main Jupiter price channel
+            await redis_client.publish("jupiter:prices", json.dumps({
+                **price_data,
+                "timestamp": timestamp,
+                "source": "jupiter_api_v3"
+            }))
+
+            # Token-specific channels for each token in the price data
+            if "data" in price_data:
+                for token_id, token_info in price_data["data"].items():
+                    token_symbol = token_info.get("symbol", token_id)
+                    await redis_client.publish(f"jupiter:price:{token_symbol.lower()}", json.dumps({
+                        "price": token_info.get("price"),
+                        "change24h": token_info.get("change24h"),
+                        "timestamp": timestamp,
+                        "symbol": token_symbol,
+                        "token_id": token_id
+                    }))
+
+                    # Store in sorted set for price history
+                    import time
+                    score = time.time()
+                    await redis_client.zadd(f"jupiter:history:{token_symbol.lower()}",
+                                          {json.dumps(token_info): score})
+
+                    # Keep only last 24 hours of price history
+                    await redis_client.zremrangebyscore(f"jupiter:history:{token_symbol.lower()}",
+                                                     0, score - 86400)
+
+            # Store latest prices in hash for quick access
+            if "data" in price_data:
+                await redis_client.hset("jupiter:latest_prices", mapping={
+                    token_id: json.dumps(token_info)
+                    for token_id, token_info in price_data["data"].items()
+                })
+
+        except Exception as e:
+            logger.error(f"Failed to publish Jupiter price to Redis: {e}")
+
+    async def publish_quote_to_redis(self, redis_client, quote_data: Dict[str, Any]) -> None:
+        """Publish Jupiter quote data to Redis channels"""
+        try:
+            import json
+            from datetime import datetime
+
+            timestamp = datetime.now().isoformat()
+
+            # Main Jupiter quotes channel
+            await redis_client.publish("jupiter:quotes", json.dumps({
+                **quote_data,
+                "timestamp": timestamp,
+                "source": "jupiter_swap_api_v6"
+            }))
+
+            # Route-specific channels
+            input_mint = quote_data.get("inputMint")
+            output_mint = quote_data.get("outputMint")
+
+            if input_mint and output_mint:
+                route_key = f"{input_mint[:8]}-{output_mint[:8]}"
+                await redis_client.publish(f"jupiter:quote:{route_key}", json.dumps({
+                    "in_amount": quote_data.get("inAmount"),
+                    "out_amount": quote_data.get("outAmount"),
+                    "price_impact_pct": quote_data.get("priceImpactPct"),
+                    "quote_id": quote_data.get("quoteId"),
+                    "timestamp": timestamp
+                }))
+
+                # Store quote in hash for arbitrage opportunities
+                await redis_client.hset("jupiter:arbitrage:quotes", route_key, json.dumps(quote_data))
+                await redis_client.expire("jupiter:arbitrage:quotes", 30)  # 30 seconds TTL
+
+        except Exception as e:
+            logger.error(f"Failed to publish Jupiter quote to Redis: {e}")
+
+# ============================================================================
+# Enhanced Geyser Client with Jupiter Integration
+# ============================================================================
+
+class EnhancedGeyserClient(ProductionGeyserClient):
+    """
+    Enhanced Geyser client with Jupiter API integration for comprehensive trading
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.jupiter_client = JupiterPriceClient()
+        self.price_cache = {}
+        self.last_price_update = {}
+
+    async def get_enhanced_token_price(
+        self,
+        token_mint: str,
+        vs_token: str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        cache_duration: float = 5.0  # Cache for 5 seconds
+    ) -> Optional[float]:
+        """
+        Get token price with caching and Jupiter API fallback
+
+        Args:
+            token_mint: Token mint address
+            vs_token: Base token mint address
+            cache_duration: Cache duration in seconds
+
+        Returns:
+            Token price or None if unavailable
+        """
+        current_time = time.time()
+
+        # Check cache first
+        if (token_mint in self.price_cache and
+            current_time - self.last_price_update.get(token_mint, 0) < cache_duration):
+            return self.price_cache[token_mint]
+
+        # Try Jupiter API
+        jupiter_price = await self.jupiter_client.get_token_price(token_mint, vs_token)
+
+        if jupiter_price is not None:
+            # Update cache
+            self.price_cache[token_mint] = jupiter_price
+            self.last_price_update[token_mint] = current_time
+            logger.debug(f"Got Jupiter price for {token_mint[:8]}...: {jupiter_price} {vs_token}")
+            return jupiter_price
+
+        # Cache the fact that we tried but failed
+        self.last_price_update[token_mint] = current_time
+        return None
+
+    async def start_price_monitoring(
+        self,
+        tokens_to_monitor: List[str],
+        update_interval: float = 10.0
+    ) -> None:
+        """
+        Start monitoring prices for specified tokens
+
+        Args:
+            tokens_to_monitor: List of token mint addresses to monitor
+            update_interval: Update interval in seconds
+        """
+        logger.info(f"Starting price monitoring for {len(tokens_to_monitor)} tokens")
+
+        while True:
+            try:
+                # Update prices for all monitored tokens
+                prices = await self.jupiter_client.get_multiple_prices(
+                    tokens_to_monitor
+                )
+
+                for token_mint, price in prices.items():
+                    if price is not None:
+                        self.price_cache[token_mint] = price
+                        self.last_price_update[token_mint] = time.time()
+
+                        # Publish price update to Redis
+                        await self._publish_price_update(token_mint, price)
+
+                await asyncio.sleep(update_interval)
+
+            except Exception as e:
+                logger.error(f"Error in price monitoring: {e}")
+                await asyncio.sleep(update_interval)
+
+    async def _publish_price_update(self, token_mint: str, price: float) -> None:
+        """Publish price update to Redis pub/sub"""
+        # This would integrate with your Redis pub/sub system
+        logger.debug(f"Publishing price update for {token_mint[:8]}...: {price}")
+
+        # Implementation would go here to publish to Redis
+        # For now, just log the update
+        pass
+
+# ============================================================================
 # Legacy Compatibility Layer
 # ============================================================================
 
 # Maintain backward compatibility with existing code
-class GeyserClient(ProductionGeyserClient):
+class GeyserClient(EnhancedGeyserClient):
     """
     Legacy compatibility wrapper for existing code
     """

@@ -750,3 +750,72 @@ test_data_directory = "./test_data"
 test_scenarios_enabled = true
 integration_tests_enabled = true
 performance_tests_enabled = false
+
+# =============================================================================
+# Statistical Arbitrage Configuration (2025 Advanced Features)
+# =============================================================================
+
+[statistical_arbitrage]
+# Core statistical arbitrage parameters
+min_history_length = 50              # Minimum price history length for analysis
+z_score_entry = 2.0                  # Z-score threshold for entry signals
+z_score_exit = 0.5                   # Z-score threshold for exit signals
+max_hurst_exponent = 0.5             # Maximum Hurst exponent for mean reversion
+min_half_life_periods = 5            # Minimum half-life periods for mean reversion
+cointegration_threshold = 0.05       # P-value threshold for cointegration testing
+
+# Performance optimization
+enable_simd_optimization = true      # Use SIMD for spread calculations
+max_calculation_time_ms = 10         # Maximum time for statistical calculations
+enable_parallel_analysis = true      # Analyze multiple pairs simultaneously
+max_concurrent_pairs = 10            # Maximum pairs to analyze concurrently
+
+# Pairs trading configuration
+[pairs_trading]
+# Asset pairs for statistical arbitrage
+primary_pairs = [
+    ["BTC", "ETH"],
+    ["SOL", "ETH"],
+    ["BTC", "SOL"]
+]
+
+# Correlation requirements
+min_correlation_threshold = 0.7      # Minimum correlation for pair consideration
+correlation_lookback_periods = 100   # Periods for correlation calculation
+correlation_update_interval = 24     # Hours between correlation updates
+
+# Spread analysis
+spread_mean_reversion_threshold = 2.0  # Z-score threshold for spread mean reversion
+spread_half_life_max = 100             # Maximum acceptable half-life periods
+spread_volatility_threshold = 0.1      # Maximum spread volatility for trading
+
+# Risk management for statistical arbitrage
+[statistical_arbitrage.risk]
+max_position_size_percent = 0.15      # Maximum position size per stat arb trade
+max_portfolio_allocation = 0.40       # Maximum portfolio allocation to stat arb
+max_concurrent_stat_arb_positions = 3 # Maximum simultaneous stat arb positions
+stop_loss_multiplier = 2.0            # Stop loss based on spread standard deviation
+take_profit_multiplier = 1.5          # Take profit based on spread standard deviation
+
+# Statistical arbitrage specific risk limits
+max_hurst_exponent_hard = 0.6         # Hard limit for Hurst exponent
+min_half_life_periods_hard = 3        # Hard minimum for half-life
+max_spread_volatility = 0.2           # Maximum acceptable spread volatility
+cointegration_p_value_hard = 0.02     # Hard p-value threshold for cointegration
+
+# Performance monitoring
+[statistical_arbitrage.monitoring]
+enable_performance_tracking = true    # Track stat arb performance metrics
+calculation_latency_threshold_ms = 15  # Alert on slow calculations
+success_rate_threshold = 0.6          # Minimum success rate for stat arb signals
+sharpe_ratio_target = 1.5            # Target Sharpe ratio for stat arb strategy
+max_drawdown_allowed = 0.15           # Maximum allowed drawdown
+
+# External data sources for pairs trading
+[statistical_arbitrage.data_sources]
+# Enable external price data for correlated assets
+enable_btc_data = true               # BTC price data for pairs trading
+enable_eth_data = true               # ETH price data for pairs trading
+enable_sol_data = true               # SOL price data for pairs trading
+data_update_interval_seconds = 60    # Update interval for external data
+data_quality_threshold = 0.9         # Minimum data quality for external sources
