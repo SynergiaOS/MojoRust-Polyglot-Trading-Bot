@@ -1,0 +1,165 @@
+# ⚡ STRATEGIA FLASH LOAN ONLY - ZERO KAPITAŁU WŁASNEGO!
+# Idealna gdy nie masz gotówki - używasz tylko pożyczek błyskawicznych
+
+[general]
+environment = "mainnet"  # Flash loans działają tylko na mainnet
+debug = true
+log_level = "info"
+strategy_type = "flash_loan_arbitrage"
+
+# 💰 ZERO KAPITAŁU - TYLKO FLASH LOANS
+[capital]
+own_capital_sol = 0.0           # Zero własnego kapitału
+max_flash_loan_sol = 100.0      # Max 100 SOL w flash loan
+profit_target_per_trade = 0.1   # Target 0.1 SOL zysku na trade
+reserve_for_gas = 0.01          # Rezerwa 0.01 SOL na gas (z własnej kieszeni)
+
+# ⚡ MECHANIZMY FLASH LOAN - SERCE SYSTEMU
+[flash_loans]
+enabled = true
+providers = ["solend", "marginfi", "jupiter"]
+max_loan_duration_ms = 3000     # Max 3 sekundy
+max_concurrent_loans = 1        # Tylko jedna pożyczka na raz
+
+# Solend configuration
+[flash_loans.solend]
+enabled = true
+max_loan_amount = 50.0
+lending_market = "J7RumDsisJZ7GyVZpq7GFEjTJwkhxWxEPMhLyHbLhUZb"
+fee_rate_bps = 3               # 0.03% fee
+
+# Marginfi configuration
+[flash_loans.marginfi]
+enabled = true
+max_loan_amount = 30.0
+marginfi_group = "MFvzJK5fvG9MZazKw7LXEgT3WJb6EaHcYhN2s5uZjvUJ"
+fee_rate_bps = 5               # 0.05% fee
+
+# 🎯 ARBITRAGE STRATEGIE - ZYSK Z RÓŻNIC CEN
+[arbitrage]
+# Triangular arbitrage (SOL -> TokenA -> TokenB -> SOL)
+enable_triangular = true
+min_spread_bps = 75            # Min 0.75% spread
+max_slippage_bps = 25           # Max 0.25% slippage
+
+# Cross-DEX arbitrage (Kup na jednej DEX, sprzedaj na drugiej)
+enable_cross_dex = true
+target_dexes = ["raydium", "orca", "jupiter", "serum"]
+min_cross_dex_spread_bps = 100 # Min 1% spread
+
+# Flash loan arbitrage (Pożycz -> Arbitraż -> Spłać)
+enable_flash_arbitrage = true
+flash_profit_threshold_bps = 50 # Min 0.5% zysku po opłatach
+max_gas_cost_sol = 0.005       # Max 0.005 SOL na gas
+
+# 🛡️ RYZYKO - KLUCZOWE PRZY FLASH LOANS
+[risk_management]
+max_failed_attempts = 3         # Zatrzymaj po 3 nieudanych próbach
+max_gas_loss_per_day = 0.05     # Max 0.05 SOL strata na gas dziennie
+emergency_stop_on_slippage = true
+require_profit_confirmation = true
+
+# Sprawdzanie opłacalności przed pożyczką
+[profitability_check]
+min_expected_profit_sol = 0.05  # Min 0.05 SOL oczekiwanego zysku
+gas_cost_tolerance = 0.4        # Max 40% zysku na gas
+fee_cost_tolerance = 0.2        # Max 20% zysku na opłaty
+success_probability_threshold = 0.85  # Min 85% pewności
+
+# 🔄 SEKWENCJE TRANSAKCYJNE - PRECYZJA DO MILLISEKUND
+[transaction_sequencing]
+# Krok 1: Pożycz flash loan
+borrow_execution_time_ms = 500   # Max 500ms na pożyczenie
+
+# Krok 2: Wykonaj arbitraż (może być wieloetapowy)
+arbitrage_execution_time_ms = 1500  # Max 1.5s na arbitraż
+
+# Krok 3: Spłać pożyczkę + odsetki
+repayment_execution_time_ms = 500   # Max 500ms na spłatę
+
+total_max_time_ms = 3000           # Max 3 sekundy całość
+
+# 🎯 WYKRYWANIE OKAZJI - REAL-TIME
+[opportunity_detection]
+scan_interval_ms = 100            # Skanuj co 100ms
+price_sources = ["jupiter", "coingecko", "dexscreener"]
+liquidity_requirement_sol = 20.0  # Min 20 SOL liquidity
+volume_requirement_24h = 10000.0  # Min $10k volume 24h
+
+# Filtry jakościowe
+[quality_filters]
+reject_pump_fun_tokens = true     # Odrzuć Pump.fun
+min_token_age_hours = 6           # Token musi istnieć 6h
+max_price_change_1h = 200         # Max 200% zmiana w 1h (anti-manipulation)
+require_natural_volume = true     # Tylko naturalny volume
+
+# 💸 OPTYMALIZACJA PODATKÓW I OPŁAT
+[fee_optimization]
+prefer_low_fee_dexes = true       # Prefeuj niskoopłatne DEXy
+batch_operations = true           # Łącz operacje
+optimize_gas_usage = true         # Optymalizuj gas
+use_jupiter_aggregator = true     # Używaj Jupiter dla najlepszej ceny
+
+# 📊 MONITORING I ANALIZA
+[monitoring]
+track_all_flash_loans = true
+measure_execution_times = true
+profit_loss_tracking = true
+success_rate_monitoring = true
+
+# Alerty
+[alerts]
+alert_on_successful_arbitrage = true
+alert_on_failed_flash_loan = true
+alert_on_gas_surge = true
+daily_summary_report = true
+
+# 🔄 UCZENIE SIĘ Z KAŻDEJ TRANSAKCJI
+[learning]
+analyze_successful_trades = true
+analyze_failed_trades = true
+optimize_entry_exit_points = true
+adapt_to_market_conditions = true
+
+# 🎮 PSYCHOLOGIA - BEZ STRESU
+[psychology]
+no_emotional_trading = true      # Tylko logika
+stick_to_the_plan = true         # Trzymaj się planu
+accept_small_losses = true       # Akceptuj małe straty
+celebrate_small_wins = true      # Świętuj małe sukcesy
+
+# 📈 PROGRESJA I CELE
+[progression]
+daily_profit_target = 0.5        # 0.5 SOL dziennie
+weekly_profit_target = 3.0       # 3 SOL tygodniowo
+monthly_profit_target = 15.0     # 15 SOL miesięcznie
+
+# Milestones
+milestone_1 = "Zarób pierwsze 1 SOL czystego zysku"
+milestone_2 = "Zbuduj rezerwę 5 SOL na gas"
+milestone_3 = "Zarób 10 SOL i zacznij reinwestować"
+milestone_4 = "Osiągnij 1 SOL dziennie regularnie"
+
+# 🛠️ TECHNICZNE USTAWIENIA
+[technical]
+max_concurrent_opportunities = 3  # Max 3 okazje naraz
+opportunity_timeout_ms = 5000     # Timeout po 5 sekundach
+retry_failed_transactions = true  # Próbuj ponownie przy błędach
+use_priority_fees = true          # Używaj higher priority fees
+
+# 🔐 BEZPIECZEŃSTWO - NAJWAŻNIEJSZE
+[security]
+double_check_addresses = true    # Sprawdzaj adresy 2x
+simulate_before_execute = true    # Symuluj przed wykonaniem
+no_manual_intervention = false   # Pozwól na manualną interwencję
+emergency_stop_phrase = "STOP_FLASH_NOW"  # Słowo zatrzymujące wszystko
+
+# 💡 DIAMENTOWE ZASADY FLASH LOAN
+[diamond_rules]
+rule1 = "Nigdy nie pożyczaj więcej niż potrzebujesz"
+rule2 = "Zawsze sprawdzaj czy zysk > koszty"
+rule3 = "Czas to pieniądz - bądź szybszy niż inni"
+rule4 = "Gas to realny koszt - minimalizuj go"
+rule5 = "Flash loan to narzędzie, nie hazard"
+rule6 = "Ucz się na każdym sukcesie i porażce"
+rule7 = "Rynek 24/7, ty nie - odpoczywaj"

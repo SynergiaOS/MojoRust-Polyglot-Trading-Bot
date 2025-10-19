@@ -1,0 +1,127 @@
+# 🎯 STRATEGIA DEVNET Z 1 SOL - ODBUDOWANA I ULEPSZONA
+# Dokładnie taka jak omawialiśmy, ale z lekcjami z przeszłości
+
+[general]
+environment = "devnet"
+debug = true
+log_level = "debug"
+network = "devnet"  # KLUCZOWE - devnet nie mainnet!
+
+# 💰 KAPITAŁ POCZĄTKOWY - DOKŁADNIE 1 SOL
+[capital]
+starting_sol = 1.0
+max_position_sol = 0.1          # Max 10% kapitału na pozycję
+reserve_sol = 0.2               # 20% rezerwy na gas
+trading_sol = 0.8               # 80% na trading
+
+# 🎯 CELY TRADINGOWE - REALISTYCZNE
+[goals]
+daily_target_profit = 0.05      # 5 SOL = 5% dziennie
+monthly_target = 1.5            # 150% miesięcznie (realistyczne na devnet)
+compound_frequency = "weekly"   # Reinwestuj co tydzień
+
+# 🛡️ BARDZO KONSERWATYWNE RYZYKO
+[risk_management]
+max_loss_per_trade = 0.01       # Max 1% strata na trade
+max_daily_loss = 0.05           # Max 5% strata dziennie
+max_drawdown = 0.15             # Zatrzymaj przy 15% drawdown
+stop_loss_percentage = 10.0     # Stop loss po 10% spadku
+take_profit_percentage = 20.0    # Take profit po 20% wzroście
+
+# 📊 STRATEGIE - TYLKO BEZPIECZNE
+[strategies]
+# Flash loan arbitrage - nasza główna strategia
+enable_flash_arbitrage = true
+flash_min_spread_bps = 50       # Min 0.5% spread
+flash_max_gas_sol = 0.001       # Max 0.001 SOL gas
+flash_success_rate_threshold = 0.8  # Min 80% success rate
+
+# Memecoin sniping - bardzo ostrożnie
+enable_memecoin_sniping = true
+memecoin_max_age_minutes = 5    # Tylko świeże tokeny
+memecoin_min_liquidity_sol = 10  # Min 10 SOL liquidity
+memecoin_max_buy_sol = 0.05     # Max 0.05 SOL na memecoin
+
+# Wyłączone ryzykowne strategie
+enable_market_making = false
+enable_yield_farming = false
+enable_nft_trading = false
+enable_martingale = false
+
+# 🕐 CZASOWE OGRANICZENIA - BARDZO WAŻNE
+[timing]
+trading_sessions_per_day = 10    # Max 10 sesji dziennie
+cooldown_between_trades = 60    # 1 min przerwy
+no_trading_hours = [2, 3, 4, 5]  # Nie handluj 2-5 nad ranem
+weekend_trading = false         # Nie handluj w weekendy
+
+# 📈 ALGORYTMY DECYZYJNE
+[decision_engine]
+min_confidence_score = 0.75     # Min 75% pewności
+use_multiple_signals = true     # Użyj wielu sygnałów
+require_volume_confirmation = true
+require_liquidity_confirmation = true
+
+# 🔄 AUTO-KOMPOUNDING - ALE BEZPIECZNY
+[compounding]
+enable_auto_compound = true
+compound_threshold = 0.1        # Compound po zdobyciu 0.1 SOL
+compound_percentage = 0.5       # Reinwestuj 50% zysków
+keep_safe_percentage = 0.5      # Zachowaj 50% jako bezpieczny fundusz
+
+# 📊 MONITORING I ALERTY
+[monitoring]
+real_time_monitoring = true
+alert_on_profit = true
+alert_on_loss = true
+alert_threshold = 0.02          # Alert przy 2 SOL zysku/stracie
+save_detailed_logs = true
+
+# 🎯 WYKRYWANIE WZORCÓW - LEPSZE NIŻ PRZEDTEM
+[pattern_recognition]
+enable_pump_detection = true    # Wykrywaj pump & dump schemes
+enable_whale_tracking = true    # Śledź wieloryby
+enable_manipulation_detection = true
+require_natural_growth = true   # Tylko naturalny wzrost
+
+# 🛡️ ZABEZPIECZENIA PRZED BŁĘDAMI
+[safety_checks]
+double_check_transactions = true
+simulate_before_execute = true
+require_manual_confirmation = false  # Na devnet można automatycznie
+max_transaction_failures = 3      # Zatrzymaj po 3 nieudanych transakcjach
+
+# 🔌 API KONFIGURACJA - DEVTNET
+[api_endpoints]
+rpc_url = "https://api.devnet.solana.com"
+helius_api = "https://rpc.devnet.helius.xyz/?api-key=${HELIUS_API_KEY}"
+jupiter_api = "https://quote-api.jup.ag/v6/quote"  # Mainnet Jupiter działa na devnet tokenach
+
+# 🎮 EDUKACYJNY MODE - UCZYMY SIĘ NA BŁĘDACH
+[education]
+track_all_decisions = true
+analyze_failed_trades = true
+learn_from_losses = true
+weekly_performance_review = true
+
+# 📋 PSYCHOLOGIA TRADINGU - KLUCZOWE
+[psychology]
+max_trades_when_tired = 2        # Limituj transakcje gdy zmęczony
+forced_break_after_loss = true   # Przerwa po stracie
+celebrate_wins = true           # Świętuj małe sukcesy
+no_revenge_trading = true       # Żadnego handlu "revenge"
+
+# 🚀 PROGRESYWNY ROZWÓJ
+[progression]
+level_1_capital = 1.0           # Start: 1 SOL
+level_2_capital = 2.0           # Po 100% zysku: 2 SOL
+level_3_capital = 5.0           # Po 500% zysku: 5 SOL
+level_mainnet_min = 10.0        # Min do mainnet: 10 SOL
+
+# 💎 DIAMENTOWE REGUŁY - NIGDY NIE ŁAM
+[diamond_rules]
+rule1 = "Nigdy nie handluj zmęczony"
+rule2 = "Zawsze używaj stop-loss"
+rule3 = "Nie reinwestuj więcej niż 50% zysków"
+rule4 = "Błędy są kosztowne - uczyń je lekcją"
+rule5 = "Devnet to trening - mainnet to maraton"

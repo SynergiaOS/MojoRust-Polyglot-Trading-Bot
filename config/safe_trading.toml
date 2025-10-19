@@ -1,0 +1,84 @@
+# Bezpieczna konfiguracja MojoRust - ANTY-STRATOWA
+# Zapisz jako: config/safe_trading.toml
+
+[general]
+environment = "safe_trading"
+debug = true
+log_level = "info"
+
+# 🚨 BARDZO KONSERWATYWNE USTAWIENIA
+[risk_management]
+# Maksymalne ryzyko na jedną transakcję
+max_position_size_usd = 5.0        # $5 max na pozycję
+max_order_size_usd = 2.0           # $2 max na zlecenie
+max_concurrent_orders = 1          # TYLKO 1 zlecenie na raz
+
+# 🛡️ CIRCUIT BREAKERS - auto-zatrzymanie
+max_daily_loss_usd = 2.0           # Zatrzymaj po stracie $2
+max_drawdown_percent = 10.0        # Zatrzymaj przy 10% drawdown
+emergency_stop_enabled = true
+
+# ⏰ CZASOWE OGRANICZENIA
+[time_limits]
+trading_hours_only = true          # Handluj tylko w wygodnych godzinach
+max_trading_sessions_per_day = 5   # Max 5 sesji dziennie
+cooldown_between_trades = 300      # 5 min przerwy między trade'ami
+
+# 🎯 FILTERY - odrzucaj 99% sygnałów
+[filters]
+min_liquidity_usd = 50000.0        # Min $50k liquidity
+min_volume_24h_usd = 100000.0      # Min $100k volume
+max_slippage_bps = 25             # Max 0.25% slippage
+min_market_cap_usd = 100000.0      # Min $100k market cap
+reject_pump_fun = true            # Odrzuć Pump.fun tokeny
+require_age_hours = 24             # Token musi istnieć 24h
+
+# 💰 POZYCJONOWANIE
+[position_sizing]
+kelly_fraction = 0.25              # 25% Kelly (bardzo bezpieczne)
+stop_loss_buffer_percent = 20.0    # 20% buffer od supportu
+max_portfolio_risk = 5.0           # Max 5% portfela na trade
+
+# 📊 MONITORING I ALERTY
+[monitoring]
+real_time_alerts = true
+profit_target_alert = true
+loss_threshold_alert = true
+balance_check_interval = 60        # Sprawdzaj saldo co 60s
+
+# 🚪 WYMAGANE ZYSKI PRZED KOLEJNYM TRADE'M
+[profit_requirements]
+min_profit_to_trade = 1.5          # Potrzebujesz 1.5 SOL zysku przed kolejnym
+compound_profits = false           # Nie reinwestuj zysków
+withdraw_profits_daily = true       # Wypłacaj zyski codziennie
+
+# 🔒 BEZPIECZEŃSTWO
+[security]
+require_manual_confirm = true      # Wymagaj potwierdzenie na każdy trade
+enable_audit_logging = true
+log_all_transactions = true
+notify_all_trades = true           # Powiadom o każdym trade
+
+# 📈 EDUKACYJNY MODE
+[education_mode]
+enabled = true
+simulate_trades = true             # Symuluj bez realnych transakcji
+explain_decisions = true           # Wyjaśnij każdą decyzję
+show_risk_analysis = true          # Pokaż analizę ryzyka
+
+# 🎯 ALTERNATYWNE STRATEGIE (bezpieczniejsze)
+[alternative_strategies]
+enable_arbitrage = true            # Arbitrag bezpieczny
+enable_staking = true              # Staking SOL
+enable_yield_farming = false       # Ryzykowne
+enable_nft_flipping = false        # Bardzo ryzykowne
+
+[arbitrage_settings]
+min_spread_bps = 100              # Min 1% spread
+max_gas_usd = 0.1                 # Max $0.1 gas
+require_flash_loan = true         # Używaj tylko flash loans
+
+[staking_settings]
+stake_percentage = 80.0           # 80% SOL w staking
+validator_count = 3               # 3 różnych validatorów
+auto_compound = false             # Nie reinwestuj automatycznie
