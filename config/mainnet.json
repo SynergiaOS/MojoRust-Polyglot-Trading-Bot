@@ -1,0 +1,29 @@
+{
+  "trading": {
+    "network": "mainnet-beta",
+    "rpc_url": "https://api.mainnet-beta.solana.com",
+    "wallet_address": "GedVmbHnUpRoqxWSxLwDMQNY5bmggTjRojoCY6u31VGS",
+    "mode": "production",
+    "risk_management": {
+      "max_position_size": 10.0,
+      "stop_loss_percentage": 0.15,
+      "max_drawdown": 0.15,
+      "kelly_fraction": 0.5
+    },
+    "flash_loan": {
+      "providers": [
+        "solend",
+        "marginfi",
+        "jupiter"
+      ],
+      "max_amount": 50.0,
+      "min_profit": 0.05
+    }
+  },
+  "monitoring": {
+    "enabled": true,
+    "alerts_discord": true,
+    "alerts_telegram": true,
+    "metrics_retention_days": 30
+  }
+}
