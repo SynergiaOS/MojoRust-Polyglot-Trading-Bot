@@ -230,7 +230,7 @@ impl InputValidator {
             r"(?i)(union|select|insert|update|delete|drop|create|alter|exec|execute)",
             r"(?i)(or|and)\s+\d+\s*=\s*\d+",
             r"(?i)(or|and)\s+['\"]?\w+['\"]?\s*=\s*['\"]?\w+['\"]?",
-            r"(?i)(--|\/\*|\*\/|;)",
+            r"(?i)(--|/\*|\*/|;)",
             r"(?i)(script|javascript|vbscript)",
             r"(?i)(waitfor|delay|benchmark)",
             r"(?i)(load_file|into\s+outfile|into\s+dumpfile)",
@@ -271,16 +271,16 @@ impl InputValidator {
     /// Detect path traversal patterns
     fn detect_path_traversal(&self, input: &str) -> bool {
         let traversal_patterns = vec![
-            r"\.\.[\\/]",
-            r"[\\/]\.\.[\\/]",
-            r"[\\/]\.\.$",
+            r"\.\.[/\\]",
+            r"[/\\]\.\.[/\\]",
+            r"[/\\]\.\.$",
             r"^\.\\.",
-            r"%2e%2e[\\/]",
+            r"%2e%2e[/\\]",
             r"%2f%2f",
             r"%5c%5c",
             r"\.\.%2f",
             r"\.\.%5c",
-            r"[\\/][\\/][\\/]",
+            r"[/\\][/\\][/\\]",
         ];
 
         traversal_patterns.iter().any(|pattern| {

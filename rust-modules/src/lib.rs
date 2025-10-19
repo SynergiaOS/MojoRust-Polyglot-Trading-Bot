@@ -41,6 +41,8 @@ pub mod mock_geyser;
 
 // Multi-token arbitrage modules
 pub mod arbitrage;
+pub mod dex_clients;
+pub mod instruction_parsers;
 pub mod jito_bundle_builder;
 pub mod rpc_router;
 pub mod helius_laserstream;
@@ -436,5 +438,14 @@ mod tests {
     }
 }
 pub mod flash_loan;
-
 pub mod universal_auth_free;
+
+// Save Flash Loan modules
+pub mod execution;
+
+// Re-export Save Flash Loan interfaces
+pub use execution::{
+    flash_loan_coordinator::FlashLoanCoordinator,
+    save_flash_loan::{SaveFlashLoanEngine, SaveFlashLoanConfig, SaveFlashLoanRequest, SaveFlashLoanResult},
+    flash_loan::{FlashLoanProvider, FlashLoanExecutor, FlashLoanRequest, FlashLoanResult}
+};

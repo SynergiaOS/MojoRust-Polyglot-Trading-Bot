@@ -755,6 +755,530 @@ async def update_arbitrage_engine_status(request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating engine status: {str(e)}")
 
+# ============================================================================
+# Manual Targeting API Endpoints
+# ============================================================================
+
+from pydantic import BaseModel, Field
+from typing import List, Optional, Union
+
+class ManualTarget(BaseModel):
+    """Manual target request for a specific token"""
+    token_mint: str = Field(..., description="Token mint address")
+    action: str = Field(..., regex="^(BUY|SELL|HOLD|FLASH_LOAN)$", description="Action to take")
+    amount_sol: float = Field(..., ge=0.0001, le=1000.0, description="Amount in SOL")
+    strategy_type: str = Field("manual", regex="^(sniper_momentum|statistical_arbitrage|liquidity_mining|social_sentiment|technical_patterns|whale_tracking|manual)$", description="Strategy type")
+    confidence: float = Field(0.8, ge=0.0, le=1.0, description="Confidence level (0-1)")
+    risk_score: float = Field(0.2, ge=0.0, le=1.0, description="Risk score (0-1)")
+    expected_return: float = Field(0.0, description="Expected return in SOL")
+    flash_loan_amount: float = Field(0.0, ge=0.0, description="Flash loan amount in SOL")
+    max_slippage_bps: int = Field(300, ge=50, le=5000, description="Maximum slippage in basis points")
+    ttl_seconds: int = Field(60, ge=10, le=3600, description="Time to live in seconds")
+    priority: str = Field("normal", regex="^(low|normal|high|critical)$", description="Priority level")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+
+class BulkTargetRequest(BaseModel):
+    """Bulk targeting request for multiple tokens"""
+    targets: List[ManualTarget] = Field(..., min_items=1, max_items=50, description="List of targets")
+    batch_name: Optional[str] = Field(None, description="Name for this batch")
+    execution_mode: str = Field("sequential", regex="^(sequential|parallel)$", description="Execution mode")
+
+class TargetResponse(BaseModel):
+    """Response for targeting requests"""
+    success: bool
+    target_id: Optional[str] = None
+    message: str
+    timestamp: int
+    estimated_execution_time: Optional[int] = None
+
+# Redis connection for targeting
+redis_client = None
+
+async def get_redis_client():
+    """Get Redis client connection"""
+    global redis_client
+    if redis_client is None:
+        try:
+            import redis
+            redis_url = os.getenv('DRAGONFLYDB_URL', 'redis://localhost:6379')
+            redis_client = redis.from_url(redis_url, decode_responses=True)
+            # Test connection
+            await redis_client.ping()
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Redis connection failed: {e}")
+    return redis_client
+
+def generate_target_id(target: ManualTarget) -> str:
+    """Generate unique target ID"""
+    import uuid
+    import time
+    strategy_short = target.strategy_type[:4].upper()
+    token_short = target.token_mint[:8]
+    timestamp = int(time.time())
+    unique_suffix = str(uuid.uuid4())[:8]
+    return f"MANUAL_{strategy_short}_{token_short}_{timestamp}_{unique_suffix}"
+
+def calculate_opportunity_score(target: ManualTarget) -> float:
+    """Calculate opportunity score for prioritization"""
+    profit_score = target.expected_return * 1000.0 if target.expected_return > 0 else 0.0
+    confidence_bonus = target.confidence * 100.0
+    risk_penalty = target.risk_score * 50.0
+
+    # Priority multipliers
+    priority_multiplier = {
+        "low": 0.5,
+        "normal": 1.0,
+        "high": 1.5,
+        "critical": 2.0
+    }.get(target.priority, 1.0)
+
+    # Flash loan bonus
+    flash_loan_bonus = 100.0 if target.flash_loan_amount > 0 else 0.0
+
+    return (profit_score + confidence_bonus - risk_penalty + flash_loan_bonus) * priority_multiplier
+
+@app.post("/api/targeting/manual", response_model=TargetResponse)
+async def create_manual_target(target: ManualTarget):
+    """Create a manual trading target"""
+    try:
+        # Get Redis client
+        redis_conn = await get_redis_client()
+
+        # Generate target ID
+        target_id = generate_target_id(target)
+
+        # Validate token mint format
+        if not (len(target.token_mint) >= 32 and len(target.token_mint) <= 44):
+            raise HTTPException(status_code=400, detail="Invalid token mint address format")
+
+        # Validate action and required capital
+        if target.action in ["BUY", "FLASH_LOAN"] and target.amount_sol < 0.001:
+            raise HTTPException(status_code=400, detail="Minimum amount is 0.001 SOL for trading actions")
+
+        # For flash loans, ensure amount matches flash_loan_amount
+        if target.action == "FLASH_LOAN" and target.flash_loan_amount <= 0:
+            target.flash_loan_amount = target.amount_sol * 0.95  # Use 95% flash loan by default
+
+        # Create orchestrator opportunity object
+        orchestrator_opportunity = {
+            "id": target_id,
+            "strategy_type": target.strategy_type,
+            "token": target.token_mint,
+            "confidence": target.confidence,
+            "expected_return": target.expected_return,
+            "risk_score": target.risk_score,
+            "required_capital": target.amount_sol,
+            "flash_loan_amount": target.flash_loan_amount,
+            "timestamp": int(time.time()),
+            "ttl_seconds": target.ttl_seconds,
+            "metadata": {
+                "manual_target": True,
+                "action": target.action,
+                "max_slippage_bps": target.max_slippage_bps,
+                "priority": target.priority,
+                "batch_name": target.metadata.get("batch_name", "") if target.metadata else "",
+                "source": "manual_api",
+                "creator": "manual_user",
+                "opportunity_type": "manual_target"
+            }
+        }
+
+        # Add any custom metadata
+        if target.metadata:
+            orchestrator_opportunity["metadata"].update(target.metadata)
+
+        # Calculate opportunity score
+        score = calculate_opportunity_score(target)
+
+        # Add to orchestrator opportunity_queue sorted set
+        opportunity_payload = json.dumps(orchestrator_opportunity)
+        await redis_conn.zadd("opportunity_queue", {opportunity_payload: score})
+
+        # Also publish to manual_targets channel for monitoring
+        await redis_conn.publish("manual_targets", opportunity_payload)
+
+        # Store target details for tracking
+        target_key = f"manual_target:{target_id}"
+        await redis_conn.hset(target_key, mapping={
+            "target_data": opportunity_payload,
+            "status": "queued",
+            "created_at": str(int(time.time())),
+            "score": str(score)
+        })
+        await redis_conn.expire(target_key, target.ttl_seconds + 300)  # Extra 5 minutes TTL
+
+        # Estimate execution time based on priority
+        priority_delay = {
+            "critical": 5,
+            "high": 15,
+            "normal": 30,
+            "low": 60
+        }.get(target.priority, 30)
+
+        # Record metrics
+        HTTP_REQUESTS_TOTAL.labels(
+            method="POST",
+            endpoint="/api/targeting/manual",
+            status="201"
+        ).inc()
+
+        return TargetResponse(
+            success=True,
+            target_id=target_id,
+            message=f"Manual target created successfully with ID: {target_id}",
+            timestamp=int(time.time()),
+            estimated_execution_time=priority_delay
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        HTTP_REQUESTS_TOTAL.labels(
+            method="POST",
+            endpoint="/api/targeting/manual",
+            status="500"
+        ).inc()
+        if sentry_client:
+            try:
+                sentry_client.capture_exception(e, {"endpoint": "/api/targeting/manual"})
+            except:
+                pass
+        raise HTTPException(status_code=500, detail=f"Failed to create manual target: {str(e)}")
+
+@app.post("/api/targeting/bulk", response_model=List[TargetResponse])
+async def create_bulk_targets(bulk_request: BulkTargetRequest):
+    """Create multiple manual trading targets"""
+    try:
+        # Get Redis client
+        redis_conn = await get_redis_client()
+
+        responses = []
+        batch_start_time = int(time.time())
+        batch_id = f"BULK_{batch_start_time}_{len(bulk_request.targets)}"
+
+        for i, target in enumerate(bulk_request.targets):
+            try:
+                # Generate target ID with batch info
+                target_id = f"BATCH_{batch_id}_{i+1:02d}_{target.token_mint[:8]}"
+
+                # Add batch metadata
+                if target.metadata is None:
+                    target.metadata = {}
+                target.metadata["batch_id"] = batch_id
+                target.metadata["batch_name"] = bulk_request.batch_name or f"Batch_{batch_id}"
+                target.metadata["batch_index"] = str(i + 1)
+                target.metadata["batch_total"] = str(len(bulk_request.targets))
+                target.metadata["execution_mode"] = bulk_request.execution_mode
+
+                # Create orchestrator opportunity (similar to manual target)
+                orchestrator_opportunity = {
+                    "id": target_id,
+                    "strategy_type": target.strategy_type,
+                    "token": target.token_mint,
+                    "confidence": target.confidence,
+                    "expected_return": target.expected_return,
+                    "risk_score": target.risk_score,
+                    "required_capital": target.amount_sol,
+                    "flash_loan_amount": target.flash_loan_amount,
+                    "timestamp": batch_start_time,
+                    "ttl_seconds": target.ttl_seconds,
+                    "metadata": {
+                        "manual_target": True,
+                        "bulk_target": True,
+                        "action": target.action,
+                        "max_slippage_bps": target.max_slippage_bps,
+                        "priority": target.priority,
+                        "batch_name": target.metadata.get("batch_name", ""),
+                        "batch_id": batch_id,
+                        "execution_mode": bulk_request.execution_mode,
+                        "source": "bulk_api",
+                        "creator": "bulk_user",
+                        "opportunity_type": "bulk_target"
+                    }
+                }
+
+                # Add any custom metadata
+                if target.metadata:
+                    orchestrator_opportunity["metadata"].update(target.metadata)
+
+                # Calculate opportunity score (slightly reduced for bulk to avoid spam)
+                score = calculate_opportunity_score(target) * 0.95
+
+                # Add to orchestrator opportunity_queue
+                opportunity_payload = json.dumps(orchestrator_opportunity)
+                await redis_conn.zadd("opportunity_queue", {opportunity_payload: score})
+
+                # Store target details
+                target_key = f"manual_target:{target_id}"
+                await redis_conn.hset(target_key, mapping={
+                    "target_data": opportunity_payload,
+                    "status": "queued",
+                    "created_at": str(batch_start_time),
+                    "score": str(score)
+                })
+                await redis_conn.expire(target_key, target.ttl_seconds + 300)
+
+                # Store batch information
+                batch_key = f"bulk_batch:{batch_id}"
+                await redis_conn.hset(batch_key, mapping={
+                    "batch_name": bulk_request.batch_name or f"Batch_{batch_id}",
+                    "total_targets": str(len(bulk_request.targets)),
+                    "created_at": str(batch_start_time),
+                    "execution_mode": bulk_request.execution_mode
+                })
+                await redis_conn.expire(batch_key, 3600)  # 1 hour TTL for batch info
+
+                # Add target to batch set
+                await redis_conn.sadd(f"batch_targets:{batch_id}", target_id)
+
+                # Priority-based execution time estimation
+                priority_delay = {
+                    "critical": 10,
+                    "high": 30,
+                    "normal": 60,
+                    "low": 120
+                }.get(target.priority, 60)
+
+                responses.append(TargetResponse(
+                    success=True,
+                    target_id=target_id,
+                    message=f"Bulk target {i+1}/{len(bulk_request.targets)} created",
+                    timestamp=batch_start_time,
+                    estimated_execution_time=priority_delay
+                ))
+
+            except Exception as e:
+                responses.append(TargetResponse(
+                    success=False,
+                    target_id=None,
+                    message=f"Failed to create target {i+1}: {str(e)}",
+                    timestamp=batch_start_time
+                ))
+
+        # Publish batch creation event
+        batch_event = {
+            "batch_id": batch_id,
+            "batch_name": bulk_request.batch_name or f"Batch_{batch_id}",
+            "total_targets": len(bulk_request.targets),
+            "successful_targets": sum(1 for r in responses if r.success),
+            "failed_targets": sum(1 for r in responses if not r.success),
+            "execution_mode": bulk_request.execution_mode,
+            "timestamp": batch_start_time
+        }
+        await redis_conn.publish("bulk_targets_created", json.dumps(batch_event))
+
+        # Record metrics
+        HTTP_REQUESTS_TOTAL.labels(
+            method="POST",
+            endpoint="/api/targeting/bulk",
+            status="201"
+        ).inc()
+
+        return responses
+
+    except Exception as e:
+        HTTP_REQUESTS_TOTAL.labels(
+            method="POST",
+            endpoint="/api/targeting/bulk",
+            status="500"
+        ).inc()
+        if sentry_client:
+            try:
+                sentry_client.capture_exception(e, {"endpoint": "/api/targeting/bulk"})
+            except:
+                pass
+        raise HTTPException(status_code=500, detail=f"Failed to create bulk targets: {str(e)}")
+
+@app.get("/api/targeting/status/{target_id}")
+async def get_target_status(target_id: str):
+    """Get status of a specific manual target"""
+    try:
+        redis_conn = await get_redis_client()
+
+        # Check if target exists
+        target_key = f"manual_target:{target_id}"
+        target_data = await redis_conn.hgetall(target_key)
+
+        if not target_data:
+            raise HTTPException(status_code=404, detail=f"Target {target_id} not found")
+
+        # Parse target data
+        target_opportunity = json.loads(target_data.get("target_data", "{}"))
+
+        # Check if it's been processed (removed from queue)
+        queue_score = await redis_conn.zscore("opportunity_queue", json.dumps(target_opportunity))
+
+        status = target_data.get("status", "unknown")
+        if queue_score is None and status == "queued":
+            status = "processed"  # Removed from queue, likely processed
+
+        return {
+            "target_id": target_id,
+            "status": status,
+            "created_at": int(target_data.get("created_at", 0)),
+            "score": float(target_data.get("score", 0)),
+            "in_queue": queue_score is not None,
+            "queue_score": queue_score,
+            "target_data": target_opportunity
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get target status: {str(e)}")
+
+@app.get("/api/targeting/batch/{batch_id}")
+async def get_batch_status(batch_id: str):
+    """Get status of a bulk target batch"""
+    try:
+        redis_conn = await get_redis_client()
+
+        # Get batch information
+        batch_key = f"bulk_batch:{batch_id}"
+        batch_data = await redis_conn.hgetall(batch_key)
+
+        if not batch_data:
+            raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found")
+
+        # Get all targets in batch
+        target_ids = await redis_conn.smembers(f"batch_targets:{batch_id}")
+
+        targets_status = []
+        processed_count = 0
+        queued_count = 0
+
+        for target_id in target_ids:
+            target_key = f"manual_target:{target_id}"
+            target_data = await redis_conn.hgetall(target_key)
+
+            if target_data:
+                status = target_data.get("status", "unknown")
+                target_opportunity = json.loads(target_data.get("target_data", "{}"))
+                queue_score = await redis_conn.zscore("opportunity_queue", json.dumps(target_opportunity))
+
+                if queue_score is None and status == "queued":
+                    status = "processed"
+
+                if status == "processed":
+                    processed_count += 1
+                elif queue_score is not None:
+                    queued_count += 1
+
+                targets_status.append({
+                    "target_id": target_id,
+                    "status": status,
+                    "in_queue": queue_score is not None,
+                    "queue_score": queue_score
+                })
+
+        return {
+            "batch_id": batch_id,
+            "batch_name": batch_data.get("batch_name", ""),
+            "total_targets": int(batch_data.get("total_targets", 0)),
+            "created_at": int(batch_data.get("created_at", 0)),
+            "execution_mode": batch_data.get("execution_mode", "sequential"),
+            "targets_status": targets_status,
+            "summary": {
+                "queued": queued_count,
+                "processed": processed_count,
+                "total": len(target_ids)
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get batch status: {str(e)}")
+
+@app.delete("/api/targeting/manual/{target_id}")
+async def cancel_manual_target(target_id: str):
+    """Cancel a manual target"""
+    try:
+        redis_conn = await get_redis_client()
+
+        # Check if target exists
+        target_key = f"manual_target:{target_id}"
+        target_data = await redis_conn.hgetall(target_key)
+
+        if not target_data:
+            raise HTTPException(status_code=404, detail=f"Target {target_id} not found")
+
+        # Parse target data to remove from queue
+        target_opportunity = json.loads(target_data.get("target_data", "{}"))
+
+        # Remove from opportunity queue
+        removed = await redis_conn.zrem("opportunity_queue", json.dumps(target_opportunity))
+
+        # Update target status
+        await redis_conn.hset(target_key, "status", "cancelled")
+        await redis_conn.hset(target_key, "cancelled_at", str(int(time.time())))
+
+        # Publish cancellation event
+        cancellation_event = {
+            "target_id": target_id,
+            "status": "cancelled",
+            "timestamp": int(time.time()),
+            "removed_from_queue": removed > 0
+        }
+        await redis_conn.publish("target_cancelled", json.dumps(cancellation_event))
+
+        return {
+            "success": True,
+            "message": f"Target {target_id} cancelled successfully",
+            "removed_from_queue": removed > 0,
+            "timestamp": int(time.time())
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to cancel target: {str(e)}")
+
+@app.get("/api/targeting/queue")
+async def get_queue_status(limit: int = 50, offset: int = 0):
+    """Get current opportunity queue status"""
+    try:
+        redis_conn = await get_redis_client()
+
+        # Get top opportunities from queue
+        queue_data = await redis_conn.zrevrange("opportunity_queue", offset, offset + limit - 1, withscores=True)
+
+        opportunities = []
+        for i, (opportunity_json, score) in enumerate(queue_data):
+            try:
+                opportunity = json.loads(opportunity_json)
+                opportunities.append({
+                    "rank": offset + i + 1,
+                    "score": float(score),
+                    "opportunity": opportunity,
+                    "is_manual": opportunity.get("metadata", {}).get("manual_target", False)
+                })
+            except json.JSONDecodeError:
+                continue
+
+        # Get queue statistics
+        total_queue_size = await redis_conn.zcard("opportunity_queue")
+
+        # Count manual targets in queue
+        manual_targets = 0
+        for opportunity_json, _ in queue_data:
+            try:
+                opportunity = json.loads(opportunity_json)
+                if opportunity.get("metadata", {}).get("manual_target", False):
+                    manual_targets += 1
+            except:
+                continue
+
+        return {
+            "total_queue_size": total_queue_size,
+            "showing_range": f"{offset + 1}-{min(offset + len(opportunities), total_queue_size)}",
+            "manual_targets_in_page": manual_targets,
+            "opportunities": opportunities
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get queue status: {str(e)}")
+
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -768,6 +1292,27 @@ async def root():
             "metrics": "/metrics",
             "arbitrage_status": "/arbitrage/status",
             "arbitrage_metrics": "/arbitrage/metrics",
+            "manual_targeting": {
+                "create_target": "/api/targeting/manual",
+                "bulk_targets": "/api/targeting/bulk",
+                "target_status": "/api/targeting/status/{target_id}",
+                "batch_status": "/api/targeting/batch/{batch_id}",
+                "cancel_target": "/api/targeting/manual/{target_id}",
+                "queue_status": "/api/targeting/queue"
+            },
+            "arbitrage_endpoints": {
+                "opportunity_detected": "/arbitrage/opportunity-detected",
+                "execution_completed": "/arbitrage/execution-completed",
+                "price_update": "/arbitrage/price-update",
+                "scan_completed": "/arbitrage/scan-completed",
+                "engine_status": "/arbitrage/engine-status"
+            },
+            "alerts": {
+                "telegram": "/api/alerts/telegram",
+                "telegram_critical": "/api/alerts/telegram/critical",
+                "telegram_trading": "/api/alerts/telegram/trading",
+                "telegram_system": "/api/alerts/telegram/system"
+            },
             "docs": "/docs"
         }
     }

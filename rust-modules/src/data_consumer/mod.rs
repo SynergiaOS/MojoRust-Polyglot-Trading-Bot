@@ -68,6 +68,9 @@ pub enum FilteredEventType {
     WhaleActivity,
     LiquidityChange,
     PriceUpdate,
+    NewPoolCreation,
+    InitializePool,
+    CreateLiquidityPool,
 }
 
 /// Lightweight event structure for Redis Pub/Sub.
@@ -80,6 +83,13 @@ pub struct FilteredEvent {
     pub wallet: String,
     pub timestamp: u64,
     pub metadata: HashMap<String, String>,
+    // New token launch specific fields
+    pub pool_id: Option<String>,
+    pub creator: Option<String>,
+    pub initial_liquidity_sol: Option<f64>,
+    pub dex_name: Option<String>,
+    pub token_name: Option<String>,
+    pub token_symbol: Option<String>,
 }
 
 /// Metrics tracking for the consumer.
@@ -253,19 +263,39 @@ impl GeyserDataConsumer {
             return None;
         }
 
-        // Further filtering logic...
-        // For example, check if it's a new token mint.
-        // This is highly simplified.
         let token_mint = if update.pubkey.len() == 32 { Pubkey::new(&update.pubkey) } else { return None; };
 
+        // Detect pool creation events based on program ID
+        let event_type = match owner.to_string().as_str() {
+            "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" => FilteredEventType::InitializePool, // Raydium AMM V4
+            "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP" => FilteredEventType::CreateLiquidityPool, // Orca Whirlpool
+            _ => FilteredEventType::NewPoolCreation,
+        };
+
+        // Extract pool creation metadata
+        let mut metadata = HashMap::new();
+        metadata.insert("slot".to_string(), update.slot.to_string());
+        metadata.insert("is_startup".to_string(), update.is_startup.to_string());
+
+        // Add liquidity data if available
+        if let Some(liquidity) = update.liquidity.as_ref() {
+            metadata.insert("liquidity".to_string(), liquidity.to_string());
+        }
+
         Some(FilteredEvent {
-            event_type: FilteredEventType::NewTokenMint,
+            event_type,
             token_mint: token_mint.to_string(),
             program_id: owner.to_string(),
-            amount: 0.0, // Not applicable for mint
-            wallet: "".to_string(),
+            amount: 0.0, // Not applicable for pool creation
+            wallet: "".to_string(), // Creator wallet if needed later
             timestamp: Utc::now().timestamp_micros() as u64,
-            metadata: HashMap::new(),
+            metadata,
+            pool_id: Some(Pubkey::from_str(update.pubkey).unwrap().to_string()),
+            creator: None, // Would need instruction parsing to extract
+            initial_liquidity_sol: update.liquidity.as_ref().map(|l| *l as f64 / 1_000_000_000.0),
+            dex_name: None, // Will be determined from program_id in consuming code
+            token_name: None, // Would need token account parsing
+            token_symbol: None, // Would need token account parsing
         })
     }
 
@@ -336,11 +366,17 @@ impl GeyserDataConsumer {
         Some(FilteredEvent {
             event_type,
             token_mint: token_mint_str,
-            program_id: program_id_str,
+            program_id: program_id_str.clone(),
             amount: amount as f64 / 1_000_000_000.0, // Lamports to SOL
             wallet: signer.to_string(),
             timestamp: Utc::now().timestamp_micros() as u64,
             metadata: HashMap::new(),
+            pool_id: None, // Transaction events don't necessarily involve pools
+            creator: Some(signer.to_string()),
+            initial_liquidity_sol: None,
+            dex_name: Self::get_dex_name_from_program_id(&program_id_str),
+            token_name: None,
+            token_symbol: None,
         })
     }
 
@@ -356,6 +392,9 @@ impl GeyserDataConsumer {
             FilteredEventType::WhaleActivity => "whale_activity",
             FilteredEventType::LiquidityChange => "liquidity_change",
             FilteredEventType::PriceUpdate => "price_update",
+            FilteredEventType::NewPoolCreation => "new_token_launches",
+            FilteredEventType::InitializePool => "new_token_launches",
+            FilteredEventType::CreateLiquidityPool => "new_token_launches",
         };
 
         let payload = serde_json::to_string(&event).unwrap_or_default();
@@ -367,6 +406,26 @@ impl GeyserDataConsumer {
             .query_async(&mut *conn)
             .await?;
         Ok(())
+    }
+
+    /// Maps program ID to DEX name for better event categorization
+    fn get_dex_name_from_program_id(program_id: &str) -> Option<String> {
+        match program_id {
+            // Raydium
+            "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" => Some("Raydium AMM".to_string()),
+            "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM" => Some("Raydium CLMM".to_string()),
+
+            // Orca
+            "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP" => Some("Orca V1".to_string()),
+            "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc" => Some("Orca Whirlpool".to_string()),
+            "CEeNRhHxdiUHkTBLPZVYo7LPPGQh6K7JZCfHTJvuUJ7" => Some("Orca V2".to_string()),
+
+            // Pump.fun
+            "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P" => Some("Pump.fun".to_string()),
+
+            // Others
+            _ => None,
+        }
     }
 }
 
@@ -385,6 +444,12 @@ mod tests {
             wallet: "".to_string(),
             timestamp: 1678886400000000,
             metadata: HashMap::new(),
+            pool_id: Some("9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP".to_string()),
+            creator: Some("creator_wallet_example".to_string()),
+            initial_liquidity_sol: Some(1000.0),
+            dex_name: Some("Raydium AMM".to_string()),
+            token_name: Some("Sample Token".to_string()),
+            token_symbol: Some("SAMPLE".to_string()),
         };
 
         let json_string = serde_json::to_string(&event).expect("Failed to serialize event");
