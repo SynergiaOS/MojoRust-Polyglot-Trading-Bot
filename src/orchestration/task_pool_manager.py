@@ -125,6 +125,10 @@ class TaskType(Enum):
     QUICKNODE_BALANCE = "quicknode_balance"
     DATA_SYNTHESIS = "data_synthesis"
     MEV_DETECTION = "mev_detection"
+    ORCHESTRATOR_COMMAND = "orchestrator_command"
+    SAVE_FLASH_LOAN = "save_flash_loan"
+    MANUAL_TARGET = "manual_target"
+    FLASH_LOAN_ENSEMBLE = "flash_loan_ensemble"
 
 # Task status tracking
 class TaskStatus(Enum):
@@ -290,7 +294,11 @@ class TaskPoolManager:
             TaskType.HELIUS_METADATA: {'timeout': 8.0, 'priority': TaskPriority.MEDIUM},
             TaskType.QUICKNODE_BALANCE: {'timeout': 12.0, 'priority': TaskPriority.MEDIUM},
             TaskType.DATA_SYNTHESIS: {'timeout': 5.0, 'priority': TaskPriority.CRITICAL},
-            TaskType.MEV_DETECTION: {'timeout': 3.0, 'priority': TaskPriority.CRITICAL}
+            TaskType.MEV_DETECTION: {'timeout': 3.0, 'priority': TaskPriority.CRITICAL},
+            TaskType.ORCHESTRATOR_COMMAND: {'timeout': 2.0, 'priority': TaskPriority.CRITICAL},
+            TaskType.SAVE_FLASH_LOAN: {'timeout': 30.0, 'priority': TaskPriority.HIGH},
+            TaskType.MANUAL_TARGET: {'timeout': 60.0, 'priority': TaskPriority.HIGH},
+            TaskType.FLASH_LOAN_ENSEMBLE: {'timeout': 45.0, 'priority': TaskPriority.CRITICAL}
         }
 
         # Redis Pub/Sub for Rust consumer integration
@@ -298,6 +306,11 @@ class TaskPoolManager:
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
         self.redis_subscriptions = []
         self._redis_task = None
+
+        # Orchestrator integration
+        self.orchestrator_client = None
+        self.orchestrator_enabled = os.getenv("ENABLE_ORCHESTRATOR", "true").lower() == "true"
+        self.orchestrator_task = None
 
         # Event batching and coalescing
         self.event_batch_buffer = defaultdict(list)
@@ -953,6 +966,22 @@ class TaskPoolManager:
             if transaction_data:
                 return await self._detect_mev_threats(transaction_data)
 
+        elif task.task_type == TaskType.ORCHESTRATOR_COMMAND:
+            # Orchestrator command execution
+            return await self._execute_orchestrator_command(task_data)
+
+        elif task.task_type == TaskType.SAVE_FLASH_LOAN:
+            # Save Flash Loan execution
+            return await self._execute_save_flash_loan(task_data)
+
+        elif task.task_type == TaskType.MANUAL_TARGET:
+            # Manual targeting execution
+            return await self._execute_manual_target(task_data)
+
+        elif task.task_type == TaskType.FLASH_LOAN_ENSEMBLE:
+            # Flash Loan ensemble execution
+            return await self._execute_flash_loan_ensemble(task_data)
+
         else:
             # Default task execution
             logger.warning(f"Unknown task type: {task.task_type}")
@@ -979,6 +1008,206 @@ class TaskPoolManager:
             'confidence': 0.95,
             'recommendations': ['Proceed with transaction']
         }
+
+    async def _execute_orchestrator_command(self, command_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute orchestrator command"""
+        command_type = command_data.get('command_type', 'unknown')
+
+        try:
+            if command_type == 'execute_arbitrage':
+                # Forward to flash loan coordinator for arbitrage execution
+                return await self._forward_to_flash_loan_coordinator(command_data)
+            elif command_type == 'execute_snipe':
+                # Forward to flash loan coordinator for snipe execution
+                return await self._forward_to_flash_loan_coordinator(command_data)
+            elif command_type == 'get_status':
+                # Get status from various components
+                return await self._get_system_status()
+            else:
+                logger.warning(f"Unknown orchestrator command: {command_type}")
+                return {'status': 'error', 'message': f'Unknown command: {command_type}'}
+
+        except Exception as e:
+            logger.error(f"Failed to execute orchestrator command {command_type}: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    async def _execute_save_flash_loan(self, loan_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Save Flash Loan"""
+        try:
+            # This would integrate with the Save Flash Loan coordinator
+            token_mint = loan_data.get('token_mint')
+            amount_sol = loan_data.get('amount_sol', 1.0)
+            urgency_level = loan_data.get('urgency_level', 'high')
+            slippage_bps = loan_data.get('slippage_bps', 500)
+
+            if not token_mint:
+                raise ValueError("Missing token_mint for Save flash loan")
+
+            # Mock execution - would integrate with actual Save Flash Loan engine
+            logger.info(f"Executing Save flash loan for {token_mint}, amount={amount_sol} SOL")
+
+            return {
+                'success': True,
+                'transaction_id': f"save_flash_{int(time.time() * 1000)}",
+                'execution_time_ms': 250 + (hash(token_mint) % 200),
+                'profit_sol': 0.02 + (hash(token_mint) % 100) / 10000,
+                'fees_paid_sol': 0.0001,
+                'protocol': 'save'
+            }
+
+        except Exception as e:
+            logger.error(f"Save flash loan execution failed: {e}")
+            return {
+                'success': False,
+                'error_message': str(e),
+                'execution_time_ms': 0
+            }
+
+    async def _execute_manual_target(self, target_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute manual targeting"""
+        try:
+            target_id = target_data.get('target_id')
+            token_mint = target_data.get('token_mint')
+            target_type = target_data.get('target_type', 'snipe')
+            amount_sol = target_data.get('amount_sol', 1.0)
+
+            if not target_id or not token_mint:
+                raise ValueError("Missing target_id or token_mint for manual targeting")
+
+            # Mock execution - would integrate with manual targeting service
+            logger.info(f"Executing manual target {target_id} for {token_mint}, type={target_type}")
+
+            return {
+                'success': True,
+                'target_id': target_id,
+                'execution_time_ms': 180 + (hash(target_id) % 150),
+                'transaction_signature': f"manual_tx_{target_id}",
+                'profit_sol': 0.015 + (hash(target_id) % 80) / 10000,
+                'target_type': target_type
+            }
+
+        except Exception as e:
+            logger.error(f"Manual target execution failed: {e}")
+            return {
+                'success': False,
+                'target_id': target_data.get('target_id', 'unknown'),
+                'error_message': str(e),
+                'execution_time_ms': 0
+            }
+
+    async def _execute_flash_loan_ensemble(self, ensemble_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Flash Loan ensemble strategy"""
+        try:
+            token_mint = ensemble_data.get('token_mint')
+            strategy_signals = ensemble_data.get('strategy_signals', {})
+            consensus_score = ensemble_data.get('consensus_score', 0.5)
+            urgency_level = ensemble_data.get('urgency_level', 'high')
+
+            if not token_mint:
+                raise ValueError("Missing token_mint for flash loan ensemble")
+
+            # Mock ensemble execution - would integrate with flash loan ensemble engine
+            logger.info(f"Executing flash loan ensemble for {token_mint}, consensus={consensus_score:.2f}")
+
+            # Simulate ensemble decision making
+            should_execute = consensus_score > 0.6
+
+            if not should_execute:
+                return {
+                    'success': False,
+                    'reason': 'Insufficient consensus',
+                    'consensus_score': consensus_score,
+                    'strategy_signals': strategy_signals
+                }
+
+            return {
+                'success': True,
+                'ensemble_id': f"ensemble_{int(time.time() * 1000)}",
+                'execution_time_ms': 450 + (hash(token_mint) % 300),
+                'transaction_signature': f"ensemble_tx_{token_mint[:8]}",
+                'consensus_score': consensus_score,
+                'profit_sol': 0.025 + (consensus_score * 0.05),
+                'strategies_used': len([s for s in strategy_signals.values() if s.get('signal') == 'BUY']),
+                'protocol': 'save'
+            }
+
+        except Exception as e:
+            logger.error(f"Flash loan ensemble execution failed: {e}")
+            return {
+                'success': False,
+                'error_message': str(e),
+                'execution_time_ms': 0,
+                'consensus_score': ensemble_data.get('consensus_score', 0.0)
+            }
+
+    async def _forward_to_flash_loan_coordinator(self, command_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Forward command to flash loan coordinator"""
+        # This would integrate with the actual flash loan coordinator
+        # For now, return a mock response
+        command_type = command_data.get('command_type')
+
+        if command_type == 'execute_arbitrage':
+            opportunity_id = command_data.get('opportunity_id')
+            return {
+                'status': 'submitted',
+                'opportunity_id': opportunity_id,
+                'execution_time_ms': 200 + (hash(opportunity_id) % 100)
+            }
+        elif command_type == 'execute_snipe':
+            token_mint = command_data.get('token_mint')
+            return {
+                'status': 'submitted',
+                'token_mint': token_mint,
+                'execution_time_ms': 150 + (hash(token_mint) % 100)
+            }
+        else:
+            return {'status': 'error', 'message': f'Unknown command type: {command_type}'}
+
+    async def _get_system_status(self) -> Dict[str, Any]:
+        """Get comprehensive system status"""
+        try:
+            # Get task pool stats
+            pool_stats = await self.get_stats()
+
+            # Mock component status checks
+            return {
+                'status': 'healthy',
+                'timestamp': datetime.utcnow().isoformat(),
+                'components': {
+                    'task_pool': {
+                        'status': 'running',
+                        'active_tasks': pool_stats['task_pool_stats']['total_tasks_completed'],
+                        'queue_size': len(self.priority_queue),
+                        'error_rate': pool_stats['task_pool_stats']['error_rate']
+                    },
+                    'flash_loan_coordinator': {
+                        'status': 'running',
+                        'active_loans': 0,
+                        'total_profit': 0.0
+                    },
+                    'orchestrator': {
+                        'status': 'running',
+                        'strategies_active': 6,
+                        'last_decision': datetime.utcnow().isoformat()
+                    },
+                    'redis': {
+                        'status': 'connected' if self.redis_client else 'disconnected',
+                        'last_event_time': self.last_rust_event_time
+                    }
+                },
+                'performance': {
+                    'tasks_per_second': pool_stats['task_pool_stats']['tasks_per_second'],
+                    'system_load': pool_stats['task_pool_stats']['system_load'],
+                    'memory_usage': pool_stats['task_pool_stats']['memory_usage']
+                }
+            }
+        except Exception as e:
+            logger.error(f"Failed to get system status: {e}")
+            return {
+                'status': 'error',
+                'message': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }
 
     async def _monitoring_loop(self):
         """Performance monitoring loop"""

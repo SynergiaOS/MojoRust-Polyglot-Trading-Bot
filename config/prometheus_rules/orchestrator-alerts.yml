@@ -1,0 +1,263 @@
+groups:
+  - name: orchestrator_alerts
+    rules:
+      # Orchestrator Health Alerts
+      - alert: OrchestratorDown
+        expr: up{job="orchestrator"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: orchestrator
+        annotations:
+          summary: "Orchestrator service is down"
+          description: "Orchestrator has been down for more than 30 seconds. Immediate investigation required."
+
+      - alert: OrchestratorHighErrorRate
+        expr: rate(orchestrator_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "Orchestrator error rate is high"
+          description: "Orchestrator error rate is {{ $value }} errors/sec over the last 5 minutes."
+
+      - alert: OrchestratorQueueBacklog
+        expr: orchestrator_queue_size > 100
+        for: 1m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "Orchestrator queue backlog detected"
+          description: "Orchestrator queue size is {{ $value }} tasks, indicating processing delays."
+
+      # Strategy Performance Alerts
+      - alert: StrategyConsensusLow
+        expr: orchestrator_strategy_consensus_score < 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "Strategy consensus score is low"
+          description: "Strategy {{ $labels.strategy_name }} consensus score is {{ $value }} below threshold."
+
+      - alert: StrategyLatencyHigh
+        expr: orchestrator_decision_latency_ms > 1000
+        for: 3m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "Strategy decision latency is high"
+          description: "Strategy {{ $labels.strategy_name }} decision latency is {{ $value }}ms."
+
+      - alert: StrategyFailureRate
+        expr: rate(orchestrator_strategy_failures_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          service: orchestrator
+        annotations:
+          summary: "Strategy failure rate is high"
+          description: "Strategy {{ $labels.strategy_name }} failure rate is {{ $value }} failures/sec."
+
+      # Save Flash Loan Alerts
+      - alert: SaveFlashLoanLowSuccessRate
+        expr: save_flash_loan_success_rate < 0.8
+        for: 3m
+        labels:
+          severity: critical
+          service: save_flash_loan
+        annotations:
+          summary: "Save Flash Loan success rate is low"
+          description: "Save Flash Loan success rate is {{ $value }%, below 80% threshold."
+
+      - alert: SaveFlashLoanHighLatency
+        expr: save_flash_loan_average_execution_time_ms > 500
+        for: 2m
+        labels:
+          severity: warning
+          service: save_flash_loan
+        annotations:
+          summary: "Save Flash Loan execution latency is high"
+          description: "Save Flash Loan average execution time is {{ $value }}ms."
+
+      - alert: SaveFlashLoanNoExecutions
+        expr: rate(save_flash_loan_executions_total[10m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: save_flash_loan
+        annotations:
+          summary: "No Save Flash Loan executions"
+          description: "No Save Flash Loan executions in the last 10 minutes."
+
+      # Task Pool Alerts
+      - alert: TaskPoolHighErrorRate
+        expr: task_pool_error_rate > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: task_pool
+        annotations:
+          summary: "Task pool error rate is high"
+          description: "Task pool error rate is {{ $value }%, above 10% threshold."
+
+      - alert: TaskPoolQueueFull
+        expr: task_pool_queue_size > 500
+        for: 1m
+        labels:
+          severity: critical
+          service: task_pool
+        annotations:
+          summary: "Task pool queue is nearly full"
+          description: "Task pool queue size is {{ $value }} tasks, approaching capacity limit."
+
+      - alert: TaskPoolNoActiveWorkers
+        expr: task_pool_active_workers == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: task_pool
+        annotations:
+          summary: "No active task pool workers"
+          description: "All task pool workers are inactive, no tasks are being processed."
+
+      # Memory and Resource Alerts
+      - alert: OrchestratorHighMemoryUsage
+        expr: process_resident_memory_bytes{job="orchestrator"} / 1024 / 1024 > 1024
+        for: 5m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "Orchestrator memory usage is high"
+          description: "Orchestrator memory usage is {{ $value }}MB, above 1GB threshold."
+
+      - alert: OrchestratorHighCPUUsage
+        expr: rate(process_cpu_seconds_total{job="orchestrator"}[5m]) * 100 > 80
+        for: 3m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "Orchestrator CPU usage is high"
+          description: "Orchestrator CPU usage is {{ $value }}%, above 80% threshold."
+
+      # Risk Management Alerts
+      - alert: HighRiskScore
+        expr: orchestrator_risk_score > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "High risk score detected"
+          description: "Orchestrator risk score is {{ $value }}, indicating high market risk."
+
+      - alert: LowConfidenceScore
+        expr: orchestrator_confidence_score < 0.3
+        for: 3m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "Low confidence score detected"
+          description: "Orchestrator confidence score is {{ $value }}, indicating low prediction confidence."
+
+      # Integration Health Alerts
+      - alert: RedisConnectionLost
+        expr: redis_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: redis
+        annotations:
+          summary: "Redis connection lost"
+          description: "Cannot connect to Redis server. Orchestrator functionality may be impaired."
+
+      - alert: ManualTargetingServiceDown
+        expr: up{job="manual_targeting"} == 0
+        for: 30s
+        labels:
+          severity: warning
+          service: manual_targeting
+        annotations:
+          summary: "Manual targeting service is down"
+          description: "Manual targeting service has been down for more than 30 seconds."
+
+      - alert: FlashLoanCoordinatorDown
+        expr: up{job="flash_loan_coordinator"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: flash_loan_coordinator
+        annotations:
+          summary: "Flash loan coordinator is down"
+          description: "Flash loan coordinator has been down for more than 30 seconds."
+
+      # Performance Degradation Alerts
+      - alert: OrchestratorThroughputLow
+        expr: rate(orchestrator_commands_processed_total[5m]) < 1
+        for: 5m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "Orchestrator throughput is low"
+          description: "Orchestrator processing only {{ $value }} commands/sec."
+
+      - alert: StrategyExecutionStalled
+        expr: increase(orchestrator_strategies_executed_total[10m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: orchestrator
+        annotations:
+          summary: "Strategy execution stalled"
+          description: "No strategy executions in the last 10 minutes."
+
+      # Profitability Alerts
+      - alert: LowProfitability
+        expr: save_flash_loan_average_profit_sol < 0.01
+        for: 10m
+        labels:
+          severity: warning
+          service: save_flash_loan
+        annotations:
+          summary: "Save Flash Loan profitability is low"
+          description: "Average profit per Save Flash Loan is {{ $value }} SOL, below threshold."
+
+      - alert: NegativeProfitTrend
+        expr: rate(save_flash_loan_total_profit_sol[15m]) < -0.1
+        for: 5m
+        labels:
+          severity: critical
+          service: save_flash_loan
+        annotations:
+          summary: "Negative profit trend detected"
+          description: "Save Flash Loan profit rate is {{ $value }} SOL/sec, indicating losses."
+
+  - name: heartbeat
+    rules:
+      - alert: OrchestratorHeartbeat
+        expr: time() - orchestrator_last_heartbeat_timestamp < 60
+        for: 0m
+        labels:
+          severity: info
+          service: orchestrator
+        annotations:
+          summary: "Orchestrator heartbeat received"
+          description: "Orchestrator heartbeat received at {{ $value }}."
+
+      - alert: OrchestratorNoHeartbeat
+        expr: time() - orchestrator_last_heartbeat_timestamp > 120
+        for: 1m
+        labels:
+          severity: critical
+          service: orchestrator
+        annotations:
+          summary: "No orchestrator heartbeat"
+          description: "No heartbeat received from orchestrator for over 2 minutes."

@@ -37,9 +37,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // In a real app, load this from a config file
     let filters = EventFilters {
         program_ids: HashSet::from([
-            Pubkey::from_str("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8").unwrap(), // Raydium
-            Pubkey::from_str("9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP").unwrap(), // Orca
-            Pubkey::from_str("pumpaFf22bg1d1V1S63s3vr41yB2tL3vA3b2c").unwrap(), // Pump.fun (example)
+            Pubkey::from_str("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8").unwrap(), // Raydium AMM
+            Pubkey::from_str("9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP").unwrap(), // Orca V1
+            Pubkey::from_str("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc").unwrap(), // Orca Whirlpool
+            Pubkey::from_str("CEeNRhHxdiUHkTBLPZVYo7LPPGQh6K7JZCfHTJvuUJ7").unwrap(), // Orca V2
+            Pubkey::from_str("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P").unwrap(), // Pump.fun
+            Pubkey::from_str("TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM").unwrap(), // Raydium CLMM
         ]),
         min_transaction_amount: 1_000_000_000, // 1 SOL
         token_whitelist: HashSet::new(),

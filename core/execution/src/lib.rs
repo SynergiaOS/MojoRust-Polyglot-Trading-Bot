@@ -28,6 +28,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn, error};
 use solana_sdk::signature::Keypair;
+use solana_sdk::pubkey::Pubkey;
 
 /// Main execution engine
 pub struct ExecutionEngine {
@@ -299,6 +300,9 @@ pub struct FlashLoanRequest {
     pub expected_profit: f64,
     pub route: Vec<String>,
     pub max_slippage_bps: u16,
+    pub preferred_provider: Option<FlashLoanProvider>,
+    pub slippage_bps: u64,
+    pub token_mint: Pubkey,
 }
 
 #[derive(Debug, Clone)]
@@ -397,6 +401,39 @@ pub enum ArbitrageType {
     CrossExchange,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlashLoanProvider {
+    Save,
+    Solend,
+    MangoV4,
+}
+
+impl FlashLoanProvider {
+    pub fn fee_bps(&self) -> u64 {
+        match self {
+            FlashLoanProvider::Save => 3,      // 0.03%
+            FlashLoanProvider::Solend => 5,    // 0.05%
+            FlashLoanProvider::MangoV4 => 8,    // 0.08%
+        }
+    }
+
+    pub fn max_latency_ms(&self) -> u64 {
+        match self {
+            FlashLoanProvider::Save => 20,     // Fastest
+            FlashLoanProvider::Solend => 30,    // Medium
+            FlashLoanProvider::MangoV4 => 40,    // Slowest
+        }
+    }
+
+    pub fn max_loan_amount(&self) -> u64 {
+        match self {
+            FlashLoanProvider::Save => 5_000_000_000,     // 5 SOL
+            FlashLoanProvider::Solend => 50_000_000_000,  // 50 SOL
+            FlashLoanProvider::MangoV4 => 100_000_000_000, // 100 SOL
+        }
+    }
+}
+
 // Placeholder implementations
 pub struct VenueManager;
 impl VenueManager {
@@ -477,28 +514,242 @@ impl RiskManager {
     }
 }
 
-pub struct FlashLoanExecutor;
+pub struct FlashLoanExecutor {
+    config: Arc<RwLock<ExecutionConfig>>,
+    keypair: Arc<Keypair>,
+    metrics: Arc<ExecutionMetrics>,
+    provider_stats: Arc<RwLock<std::collections::HashMap<FlashLoanProvider, ProviderStats>>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ProviderStats {
+    total_executions: u64,
+    successful_executions: u64,
+    total_profit: f64,
+    average_execution_time_ms: f64,
+    total_fees: f64,
+}
+
 impl FlashLoanExecutor {
-    async fn new(_config: Arc<RwLock<ExecutionConfig>>, _keypair: Keypair, _metrics: Arc<ExecutionMetrics>) -> Result<Self> {
-        Ok(Self)
+    async fn new(config: Arc<RwLock<ExecutionConfig>>, keypair: Keypair, metrics: Arc<ExecutionMetrics>) -> Result<Self> {
+        let mut provider_stats = std::collections::HashMap::new();
+        provider_stats.insert(FlashLoanProvider::Save, ProviderStats::default());
+        provider_stats.insert(FlashLoanProvider::Solend, ProviderStats::default());
+        provider_stats.insert(FlashLoanProvider::MangoV4, ProviderStats::default());
+
+        Ok(Self {
+            config,
+            keypair: Arc::new(keypair),
+            metrics,
+            provider_stats: Arc::new(RwLock::new(provider_stats)),
+        })
     }
-    async fn start(&self) -> Result<()> { Ok(()) }
-    async fn stop(&self) -> Result<()> { Ok(()) }
-    async fn execute_arbitrage(&self, _request: FlashLoanRequest) -> Result<FlashLoanResponse> {
+
+    async fn start(&self) -> Result<()> {
+        info!("Starting FlashLoanExecutor with multi-provider support");
+        Ok(())
+    }
+
+    async fn stop(&self) -> Result<()> {
+        info!("Stopping FlashLoanExecutor");
+        Ok(())
+    }
+
+    async fn execute_arbitrage(&self, request: FlashLoanRequest) -> Result<FlashLoanResponse> {
+        let start_time = std::time::Instant::now();
+
+        // Select optimal provider
+        let provider = self.select_optimal_provider(&request).await?;
+        info!("Selected flash loan provider: {:?}", provider);
+
+        // Validate loan amount against provider limits
+        if request.loan_amount as u64 > provider.max_loan_amount() {
+            return Err(anyhow::anyhow!(
+                "Loan amount {} exceeds provider {} maximum {}",
+                request.loan_amount,
+                format!("{:?}", provider),
+                provider.max_loan_amount()
+            ));
+        }
+
+        // Simulate flash loan execution based on provider
+        let execution_result = match provider {
+            FlashLoanProvider::Save => self.execute_save_flash_loan(&request).await,
+            FlashLoanProvider::Solend => self.execute_solend_flash_loan(&request).await,
+            FlashLoanProvider::MangoV4 => self.execute_mango_flash_loan(&request).await,
+        };
+
+        let execution_time_ms = start_time.elapsed().as_millis() as u64;
+
+        match execution_result {
+            Ok(mut response) => {
+                response.execution_time_ms = execution_time_ms;
+
+                // Update provider stats
+                self.update_provider_stats(provider, &response, true).await;
+
+                info!(
+                    "Flash loan arbitrage successful: provider={:?}, profit=${:.4}, time={}ms",
+                    provider, response.actual_profit, execution_time_ms
+                );
+
+                Ok(response)
+            }
+            Err(e) => {
+                // Update provider stats with failure
+                self.update_provider_stats(provider, &FlashLoanResponse {
+                    transaction_id: None,
+                    success: false,
+                    actual_profit: 0.0,
+                    execution_time_ms,
+                    gas_used: 0,
+                    error_message: Some(e.to_string()),
+                }, false).await;
+
+                error!(
+                    "Flash loan arbitrage failed: provider={:?}, error={}, time={}ms",
+                    provider, e, execution_time_ms
+                );
+
+                Err(e)
+            }
+        }
+    }
+
+    async fn select_optimal_provider(&self, request: &FlashLoanRequest) -> Result<FlashLoanProvider> {
+        // Use preferred provider if specified and valid
+        if let Some(preferred) = request.preferred_provider {
+            if request.loan_amount as u64 <= preferred.max_loan_amount() {
+                return Ok(preferred);
+            }
+        }
+
+        // Select based on loan amount and historical performance
+        let loan_amount = request.loan_amount as u64;
+
+        if loan_amount <= 5_000_000_000 { // <= 5 SOL
+            // Use Save for small amounts (fastest, lowest fees)
+            Ok(FlashLoanProvider::Save)
+        } else if loan_amount <= 50_000_000_000 { // <= 50 SOL
+            // Use Solend for medium amounts (balanced)
+            Ok(FlashLoanProvider::Solend)
+        } else {
+            // Use Mango V4 for large amounts (highest liquidity)
+            Ok(FlashLoanProvider::MangoV4)
+        }
+    }
+
+    async fn execute_save_flash_loan(&self, request: &FlashLoanRequest) -> Result<FlashLoanResponse> {
+        info!("Executing Save flash loan: {} lamports", request.loan_amount as u64);
+
+        // Simulate Save flash loan execution (20ms latency)
+        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+
+        let fees = (request.loan_amount * FlashLoanProvider::Save.fee_bps() as f64) / 10000.0;
+        let net_profit = request.expected_profit - fees;
+
         Ok(FlashLoanResponse {
-            transaction_id: Some("test_tx".to_string()),
-            success: true,
-            actual_profit: 25.5,
-            execution_time_ms: 2500,
+            transaction_id: Some(format!("save_tx_{}", chrono::Utc::now().timestamp())),
+            success: net_profit > 0.0,
+            actual_profit: net_profit,
+            execution_time_ms: 0, // Will be set by caller
             gas_used: 150000,
             error_message: None,
         })
     }
+
+    async fn execute_solend_flash_loan(&self, request: &FlashLoanRequest) -> Result<FlashLoanResponse> {
+        info!("Executing Solend flash loan: {} lamports", request.loan_amount as u64);
+
+        // Simulate Solend flash loan execution (30ms latency)
+        tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
+
+        let fees = (request.loan_amount * FlashLoanProvider::Solend.fee_bps() as f64) / 10000.0;
+        let net_profit = request.expected_profit - fees;
+
+        Ok(FlashLoanResponse {
+            transaction_id: Some(format!("solend_tx_{}", chrono::Utc::now().timestamp())),
+            success: net_profit > 0.0,
+            actual_profit: net_profit,
+            execution_time_ms: 0, // Will be set by caller
+            gas_used: 180000,
+            error_message: None,
+        })
+    }
+
+    async fn execute_mango_flash_loan(&self, request: &FlashLoanRequest) -> Result<FlashLoanResponse> {
+        info!("Executing Mango V4 flash loan: {} lamports", request.loan_amount as u64);
+
+        // Simulate Mango V4 flash loan execution (40ms latency)
+        tokio::time::sleep(tokio::time::Duration::from_millis(40)).await;
+
+        let fees = (request.loan_amount * FlashLoanProvider::MangoV4.fee_bps() as f64) / 10000.0;
+        let net_profit = request.expected_profit - fees;
+
+        Ok(FlashLoanResponse {
+            transaction_id: Some(format!("mango_tx_{}", chrono::Utc::now().timestamp())),
+            success: net_profit > 0.0,
+            actual_profit: net_profit,
+            execution_time_ms: 0, // Will be set by caller
+            gas_used: 220000,
+            error_message: None,
+        })
+    }
+
+    async fn update_provider_stats(&self, provider: FlashLoanProvider, response: &FlashLoanResponse, success: bool) {
+        let mut stats = self.provider_stats.write().await;
+        let provider_stats = stats.entry(provider).or_default();
+
+        provider_stats.total_executions += 1;
+        if success {
+            provider_stats.successful_executions += 1;
+            provider_stats.total_profit += response.actual_profit;
+            provider_stats.total_fees += response.gas_used as f64 * 0.000001; // Convert gas units to SOL equivalent
+        }
+
+        // Update average execution time
+        let total_time = provider_stats.average_execution_time_ms * (provider_stats.total_executions - 1) as f64 + response.execution_time_ms as f64;
+        provider_stats.average_execution_time_ms = total_time / provider_stats.total_executions as f64;
+    }
+
     async fn health_check(&self) -> ComponentHealth {
+        let stats = self.provider_stats.read().await;
+        let total_executions: u64 = stats.values().map(|s| s.total_executions).sum();
+        let successful_executions: u64 = stats.values().map(|s| s.successful_executions).sum();
+
+        let success_rate = if total_executions > 0 {
+            successful_executions as f64 / total_executions as f64
+        } else {
+            1.0
+        };
+
+        let is_healthy = success_rate >= 0.8; // 80% success rate threshold
+
         ComponentHealth {
-            is_healthy: true,
-            message: "OK".to_string(),
+            is_healthy,
+            message: format!(
+                "Flash loan executor: {:.1}% success rate, {} total executions",
+                success_rate * 100.0,
+                total_executions
+            ),
             last_check: chrono::Utc::now(),
+        }
+    }
+
+    pub async fn get_provider_stats(&self) -> std::collections::HashMap<FlashLoanProvider, ProviderStats> {
+        self.provider_stats.read().await.clone()
+    }
+
+    pub async fn get_provider_success_rate(&self, provider: &FlashLoanProvider) -> f64 {
+        let stats = self.provider_stats.read().await;
+        if let Some(provider_stats) = stats.get(provider) {
+            if provider_stats.total_executions > 0 {
+                provider_stats.successful_executions as f64 / provider_stats.total_executions as f64
+            } else {
+                0.0
+            }
+        } else {
+            0.0
         }
     }
 }

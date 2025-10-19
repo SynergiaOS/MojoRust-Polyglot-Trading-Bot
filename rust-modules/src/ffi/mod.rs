@@ -1242,11 +1242,11 @@ pub extern "C" fn stat_arb_calculate_spread(
     unsafe {
         // Validate inputs
         if prices_a.is_null() || prices_b.is_null() || out_spread.is_null() {
-            return FfiResult::Error("Null pointer passed to stat_arb_calculate_spread".into());
+            return FfiResult::InvalidInput;
         }
 
         if len == 0 {
-            return FfiResult::Error("Empty arrays passed to stat_arb_calculate_spread".into());
+            return FfiResult::InvalidInput;
         }
 
         // Create slices from raw pointers
@@ -1254,9 +1254,21 @@ pub extern "C" fn stat_arb_calculate_spread(
         let slice_b = std::slice::from_raw_parts(prices_b, len);
         let out_slice = std::slice::from_raw_parts_mut(out_spread, len);
 
-        // Calculate spread: spread = price_a - hedge_ratio * price_b
-        for i in 0..len {
-            out_slice[i] = slice_a[i] - hedge_ratio * slice_b[i];
+        // Use SIMD-optimized spread calculation and copy to output
+        let spread_results = crate::ffi::simd::calculate_spread_vector_simd(slice_a, slice_b, hedge_ratio);
+
+        // Copy results to output slice
+        if spread_results.len() == out_slice.len() {
+            out_slice.copy_from_slice(&spread_results);
+        } else {
+            // Fallback to scalar calculation
+            #[cfg(debug_assertions)]
+            eprintln!("SIMD fallback: spread_results.len()={}, out_slice.len()={} - using scalar calculation",
+                     spread_results.len(), out_slice.len());
+
+            for i in 0..len {
+                out_slice[i] = slice_b[i] - hedge_ratio * slice_a[i];
+            }
         }
 
         FfiResult::Success
@@ -1298,13 +1310,15 @@ pub extern "C" fn stat_arb_calculate_z_scores_batch(
             return FfiResult::InvalidInput;
         }
 
-        if std_dev == 0.0 {
-            return FfiResult::InvalidInput;
-        }
-
         // Create slices from raw pointers
         let spread_slice = std::slice::from_raw_parts(spread, len);
         let out_slice = std::slice::from_raw_parts_mut(out_z_scores, len);
+
+        // Handle zero standard deviation case - fill with zeros and return success
+        if std_dev == 0.0 {
+            out_slice.fill(0.0);
+            return FfiResult::Success;
+        }
 
         // Call SIMD-optimized z-score calculation
         crate::ffi::simd::calculate_z_scores_into(spread_slice, mean, std_dev, out_slice);

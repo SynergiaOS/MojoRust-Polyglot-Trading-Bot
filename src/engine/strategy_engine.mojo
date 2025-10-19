@@ -20,6 +20,7 @@ from core.constants import (
     DEFAULT_STOP_LOSS_PERCENTAGE
 )
 from analysis.sentiment_analyzer import SentimentAnalyzer
+from strategies.flash_loan_ensemble import FlashLoanEnsembleEngine
 
 @value
 struct StrategyEngine:
@@ -28,10 +29,12 @@ struct StrategyEngine:
     """
     var config: Config
     var sentiment_analyzer: SentimentAnalyzer
+    var flash_loan_ensemble: FlashLoanEnsembleEngine
 
     fn __init__(config: Config):
         self.config = config
         self.sentiment_analyzer = SentimentAnalyzer()
+        self.flash_loan_ensemble = FlashLoanEnsembleEngine(config)
 
     fn generate_signals(self, context) -> List[TradingSignal]:
         """
@@ -39,24 +42,34 @@ struct StrategyEngine:
         """
         signals = []
 
-        # RSI + Support/Resistance Strategy (Primary)
-        rsi_signals = self._rsi_support_resistance_strategy(context)
-        signals.extend(rsi_signals)
+        # Flash Loan Ensemble Strategy (Primary - Save Protocol)
+        if (hasattr(self.config.strategy, 'flash_loan_ensemble') and
+            self.config.strategy.flash_loan_ensemble.enabled):
 
-        # Mean Reversion Strategy
-        if self.config.strategy.enable_mean_reversion:
-            mean_reversion_signals = self._mean_reversion_strategy(context)
-            signals.extend(mean_reversion_signals)
+            ensemble_signals = self.flash_loan_ensemble.generate_ensemble_signals(context)
+            signals.extend(ensemble_signals)
 
-        # Momentum Strategy
-        if self.config.strategy.enable_momentum:
-            momentum_signals = self._momentum_strategy(context)
-            signals.extend(momentum_signals)
+        else:
+            # Fallback to traditional strategies if ensemble is disabled
 
-        # Arbitrage Strategy
-        if self.config.strategy.enable_arbitrage:
-            arbitrage_signals = self._arbitrage_strategy(context)
-            signals.extend(arbitrage_signals)
+            # RSI + Support/Resistance Strategy (Primary)
+            rsi_signals = self._rsi_support_resistance_strategy(context)
+            signals.extend(rsi_signals)
+
+            # Mean Reversion Strategy
+            if self.config.strategy.enable_mean_reversion:
+                mean_reversion_signals = self._mean_reversion_strategy(context)
+                signals.extend(mean_reversion_signals)
+
+            # Momentum Strategy
+            if self.config.strategy.enable_momentum:
+                momentum_signals = self._momentum_strategy(context)
+                signals.extend(momentum_signals)
+
+            # Arbitrage Strategy
+            if self.config.strategy.enable_arbitrage:
+                arbitrage_signals = self._arbitrage_strategy(context)
+                signals.extend(arbitrage_signals)
 
         # Rank and filter signals
         ranked_signals = self._rank_signals(signals)

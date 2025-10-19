@@ -1,0 +1,51 @@
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    jq \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set work directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy Python modules
+COPY flash_loan_pipeline.py .
+COPY save_executor.py .
+COPY solend_executor.py .
+COPY jupiter_executor.py .
+COPY __init__.py .
+
+# Copy configuration and utility files
+COPY ../config ./config
+COPY ../logs ./logs
+
+# Create directories
+RUN mkdir -p /app/logs /app/secrets /app/data
+
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash app \
+    && chown -R app:app /app
+USER app
+
+# Expose ports
+EXPOSE 8080 8081
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Start the flash loan pipeline
+CMD ["python", "flash_loan_pipeline.py", "--host", "0.0.0.0", "--port", "8080"]

@@ -3,7 +3,7 @@
 
 from data.enhanced_data_pipeline import EnhancedMarketData
 from analysis.comprehensive_analyzer import ComprehensiveAnalysis, AnalysisSignal
-from analysis.stat_arb import StatisticalArbitrageEngine, StatisticalArbitrageSignal
+from analysis.stat_arb import StatArbEngine, StatArbSignal
 from utils.config_manager import ConfigManager
 from monitoring.telegram_notifier import TelegramNotifier
 from python import Python
@@ -57,7 +57,7 @@ struct UltimateEnsembleEngine:
     var consensus_threshold: Float32
     var min_strategies: Int
     var max_position_size: Float32
-    var statistical_arbitrage_engine: StatisticalArbitrageEngine
+    var statistical_arbitrage_engine: StatArbEngine
 
     fn __init__(inout self, config: ConfigManager, notifier: TelegramNotifier) raises:
         self.config = config
@@ -71,14 +71,7 @@ struct UltimateEnsembleEngine:
         self.max_position_size = config.get_float("ensemble.max_position_size", 0.95)
 
         # Initialize advanced statistical arbitrage engine
-        self.statistical_arbitrage_engine = StatisticalArbitrageEngine(
-            min_history_length=config.get_int("statistical_arbitrage.min_history_length", 50),
-            z_score_entry=config.get_float("statistical_arbitrage.z_score_entry", 2.0),
-            z_score_exit=config.get_float("statistical_arbitrage.z_score_exit", 0.5),
-            max_hurst_exponent=config.get_float("statistical_arbitrage.max_hurst_exponent", 0.5),
-            min_half_life_periods=config.get_int("statistical_arbitrage.min_half_life_periods", 5),
-            cointegration_threshold=config.get_float("statistical_arbitrage.cointegration_threshold", 0.05)
-        )
+        self.statistical_arbitrage_engine = StatArbEngine()
 
         print("🎯 Ultimate Ensemble Engine initialized")
         print(f"   Adaptive Weights: {self.adaptive_weights}")
@@ -600,20 +593,27 @@ struct UltimateEnsembleEngine:
         )
 
         # Check if we have sufficient price history for statistical arbitrage
-        if data.prices.price_history.size() < self.statistical_arbitrage_engine.min_history_length:
-            signal.reasoning = f"Insufficient price history: {data.prices.price_history.size()} < {self.statistical_arbitrage_engine.min_history_length}"
+        if data.prices.price_history.size() < self.statistical_arbitrage_engine.min_history_points:
+            signal.reasoning = f"Insufficient price history: {data.prices.price_history.size()} < {self.statistical_arbitrage_engine.min_history_points}"
             return signal
 
-        # Try pairs trading with correlated assets (BTC/ETH as primary pair)
-        var btc_prices = self._get_external_price_history("BTC", data.prices.price_history.size())
-        var eth_prices = self._get_external_price_history("ETH", data.prices.price_history.size())
+        # Update pair histories and generate signals for configured pairs
+        var current_time = now()
+        var current_price = data.prices.current_price
 
-        # Primary: BTC-ETH pairs trading if we have correlation data
-        if btc_prices.size() > 0 and eth_prices.size() > 0:
-            var stat_signal = self.statistical_arbitrage_engine.analyze_trading_opportunity(btc_prices, eth_prices)
+        # Get external prices for pairs trading
+        var btc_price = self._get_external_price("BTC")
+        var eth_price = self._get_external_price("ETH")
 
-            if stat_signal.should_trade and stat_signal.confidence > 0.6:
-                # Convert statistical arbitrage signal to trading signal
+        # Update BTC-ETH pair if both prices are available
+        if btc_price > 0.0 and eth_price > 0.0:
+            self.statistical_arbitrage_engine.update_pair_history("BTC", "ETH", current_time, btc_price, eth_price)
+
+            # Generate signal for BTC-ETH pair
+            var stat_signal = self.statistical_arbitrage_engine.generate_signal("BTC", "ETH")
+
+            if stat_signal.should_trade():
+                # Convert StatArbSignal to StrategySignal
                 if stat_signal.signal_type == "LONG_SPREAD":
                     signal.signal_type = "BUY"
                     signal.reasoning = f"BTC-ETH Long Spread: Z={stat_signal.z_score:.2f}, H={stat_signal.hurst_exponent:.3f}"
@@ -621,8 +621,8 @@ struct UltimateEnsembleEngine:
                     signal.signal_type = "SELL"
                     signal.reasoning = f"BTC-ETH Short Spread: Z={stat_signal.z_score:.2f}, H={stat_signal.hurst_exponent:.3f}"
                 else:
-                    signal.reasoning = f"BTC-ETH Exit Signal: Z={stat_signal.z_score:.2f}"
-                    return signal  # Exit signals don't generate trades
+                    signal.reasoning = f"BTC-ETH Signal: {stat_signal.signal_type}"
+                    return signal  # Non-entry signals don't generate trades
 
                 signal.confidence = stat_signal.confidence * 0.9  # Slightly conservative
                 signal.strength = abs(stat_signal.z_score) / 3.0
@@ -633,11 +633,11 @@ struct UltimateEnsembleEngine:
                 var half_life_factor = min(2.0, stat_signal.half_life / 10.0)  # Adjust for mean reversion timing
 
                 if signal.signal_type == "BUY":
-                    signal.take_profit = data.prices.current_price + atr * half_life_factor * 1.5
-                    signal.stop_loss = data.prices.current_price - atr * 0.8
+                    signal.take_profit = current_price + atr * half_life_factor * 1.5
+                    signal.stop_loss = current_price - atr * 0.8
                 else:
-                    signal.take_profit = data.prices.current_price - atr * half_life_factor * 1.5
-                    signal.stop_loss = data.prices.current_price + atr * 0.8
+                    signal.take_profit = current_price - atr * half_life_factor * 1.5
+                    signal.stop_loss = current_price + atr * 0.8
 
                 return signal
 
@@ -760,6 +760,19 @@ struct UltimateEnsembleEngine:
 
         # Bound between 0 and 1
         return max(0.0, min(1.0, hurst))
+
+    def _get_external_price(self, asset: String) -> DType.float64:
+        """Get current external price for an asset (simplified implementation)"""
+        # In a real implementation, this would fetch from external APIs
+        # For now, return mock prices for testing
+        if asset == "BTC":
+            return 65000.0 + (random() - 0.5) * 1000.0  # BTC around $65k with volatility
+        elif asset == "ETH":
+            return 3500.0 + (random() - 0.5) * 100.0    # ETH around $3.5k with volatility
+        elif asset == "SOL":
+            return 150.0 + (random() - 0.5) * 10.0       # SOL around $150 with volatility
+        else:
+            return 0.0
 
     # Helper Methods
     fn _update_market_regime(inout self, data: EnhancedMarketData, analysis: ComprehensiveAnalysis):

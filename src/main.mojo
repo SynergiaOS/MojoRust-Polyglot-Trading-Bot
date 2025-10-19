@@ -53,6 +53,16 @@ fn main() raises:
 
     logger.info("🔧 Initializing core components...")
 
+    # Check if Flash Loan Ensemble is enabled
+    if (hasattr(config.strategy, 'flash_loan_ensemble') and
+        config.strategy.flash_loan_ensemble.enabled):
+        logger.info("🚀 Flash Loan Ensemble enabled - using Save protocol for all strategies")
+        logger.info(f"   Primary Protocol: {config.strategy.flash_loan_ensemble.primary_protocol}")
+        logger.info(f"   Max Concurrent Strategies: {config.strategy.flash_loan_ensemble.max_concurrent_strategies}")
+        logger.info(f"   Consensus Threshold: {config.strategy.flash_loan_ensemble.consensus_threshold}")
+    else:
+        logger.info("📊 Using traditional multi-protocol strategies")
+
     # Data Layer
     let data_provider = DataProvider(config)
 

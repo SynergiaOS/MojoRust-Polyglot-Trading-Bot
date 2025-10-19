@@ -1,1 +1,1 @@
-{"last_found_secrets": [{"name": "Username Password - /home/marcin/Projects/MojoRust/config/prometheus.yml", "match": "f960788afb2d40be2445ba8cb1614641ff86f532f97f2f3d4fbe4cb0c72eb4a5"}]}
+{"last_found_secrets": [{"match": "8f9805e688f7f78fefd200aeeb22ec7e4f16738d6551dd79bc37509490923924", "name": "Telegram Bot Token - /home/marcin/Projects/MojoRust/config/trading.toml"}]}

@@ -1,0 +1,66 @@
+
+syntax = "proto3";
+
+package helius.laserstream.v1;
+
+// LaserStream service definition
+service LaserStreamService {
+    // Subscribe to real-time shreds and blockchain data
+    rpc SubscribeShreds(SubscribeRequest) returns (stream ShredData);
+}
+
+// Request to subscribe to specific accounts or programs
+message SubscribeRequest {
+    repeated string accounts = 1;
+    repeated string program_ids = 2;
+    bool include_transactions = 3;
+    bool include_account_updates = 4;
+    string commitment = 5;
+}
+
+// Shred data containing transaction information
+message ShredData {
+    string signature = 1;
+    uint64 slot = 2;
+    int64 timestamp = 3;
+    string program_id = 4;
+    string account = 5;
+    uint64 transaction_amount = 6;
+    uint64 block_height = 7;
+    bool is_confirmed = 8;
+    repeated string instructions = 9;
+    map<string, string> metadata = 10;
+}
+
+// Block notification containing multiple shreds
+message BlockNotification {
+    uint64 slot = 1;
+    uint64 block_height = 2;
+    int64 timestamp = 3;
+    repeated ShredData shreds = 4;
+    string block_hash = 5;
+    repeated string validator_votes = 6;
+}
+
+// Account update notification
+message AccountUpdate {
+    string account = 1;
+    uint64 slot = 2;
+    int64 timestamp = 3;
+    uint64 lamports = 4;
+    bytes data = 5;
+    string owner = 6;
+    bool executable = 7;
+    uint64 rent_epoch = 8;
+}
+
+// Transaction information
+message TransactionInfo {
+    string signature = 1;
+    repeated string account_keys = 2;
+    repeated string instructions = 3;
+    uint64 compute_units_consumed = 4;
+    uint64 fee = 5;
+    string status = 6;
+    int64 block_time = 7;
+}

@@ -18,6 +18,8 @@ use crate::arbitrage::flash_loan::{FlashLoanExecutor, FlashLoanProvider, FlashLo
 use crate::arbitrage::triangular::TriangularArbitrage;
 use crate::data_consumer::PriorityLevel;
 use crate::execution::rpc_router::{RpcRouter, RpcRequest, UrgencyLevel, TransactionRequest};
+use crate::execution::solend_flash_loan::SolendFlashLoanEngine;
+use crate::execution::flash_loan::{FlashLoanRouter, FlashLoanProtocol, FlashLoanManager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionConfig {
@@ -121,6 +123,10 @@ pub struct ExecutionEngine {
     flash_loan_executor: Arc<FlashLoanExecutor>,
     triangular_arbitrage: Arc<TriangularArbitrage>,
 
+    // Flash loan components
+    solend_flash_loan: Arc<SolendFlashLoanEngine>,
+    flash_loan_router: Arc<FlashLoanRouter>,
+
     // Execution management
     execution_queue: mpsc::UnboundedReceiver<ExecutionRequest>,
     active_executions: Arc<RwLock<HashMap<String, Instant>>>,
@@ -140,8 +146,20 @@ impl ExecutionEngine {
         cross_exchange: Arc<CrossExchangeArbitrage>,
         flash_loan_executor: Arc<FlashLoanExecutor>,
         triangular_arbitrage: Arc<TriangularArbitrage>,
+        solend_flash_loan: Option<Arc<SolendFlashLoanEngine>>,
     ) -> (Self, mpsc::UnboundedSender<ExecutionRequest>) {
         let (tx, rx) = mpsc::unbounded_channel();
+
+        // Initialize flash loan router
+        let flash_loan_router = Arc::new(FlashLoanRouter::new(rpc_router.clone()));
+
+        // Initialize Solend flash loan if provided
+        let solend_engine = solend_flash_loan.unwrap_or_else(|| {
+            Arc::new(SolendFlashLoanEngine::new(
+                crate::execution::solend_flash_loan::SolendFlashLoanConfig::default(),
+                rpc_router.clone(),
+            ))
+        });
 
         let engine = Self {
             config,
@@ -151,6 +169,8 @@ impl ExecutionEngine {
             cross_exchange,
             flash_loan_executor,
             triangular_arbitrage,
+            solend_flash_loan: solend_engine,
+            flash_loan_router,
             execution_queue: rx,
             active_executions: Arc::new(RwLock::new(HashMap::new())),
             pending_confirmations: Arc::new(RwLock::new(HashMap::new())),
@@ -750,6 +770,100 @@ impl ExecutionEngine {
 
     pub async fn get_active_executions(&self) -> usize {
         self.active_executions.read().await.len()
+    }
+
+    /// Execute Solend flash loan sniper trade
+    pub async fn execute_solend_flash_loan_snipe(
+        &self,
+        token_mint: &Pubkey,
+        amount: u64,
+        slippage_bps: u64,
+    ) -> Result<crate::execution::flash_loan::FlashLoanResult> {
+        info!("Executing Solend flash loan snipe: {} lamports for token {}", amount, token_mint);
+
+        let result = self.solend_flash_loan.execute_flash_loan_snipe(
+            &self.keypair,
+            token_mint,
+            amount,
+            slippage_bps,
+        ).await;
+
+        match &result {
+            Ok(flash_result) => {
+                if flash_result.success {
+                    info!("Solend flash loan snipe succeeded: {}", flash_result.transaction_id);
+                } else {
+                    warn!("Solend flash loan snipe failed: {:?}", flash_result.error_message);
+                }
+            }
+            Err(e) => {
+                error!("Solend flash loan snipe error: {}", e);
+            }
+        }
+
+        result
+    }
+
+    /// Execute flash loan using optimal provider (Save/Solend/Mango V4)
+    pub async fn execute_optimal_flash_loan(
+        &self,
+        token_mint: &Pubkey,
+        amount: u64,
+        slippage_bps: u64,
+    ) -> Result<crate::execution::flash_loan::FlashLoanResult> {
+        info!("Executing optimal flash loan: {} lamports for token {}", amount, token_mint);
+
+        // Create flash loan request
+        let request = crate::execution::flash_loan::FlashLoanRequest {
+            token_mint: *token_mint,
+            amount,
+            target_amount: 0,
+            slippage_bps,
+            urgency_level: "high".to_string(),
+        };
+
+        // Route through flash loan router for optimal provider selection
+        let result = self.flash_loan_router.route_flash_loan(&self.keypair, request).await;
+
+        match &result {
+            Ok(flash_result) => {
+                if flash_result.success {
+                    info!("Optimal flash loan succeeded: {}", flash_result.transaction_id);
+                } else {
+                    warn!("Optimal flash loan failed: {:?}", flash_result.error_message);
+                }
+            }
+            Err(e) => {
+                error!("Optimal flash loan error: {}", e);
+            }
+        }
+
+        result
+    }
+
+    /// Get flash loan performance metrics
+    pub async fn get_flash_loan_metrics(&self) -> crate::execution::flash_loan::FlashLoanMetrics {
+        self.flash_loan_router.get_performance_metrics()
+    }
+
+    /// Check if flash loan is available for given amount
+    pub fn is_flash_loan_available(&self, amount: u64) -> bool {
+        self.flash_loan_router.is_flash_loan_available(amount)
+    }
+
+    /// Get estimated fees for flash loan
+    pub async fn estimate_flash_loan_fees(&self, amount: u64, protocol: Option<FlashLoanProtocol>) -> u64 {
+        self.flash_loan_router.estimate_fees(amount, protocol)
+    }
+
+    /// Get optimal flash loan protocol for given amount
+    pub async fn get_optimal_flash_loan_protocol(&self, amount: u64) -> FlashLoanProtocol {
+        self.flash_loan_router.get_optimal_protocol(amount)
+    }
+
+    /// Get Solend market data for token
+    pub async fn get_solend_market_data(&self, token_mint: &Pubkey) -> Result<(Pubkey, Pubkey), Box<dyn std::error::Error>> {
+        self.solend_flash_loan.get_solend_market_data(token_mint).await
     }
 }
 
