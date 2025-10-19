@@ -320,6 +320,95 @@ services:
       timescaledb:
         condition: service_healthy
 
+  # Flash Loan Pipeline Service (Python Integration Layer)
+  flash-loan-pipeline:
+    build:
+      context: .
+      dockerfile: python/Dockerfile.flash-loan-pipeline
+    container_name: trading-bot-flash-loan-pipeline
+    <<: *restart-policy
+    <<: *resource-limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    env_file:
+      - .env
+      - .env.docker
+    environment:
+      <<: *common-variables
+      # Environment
+      TRADING_ENV: ${TRADING_ENV:-development}
+
+      # Database connections
+      REDIS_URL: ${REDIS_URL}
+      TIMESCALEDB_URL: postgresql://${TIMESCALEDB_USER:-trading_user}:${TIMESCALEDB_PASSWORD:-trading_password}@timescaledb:5432/${TIMESCALEDB_DBNAME:-trading_db}
+
+      # Flash Loan Configuration
+      FLASH_LOAN_SAVE_ENABLED: ${FLASH_LOAN_SAVE_ENABLED:-true}
+      FLASH_LOAN_SOLEND_ENABLED: ${FLASH_LOAN_SOLEND_ENABLED:-true}
+      FLASH_LOAN_MANGO_ENABLED: ${FLASH_LOAN_MANGO_ENABLED:-false}
+      FLASH_LOAN_MAX_AMOUNT_LAMPORTS: ${FLASH_LOAN_MAX_AMOUNT_LAMPORTS:-5000000000}
+      FLASH_LOAN_PREFERRED_PROVIDER: ${FLASH_LOAN_PREFERRED_PROVIDER:-save}
+      FLASH_LOAN_SLIPPAGE_BPS: ${FLASH_LOAN_SLIPPAGE_BPS:-50}
+      FLASH_LOAN_MIN_CONFIDENCE: ${FLASH_LOAN_MIN_CONFIDENCE:-0.8}
+      FLASH_LOAN_MIN_PROFIT_PERCENT: ${FLASH_LOAN_MIN_PROFIT_PERCENT:-1.5}
+
+      # Jupiter API
+      JUPITER_API_URL: https://quote-api.jup.ag/v6
+      JUPITER_FEE_ACCOUNT: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+
+      # RPC Configuration
+      SOLANA_RPC_URL: ${QUICKNODE_RPC_URL}
+      SOLANA_COMMITMENT: confirmed
+
+      # Monitoring
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: json
+      METRICS_ENABLED: "true"
+
+    ports:
+      - "8086:8080"  # Flash loan pipeline API and metrics
+      - "8087:8081"  # Flash loan pipeline WebSocket
+
+    volumes:
+      - ./python:/app:ro
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ./secrets:/app/secrets:ro
+
+    networks:
+      trading-network:
+        ipv4_address: 172.20.0.25
+
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    labels:
+      - "trading-bot.service=flash-loan-pipeline"
+      - "trading-bot.type=integration"
+      - "trading-bot.monitoring=prometheus"
+
   # Trading Bot Application
   trading-bot:
     build:
@@ -372,8 +461,18 @@ services:
       RUST_FFI_ENABLED: ${RUST_FFI_ENABLED:-true}
       ARBITRAGE_TRIANGULAR_ENABLED: ${ARBITRAGE_TRIANGULAR_ENABLED:-true}
       ARBITRAGE_CROSS_DEX_ENABLED: ${ARBITRAGE_CROSS_DEX_ENABLED:-true}
-      ARBITRAGE_FLASH_LOAN_ENABLED: ${ARBITRAGE_FLASH_LOAN_ENABLED:-false}
+      ARBITRAGE_FLASH_LOAN_ENABLED: ${ARBITRAGE_FLASH_LOAN_ENABLED:-true}
       ARBITRAGE_EXECUTION_ENABLED: ${ARBITRAGE_EXECUTION_ENABLED:-true}
+
+      # Flash Loan Configuration (2025 Integration)
+      FLASH_LOAN_SAVE_ENABLED: ${FLASH_LOAN_SAVE_ENABLED:-true}
+      FLASH_LOAN_SOLEND_ENABLED: ${FLASH_LOAN_SOLEND_ENABLED:-true}
+      FLASH_LOAN_MANGO_ENABLED: ${FLASH_LOAN_MANGO_ENABLED:-false}
+      FLASH_LOAN_MAX_AMOUNT_SOL: ${FLASH_LOAN_MAX_AMOUNT_SOL:-5.0}
+      FLASH_LOAN_PREFERRED_PROVIDER: ${FLASH_LOAN_PREFERRED_PROVIDER:-save}
+      FLASH_LOAN_SLIPPAGE_BPS: ${FLASH_LOAN_SLIPPAGE_BPS:-50}
+      FLASH_LOAN_MIN_CONFIDENCE: ${FLASH_LOAN_MIN_CONFIDENCE:-0.8}
+      FLASH_LOAN_MIN_PROFIT_PERCENT: ${FLASH_LOAN_MIN_PROFIT_PERCENT:-1.5}
       ARBITRAGE_CRITICAL_PRIORITY: ${ARBITRAGE_CRITICAL_PRIORITY:-true}
       ARBITRAGE_MULTI_LEG_ENABLED: ${ARBITRAGE_MULTI_LEG_ENABLED:-true}
       ARBITRAGE_TIMEOUT_SECONDS: ${ARBITRAGE_TIMEOUT_SECONDS:-30}
@@ -619,13 +718,6 @@ services:
     networks:
       trading-network:
         ipv4_address: 172.20.0.45
-
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
     logging:
       driver: "json-file"

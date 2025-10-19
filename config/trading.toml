@@ -93,6 +93,59 @@ enable_mean_reversion = false
 support_distance = 0.15
 atr_multiplier = 1.5
 
+# Flash Loan Ensemble Strategy Configuration
+[strategy.flash_loan_ensemble]
+enabled = true
+primary_protocol = "save"  # Use Save protocol for all flash loan operations
+min_confidence_threshold = 0.7
+max_concurrent_strategies = 6
+consensus_threshold = 0.5
+enable_dynamic_allocation = true
+
+# Individual Strategy Configurations
+[strategy.flash_loan_ensemble.sniper_momentum]
+enabled = true
+weight = 0.25
+min_volume_threshold = 50000.0
+rsi_oversold = 30.0
+momentum_multiplier = 1.5
+
+[strategy.flash_loan_ensemble.statistical_arbitrage]
+enabled = true
+weight = 0.20
+min_correlation = 0.7
+z_score_entry = 2.0
+z_score_exit = 0.5
+lookback_periods = 100
+
+[strategy.flash_loan_ensemble.liquidity_mining]
+enabled = true
+weight = 0.15
+min_liquidity_usd = 10000.0
+lp_burn_threshold = 50.0
+liquidity_score_weight = 0.4
+
+[strategy.flash_loan_ensemble.social_sentiment]
+enabled = true
+weight = 0.15
+min_mentions = 10
+sentiment_threshold = 0.3
+confidence_decay_hours = 2.0
+
+[strategy.flash_loan_ensemble.technical_patterns]
+enabled = true
+weight = 0.15
+pattern_types = ["hammer", "engulfing", "doji", "morning_star"]
+min_pattern_strength = 0.7
+confirmation_required = true
+
+[strategy.flash_loan_ensemble.whale_tracking]
+enabled = true
+weight = 0.10
+min_whale_amount = 1000.0
+tracking_window_hours = 1.0
+whale_confidence_multiplier = 1.2
+
 # =============================================================================
 # Multi-Token Flash Loan Arbitrage Configuration
 # =============================================================================
@@ -116,18 +169,17 @@ tokens_to_monitor = [
 ]
 
 # Token symbol mapping (for logging and display)
-token_symbols = {
-    "So11111111111111111111111111111111111111112" = "SOL",
-    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" = "USDT",
-    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" = "USDC",
-    "3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im" = "WBTC",
-    "Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA" = "LINK",
-    "5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5" = "USDE",
-    "A1KLoBrKBZi9Su7dphQNUkyKApe5tx1uLVdjZ9mgnz3r" = "USDS",
-    "cbbtcZFNemZYe4orNZTnGveTZETdkbpNXY7KB4c2rTF" = "CBBTC",
-    "BTf6gkxMbBDfE1oY8gYCbMcZTxosS95dxKVmeJqyTNGw" = "SUSDE",
-    "EewxydAPCCMs6V4obubWRzvf4wdfJ9sNJY8HbgQwgJ26" = "WLFI"
-}
+[token_symbols]
+So11111111111111111111111111111111111111112 = "SOL"
+Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB = "USDT"
+EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v = "USDC"
+3NZ9JMVBmGAqocybic2KjQTYjwrLJSZGW3G4XvmaB8im = "WBTC"
+Cwe8jPTkAirWEuiSHDgr7EBsl5S71TB3B9Dhnrx7cwnA = "LINK"
+5qKyBumD1kcngvZE3Qp6UknYnojx7aPAJNdLMFjUtwg5 = "USDE"
+A1KLoBrKBZi9Su7dphQNUkyKApe5tx1uLVdjZ9mgnz3r = "USDS"
+cbbtcZFNemZYe4orNZTnGveTZETdkbpNXY7KB4c2rTF = "CBBTC"
+BTf6gkxMbBDfE1oY8gYCbMcZTxosS95dxKVmeJqyTNGw = "SUSDE"
+EewxydAPCCMs6V4obubWRzvf4wdfJ9sNJY8HbgQwgJ26 = "WLFI"
 
 # Flash loan strategies
 enable_cross_exchange_arbitrage = true
@@ -752,52 +804,54 @@ integration_tests_enabled = true
 performance_tests_enabled = false
 
 # =============================================================================
-# Statistical Arbitrage Configuration (2025 Advanced Features)
+# Statistical Arbitrage Configuration (canonical for Python & Rust engines)
 # =============================================================================
 
 [statistical_arbitrage]
-# Core statistical arbitrage parameters
-min_history_length = 50              # Minimum price history length for analysis
-z_score_entry = 2.0                  # Z-score threshold for entry signals
-z_score_exit = 0.5                   # Z-score threshold for exit signals
-max_hurst_exponent = 0.5             # Maximum Hurst exponent for mean reversion
-min_half_life_periods = 5            # Minimum half-life periods for mean reversion
-cointegration_threshold = 0.05       # P-value threshold for cointegration testing
+enabled = true                        # Toggle pairs trading engine (keep in sync with arbitrage.enable_statistical)
+min_history_points = 50               # Minimum price history length for analysis
+max_history_points = 1000             # Maximum price history length to retain
+entry_z_threshold = 2.0               # Z-score threshold for entry signals
+exit_z_threshold = 0.5                # Z-score threshold for exit signals
+stop_loss_z_threshold = 3.0           # Hard stop-loss threshold (Z-score)
+max_hurst_exponent = 0.5              # Maximum Hurst exponent for mean reversion
+min_half_life_periods = 5             # Minimum half-life periods for mean reversion
+cointegration_significance = 0.05     # P-value threshold for cointegration testing
+cointegration_cache_hours = 24        # Hours to cache cointegration test results
 
 # Performance optimization
-enable_simd_optimization = true      # Use SIMD for spread calculations
-max_calculation_time_ms = 10         # Maximum time for statistical calculations
-enable_parallel_analysis = true      # Analyze multiple pairs simultaneously
-max_concurrent_pairs = 10            # Maximum pairs to analyze concurrently
+enable_simd_optimization = true       # Use SIMD for spread calculations
+max_calculation_time_ms = 10          # Maximum time for statistical calculations
+enable_parallel_analysis = true       # Analyze multiple pairs simultaneously
+max_concurrent_pairs = 10             # Maximum pairs to analyze concurrently
+
+# Correlation and profitability requirements
+min_correlation = 0.7                 # Minimum correlation for pair consideration
+max_correlation = 0.95                # Maximum correlation (avoid over-correlation)
+min_profit_bps = 10.0                 # Minimum profit expectation in basis points
 
 # Pairs trading configuration
-[pairs_trading]
-# Asset pairs for statistical arbitrage
-primary_pairs = [
+[statistical_arbitrage.pairs_trading]
+monitored_pairs = [
     ["BTC", "ETH"],
     ["SOL", "ETH"],
-    ["BTC", "SOL"]
+    ["BTC", "SOL"],
+    ["ETH", "USDC"],
+    ["SOL", "USDC"]
 ]
-
-# Correlation requirements
-min_correlation_threshold = 0.7      # Minimum correlation for pair consideration
-correlation_lookback_periods = 100   # Periods for correlation calculation
-correlation_update_interval = 24     # Hours between correlation updates
-
-# Spread analysis
-spread_mean_reversion_threshold = 2.0  # Z-score threshold for spread mean reversion
-spread_half_life_max = 100             # Maximum acceptable half-life periods
-spread_volatility_threshold = 0.1      # Maximum spread volatility for trading
+correlation_lookback_periods = 100    # Periods for correlation calculation
+correlation_update_interval = 24      # Hours between correlation updates
+spread_mean_reversion_threshold = 2.0 # Z-score threshold for spread mean reversion
+spread_half_life_max = 100            # Maximum acceptable half-life periods
+spread_volatility_threshold = 0.1     # Maximum spread volatility for trading
 
 # Risk management for statistical arbitrage
 [statistical_arbitrage.risk]
-max_position_size_percent = 0.15      # Maximum position size per stat arb trade
+max_position_size_percent = 0.20      # Maximum position size per stat arb trade
 max_portfolio_allocation = 0.40       # Maximum portfolio allocation to stat arb
-max_concurrent_stat_arb_positions = 3 # Maximum simultaneous stat arb positions
+max_concurrent_positions = 3          # Maximum simultaneous stat arb positions
 stop_loss_multiplier = 2.0            # Stop loss based on spread standard deviation
 take_profit_multiplier = 1.5          # Take profit based on spread standard deviation
-
-# Statistical arbitrage specific risk limits
 max_hurst_exponent_hard = 0.6         # Hard limit for Hurst exponent
 min_half_life_periods_hard = 3        # Hard minimum for half-life
 max_spread_volatility = 0.2           # Maximum acceptable spread volatility
@@ -806,16 +860,163 @@ cointegration_p_value_hard = 0.02     # Hard p-value threshold for cointegration
 # Performance monitoring
 [statistical_arbitrage.monitoring]
 enable_performance_tracking = true    # Track stat arb performance metrics
-calculation_latency_threshold_ms = 15  # Alert on slow calculations
+calculation_latency_threshold_ms = 15 # Alert on slow calculations
 success_rate_threshold = 0.6          # Minimum success rate for stat arb signals
-sharpe_ratio_target = 1.5            # Target Sharpe ratio for stat arb strategy
+sharpe_ratio_target = 1.5             # Target Sharpe ratio for stat arb strategy
 max_drawdown_allowed = 0.15           # Maximum allowed drawdown
 
 # External data sources for pairs trading
 [statistical_arbitrage.data_sources]
-# Enable external price data for correlated assets
-enable_btc_data = true               # BTC price data for pairs trading
-enable_eth_data = true               # ETH price data for pairs trading
-enable_sol_data = true               # SOL price data for pairs trading
-data_update_interval_seconds = 60    # Update interval for external data
-data_quality_threshold = 0.9         # Minimum data quality for external sources
+enable_btc_data = true                # BTC price data for pairs trading
+enable_eth_data = true                # ETH price data for pairs trading
+enable_sol_data = true                # SOL price data for pairs trading
+data_update_interval_seconds = 60     # Update interval for external data
+data_quality_threshold = 0.9          # Minimum data quality for external sources
+
+# =============================================================================
+# Strategic Orchestrator Configuration (CEO Brain)
+# =============================================================================
+[orchestrator]
+enabled = true                        # Enable strategic orchestrator
+scoring_weights = { profit = 0.4, risk = 0.3, capital_efficiency = 0.2, strategy_bonus = 0.1 }
+max_concurrent_opportunities = 10     # Parallel execution limit
+opportunity_timeout_seconds = 30      # How long opportunities remain valid
+capital_allocation_strategy = "dynamic"  # Strategy for capital distribution: fixed, dynamic, performance_based
+decision_loop_interval_ms = 10        # Main decision loop frequency
+adaptive_learning_enabled = true      # Enable adaptive weight adjustment
+portfolio_heat_limit = 0.8            # Maximum portfolio heat before throttling
+max_leverage_ratio = 3.0              # Maximum leverage ratio (including flash loans)
+
+# =============================================================================
+# 10-Token Arbitrage Configuration
+# =============================================================================
+[arbitrage.ten_token]
+enabled = true                        # Enable 10-token arbitrage scanner
+monitored_tokens = [
+    "So11111111111111111111111111111111111111112",  # SOL
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",  # USDT
+    "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",  # BONK
+    "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",  # JUP
+    "EKpQGSJtjMFqKv9KELdc4xf8WouxiyU4uAXPch3HdK7q",  # WIF
+    "CPz731XDgEQGpiuSwT2k3g2VHcB3nKWKV4dN9RqcnHrN",  # PYTH
+    "jupoAsG4cAbk3RYE8d53kVnJJ9TZRkNUBgzU1U2iAqL",  # JTO
+    "orcaEKTdK7LKzNvaCvpjnwUv3jRuVxYDZPkMqP3hFyDS",  # ORCA
+    "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"   # RAY
+]
+monitored_dexes = ["raydium", "orca", "jupiter", "meteora"]
+scan_interval_ms = 500                # Scan every 500ms
+min_profit_threshold_sol = 0.05       # Minimum 0.05 SOL profit
+use_flash_loan = true                 # Enable flash loan leverage
+max_flash_loan_amount_sol = 100       # Maximum loan size
+slippage_tolerance_bps = 300          # 3% slippage tolerance
+max_slippage_scan_amount_sol = 10     # Max amount for slippage scanning
+opportunity_ttl_seconds = 15          # Opportunity time-to-live
+
+# =============================================================================
+# Unified Sniper Configuration (Memecoin)
+# =============================================================================
+[sniper.memecoin]
+enabled = true                        # Enable unified sniper engine
+use_flash_loan = true                 # Enable leveraged sniping
+max_flash_loan_amount_sol = 50        # Maximum flash loan for sniping
+filters.lp_burn_threshold_bps = 9000  # 90% LP burn required
+filters.mint_authority_revoked = true # Must have mint authority revoked
+filters.max_top5_holder_percent = 30  # Maximum concentration for top 5 holders
+filters.min_initial_liquidity_sol = 5000  # Minimum initial liquidity
+filters.max_creator_allocation_percent = 5   # Maximum creator allocation
+filters.min_social_mentions = 5       # Minimum social media mentions
+filters.liquidity_lock_duration_hours = 720   # 30 days liquidity lock
+simulation.enabled = true             # Dry-run before execution
+simulation.timeout_ms = 100           # Simulation timeout
+simulation.max_slippage_bps = 500     # 5% max slippage for simulation
+target_profit_multiplier = 2.0        # Target profit multiple of flash loan fee
+blacklist_enabled = true              # Enable creator blacklist
+max_concurrent_snipes = 3             # Maximum concurrent sniping operations
+min_token_age_seconds = 30            # Minimum token age before considering
+max_token_age_hours = 2               # Maximum token age to consider
+
+# =============================================================================
+# Manual Targeting API Configuration
+# =============================================================================
+[manual_targeting]
+enabled = true                        # Enable manual targeting API
+api_port = 8081                       # API server port
+require_two_step_approval = true      # Analyze then execute workflow
+max_pending_targets = 50              # Maximum pending analyses
+analysis_timeout_seconds = 60         # Maximum time for analysis
+approval_timeout_minutes = 10         # Time to wait for approval
+require_api_key = true                # Require API key authentication
+rate_limit_per_minute = 10            # Rate limit per API key
+webhook_url = ""                      # Optional webhook for notifications
+max_simultaneous_users = 5            # Maximum concurrent API users
+
+# =============================================================================
+# DragonflyDB Configuration (Central Data Store)
+# =============================================================================
+[dragonflydb]
+url = "${REDIS_URL}"                  # Use same env var for compatibility
+max_connections = 50                  # Maximum concurrent connections
+connection_timeout_seconds = 10       # Connection timeout
+command_timeout_seconds = 30          # Command timeout
+retry_attempts = 3                    # Number of retry attempts
+retry_delay_ms = 100                  # Delay between retries
+health_check_interval_seconds = 30    # Health check frequency
+connection_pool_timeout_seconds = 5   # Connection pool timeout
+enable_tls = true                     # Enable TLS encryption
+enable_compression = true             # Enable data compression
+
+# DragonflyDB Pub/Sub Channels
+[dragonflydb.channels]
+new_token_launches = "new_token_launches"
+arbitrage_opportunities = "arbitrage_opportunities"
+opportunity_queue = "opportunity_queue"
+sniper_events = "sniper_events"
+execution_results = "execution_results"
+manual_targeting = "manual_targeting"
+orchestrator_commands = "orchestrator_commands"
+system_metrics = "system_metrics"
+capital_state = "capital_state"
+blacklist_updates = "blacklist_updates"
+
+# DragonflyDB Data Structures
+[dragonflydb.data_structures]
+opportunity_queue_type = "sorted_set"  # Use sorted set for priority queue
+capital_reservations_ttl = 300         # 5 minutes TTL for capital reservations
+analysis_results_ttl = 3600           # 1 hour TTL for analysis results
+metrics_retention_hours = 24           # 24 hours for metrics data
+blacklist_ttl = 86400                 # 24 hours TTL for blacklist entries
+trade_history_retention_days = 30      # 30 days for trade history
+
+# =============================================================================
+# Enhanced Flash Loan Configuration
+# =============================================================================
+[flash_loan.enhanced]
+preferred_protocol = "save"            # Preferred protocol: save, solend, mango
+auto_protocol_selection = true         # Auto-select best protocol based on amount
+daily_limit_sol = 1000                # Daily flash loan limit
+max_concurrent_loans = 5              # Maximum concurrent flash loans
+simulation_required = true            # Require simulation before execution
+simulation_timeout_ms = 200           # Simulation timeout
+min_profit_over_fees_sol = 0.02       # Minimum profit over all fees
+jito_bundle_enabled = true            # Use Jito bundles for MEV protection
+priority_fee_strategy = "dynamic"     # Priority fee strategy: fixed, dynamic, market_based
+max_priority_fee_sol = 0.01           # Maximum priority fee in SOL
+bundle_tip_lamports = 10000           # Jito bundle tip
+mev_protection_enabled = true         # Enable MEV protection measures
+execution_timeout_seconds = 60        # Flash loan execution timeout
+
+# Flash Loan Protocol Preferences
+[flash_loan.enhanced.protocol_weights]
+save = 0.7                           # 70% preference for Save
+solend = 0.2                         # 20% preference for Solend
+mango = 0.1                          # 10% preference for Mango
+
+# Protocol-specific Limits
+[flash_loan.enhanced.limits]
+save_max_amount_sol = 500            # Save protocol max amount
+save_min_amount_sol = 0.01           # Save protocol min amount
+solend_max_amount_sol = 1000         # Solend protocol max amount
+solend_min_amount_sol = 0.1          # Solend protocol min amount
+mango_max_amount_sol = 2000          # Mango protocol max amount
+mango_min_amount_sol = 0.5           # Mango protocol min amount
